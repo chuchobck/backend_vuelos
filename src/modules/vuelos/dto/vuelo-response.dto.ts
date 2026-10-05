@@ -2,7 +2,11 @@ import { ApiProperty } from '@nestjs/swagger';
 import { BaseResponseDto } from '../../../common/dto/base-response.dto';
 
 export class VueloResponseDto extends BaseResponseDto {
-  @ApiProperty({ description: 'UUID único del vuelo', format: 'uuid', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @ApiProperty({
+    description: 'UUID único del vuelo',
+    format: 'uuid',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
   id: string;
 
   @ApiProperty({ description: 'Aerolínea que opera el vuelo', example: 'Avianca' })
@@ -23,7 +27,7 @@ export class VueloResponseDto extends BaseResponseDto {
   @ApiProperty({ description: 'Fecha y hora de llegada', example: '2025-11-20T15:30:00Z' })
   fechaLlegada: string;
 
-  @ApiProperty({ description: 'Precio base del ticket', example: 85.50 })
+  @ApiProperty({ description: 'Precio base del ticket', example: 85.5 })
   precioBase: number;
 
   @ApiProperty({ description: 'Asientos disponibles para reserva', example: 120 })

@@ -1,5 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsDateString, IsInt, IsNumber, IsPositive, IsString, Min, MinLength } from 'class-validator';
+import {
+  IsDateString,
+  IsInt,
+  IsNumber,
+  IsPositive,
+  IsString,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class CreateVueloDto {
   @ApiProperty({ description: 'Aerolínea que opera el vuelo', example: 'Avianca' })
@@ -30,7 +38,7 @@ export class CreateVueloDto {
   @IsDateString()
   fechaLlegada: string;
 
-  @ApiProperty({ description: 'Precio base del ticket', example: 85.50 })
+  @ApiProperty({ description: 'Precio base del ticket', example: 85.5 })
   @IsNumber()
   @IsPositive()
   precioBase: number;

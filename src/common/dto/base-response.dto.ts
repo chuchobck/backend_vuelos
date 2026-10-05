@@ -6,8 +6,8 @@ export class BaseResponseDto {
     type: 'object',
     additionalProperties: {
       type: 'string',
-      format: 'uri'
-    }
+      format: 'uri',
+    },
   })
   _links?: Record<string, string>;
 }

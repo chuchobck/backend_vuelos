@@ -1,6 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsString, IsArray, ValidateNested, IsInt, Min, IsDateString, IsOptional, Matches, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsArray,
+  ValidateNested,
+  IsInt,
+  Min,
+  IsDateString,
+  IsOptional,
+  Matches,
+} from 'class-validator';
 
 export class ItinerarySearchDto {
   @ApiProperty({ example: 'UIO', pattern: '^[A-Z]{3}$' })

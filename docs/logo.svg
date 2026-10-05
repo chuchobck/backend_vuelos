@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" role="img" aria-label="Quinde · API de Vuelos">
+  <title>Quinde · API de Vuelos</title>
+  <!-- Marca: colibrí geométrico -->
+  <g>
+    <!-- ala trasera -->
+    <polygon points="62,58 30,10 78,50" fill="#5EEAD4"/>
+    <!-- ala delantera -->
+    <polygon points="58,62 8,34 70,48" fill="#14B8A6"/>
+    <!-- cuerpo -->
+    <polygon points="84,40 66,46 34,100 50,98 80,62" fill="#0F766E"/>
+    <!-- cola -->
+    <polygon points="34,100 22,112 44,106 50,98" fill="#115E59"/>
+    <!-- cabeza -->
+    <polygon points="84,40 80,62 96,50 94,40" fill="#0D9488"/>
+    <!-- pico -->
+    <polygon points="94,40 96,46 132,36" fill="#F5B700"/>
+    <!-- ojo -->
+    <circle cx="88" cy="46" r="1.8" fill="#F8FAFC"/>
+  </g>
+  <!-- Nombre -->
+  <text x="150" y="68" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="44" font-weight="700" letter-spacing="-1" fill="#0D9488">quinde</text>
+  <text x="152" y="92" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="500" letter-spacing="2.5" fill="#64748B">API DE VUELOS · ECUADOR</text>
+</svg>

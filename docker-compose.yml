@@ -1,7 +1,10 @@
+# Base de datos local. El nombre del proyecto es fijo para que el contenedor y el
+# volumen (booking-vuelos_pgdata) sean los mismos sin importar la carpeta del clon.
+name: booking-vuelos
 
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18
     container_name: booking_db_container
     ports:
       - '5432:5432'
@@ -10,7 +13,14 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Desde la imagen 18 los datos viven en /var/lib/postgresql/<versión>/docker.
+      # Se monta el directorio padre; con /var/lib/postgresql/data el contenedor no arranca.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d booking_db']
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
 volumes:

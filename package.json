@@ -1,18 +1,21 @@
 {
-  "name": "booking-prototipo-plantilla",
+  "name": "quinde-vuelos-api",
   "version": "1.0.0",
-  "description": "Plantilla base para el sistema de Booking Prototipo",
+  "description": "Quinde · API de Vuelos: implementación del contrato GDS Flight Core API v1.5.0.0 para vuelos nacionales de Ecuador",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
-    "format": "prettier --write \"src/**/*.ts\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "prepare": "husky || true",
     "start": "nest start",
-    "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix"
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",
@@ -29,10 +32,22 @@
     "typeorm": "^0.3.17"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
+    "@eslint/js": "^10.0.1",
     "@nestjs/cli": "^10.0.0",
     "@nestjs/schematics": "^10.0.0",
     "@types/express": "^4.17.17",
     "@types/node": "^20.3.1",
-    "typescript": "^5.1.3"
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.9.9",
+    "typescript": "^5.1.3",
+    "typescript-eslint": "^8.71.1"
+  },
+  "engines": {
+    "node": ">=20.19"
   }
 }

@@ -20,8 +20,8 @@ export class WebhookSubscriptionDto {
       'booking.ticket_issuing',
       'booking.ticket_issued',
       'booking.ticket_failed',
-      'booking.checked_in'
-    ]
+      'booking.checked_in',
+    ],
   })
   @IsArray()
   events: string[];
