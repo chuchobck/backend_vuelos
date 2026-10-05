@@ -22,6 +22,8 @@ export const ETIQUETAS = {
   adminPais: 'Admin · País',
   adminCiudad: 'Admin · Ciudad',
   adminAeropuerto: 'Admin · Aeropuerto',
+  adminAerolinea: 'Admin · Aerolínea',
+  adminModeloAeronave: 'Admin · Modelo de aeronave',
 } as const;
 
 /** Descripción común de las etiquetas del catálogo: no son parte del contrato. */

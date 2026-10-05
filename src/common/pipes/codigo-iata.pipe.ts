@@ -2,6 +2,7 @@ import { ArgumentMetadata, Injectable, PipeTransform } from '@nestjs/common';
 import {
   REGEX_IATA_AEROLINEA,
   REGEX_IATA_AEROPUERTO,
+  REGEX_IATA_MODELO,
   REGEX_PAIS_ISO2,
   rechazarParametro,
 } from './formatos';
@@ -37,6 +38,17 @@ export class CodigoPaisPipe implements PipeTransform<unknown, string> {
   transform(valor: unknown, metadata: ArgumentMetadata): string {
     if (typeof valor !== 'string' || !REGEX_PAIS_ISO2.test(valor)) {
       rechazarParametro(metadata, 'must be a 2-letter uppercase ISO 3166-1 country code');
+    }
+    return valor as string;
+  }
+}
+
+/** Modelo de aeronave IATA: 3 caracteres, mayúsculas o dígitos (320, AT7). */
+@Injectable()
+export class CodigoModeloAeronavePipe implements PipeTransform<unknown, string> {
+  transform(valor: unknown, metadata: ArgumentMetadata): string {
+    if (typeof valor !== 'string' || !REGEX_IATA_MODELO.test(valor)) {
+      rechazarParametro(metadata, 'must be a 3-character uppercase IATA aircraft code');
     }
     return valor as string;
   }

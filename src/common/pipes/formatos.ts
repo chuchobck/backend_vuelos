@@ -9,6 +9,12 @@ export const REGEX_IATA_AEROPUERTO = /^[A-Z]{3}$/;
 /** Aerolínea IATA: 2 caracteres, letras mayúsculas o dígitos (ck_aerolinea_codigo_iata). */
 export const REGEX_IATA_AEROLINEA = /^[A-Z0-9]{2}$/;
 
+/** Modelo de aeronave IATA: 3 caracteres, mayúsculas o dígitos (320, AT7). */
+export const REGEX_IATA_MODELO = /^[A-Z0-9]{3}$/;
+
+/** Prefijo numérico de los boletos de una aerolínea (ck_aerolinea_prefijo_boleto). */
+export const REGEX_PREFIJO_BOLETO = /^[0-9]{3}$/;
+
 /** País ISO 3166-1 alfa-2: 2 letras mayúsculas (ck_pais_codigo_iso2). */
 export const REGEX_PAIS_ISO2 = /^[A-Z]{2}$/;
 

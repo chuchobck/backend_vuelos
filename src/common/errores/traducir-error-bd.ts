@@ -128,6 +128,21 @@ const POR_RESTRICCION: Record<string, Regla> = {
     CodigoError.VALIDATION_FAILED,
     'An airport with this IATA code already exists',
   ),
+  uq_aerolinea_codigo_iata: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'An airline with this IATA code already exists',
+  ),
+  uq_aerolinea_prefijo_boleto: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'Another airline already uses this ticket prefix',
+  ),
+  uq_modelo_aeronave_codigo_iata: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'An aircraft model with this IATA code already exists',
+  ),
   uq_usuario_correo: regla(
     409,
     CodigoError.VALIDATION_FAILED,
