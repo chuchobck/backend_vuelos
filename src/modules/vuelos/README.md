@@ -57,10 +57,32 @@ graph TD
 - **Idempotencia:** Endpoints críticos de escritura (`POST /bookings`, `POST /offers/hold`, pagos postventa, etc.) requieren el header `Idempotency-Key` para evitar transacciones duplicadas por reintentos de red.
 - **Asíncronos:** Operaciones como emisión o cancelaciones pueden retornar un HTTP 202 (Accepted) y usar Webhooks (en `/webhooks`) para notificar al cliente cuando la operación termine de procesarse con el GDS (Global Distribution System).
 
-> [!WARNING]
-> **Aviso para el Equipo de Desarrollo (E-commerce / Integradores):**
-> Todo el código actualmente implementado en el controlador (`vuelos.controller.ts`) y los DTOs sirve puramente como **ejemplo estructural y definición de contrato**. 
-> Los *endpoints* están configurados para devolver datos simulados (mocks) en blanco. Ustedes deben clonar esta plantilla y **adaptar/conectar la lógica de negocio real** en el `VuelosService` (conexión a bases de datos, integraciones con el GDS real, validaciones, etc.) para que su plataforma funcione correctamente.
+## Estado de la implementación
+
+El controller de ejemplo de la plantilla (`vuelos.controller.ts`, con respuestas simuladas en blanco)
+ya no existe: se quitó en la fase 1. Hoy `VuelosModule` está vacío y las entidades se agregan por
+fases (ver [docs/PLAN.md](../../../docs/PLAN.md)):
+
+- `catalogo/<entidad>/`: CRUD de administrador en `/admin/...` con una clase base (fase 4).
+- `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10).
+- Cada entidad lleva `<entidad>.routes.ts`, controller, service, repository (el único que usa Prisma),
+  mapper y `dto/`; las rutas se cuelgan en `vuelos.routes.ts`.
+
+Lo transversal ya lo da la API a cualquier controller nuevo, sin código extra:
+
+| Qué                                   | Cómo se usa                                                                                                             |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Errores `application/problem+json`    | Lanzar `ErrorNegocio(status, CodigoError.X, 'detalle en inglés')` desde el service; el filtro global arma el cuerpo     |
+| Errores de la base                    | No se capturan: el filtro traduce unique, FK, `RESTRICT`, CHECK y los triggers del esquema (`common/errores`)           |
+| Validación de la entrada              | DTO con class-validator; el `ValidationPipe` global rechaza campos de más con 400 `VALIDATION_FAILED`                    |
+| Parámetros de ruta y de query         | `@Param('id', UuidPipe)`, `@Query('date', FechaPipe)`, `CodigoIataAeropuertoPipe`, `CodigoIataAerolineaPipe`            |
+| Texto libre del cliente               | `@TextoLimpio()` en el DTO (recorta, normaliza y rechaza controles y HTML); ver `src/common/sanitizacion/README.md`    |
+| Límite de peticiones                  | Ya aplica a toda ruta; `@LimiteEstricto(5, 60)` da uno propio y `@SinLimiteDePeticiones()` la excluye                  |
+| Escritura con auditoría               | `prisma.transaccionAuditada(tx => ...)` toma usuario e IP del contexto de la petición                                   |
+| Request id, IP y usuario              | `obtenerContexto()` en `common/contexto`; el guard de JWT (fase 3) llamará a `fijarUsuario(sub)`                        |
+
+Pruebas: `npm run test:e2e`. Un controller que solo existe en la prueba se agrega con
+`crearApp([MiControllerDePrueba])` (ver `test/utils/crear-app.ts`).
 
 > [!IMPORTANT]
 > **Recordatorio (Fase RDA1):**
