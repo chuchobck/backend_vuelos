@@ -7,7 +7,8 @@ services:
     image: postgres:18
     container_name: booking_db_container
     ports:
-      - '5432:5432'
+      # El puerto del host se cambia con DB_PORT en .env (compose lo lee solo).
+      - '${DB_PORT:-5432}:5432'
     environment:
       POSTGRES_DB: booking_db
       POSTGRES_USER: postgres

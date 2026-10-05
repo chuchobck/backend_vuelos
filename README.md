@@ -38,6 +38,9 @@ docker compose up -d      # PostgreSQL 18 en el puerto 5432
 npm run start:dev         # API en http://localhost:3000
 ```
 
+Si los puertos 5432 o 3000 ya están ocupados, cámbialos en `.env`: `DB_PORT` para la base
+(junto con el puerto de `DATABASE_URL`) y `PORT` para la API.
+
 Documentación Swagger: <http://localhost:3000/api/docs>
 
 ## Scripts
