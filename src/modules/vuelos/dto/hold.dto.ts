@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsString, IsArray, ValidateNested } from 'class-validator';
-import { PassengerBreakdownDto, MoneyAmountDto } from './search.dto';
+import { PassengerBreakdownDto } from './search.dto';
 
 export class ItinerarySelectionDto {
   @ApiProperty()

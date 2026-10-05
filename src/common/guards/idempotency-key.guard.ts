@@ -1,4 +1,10 @@
-import { CanActivate, ExecutionContext, Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { Request } from 'express';
 
 /**
@@ -44,8 +50,7 @@ export class IdempotencyKeyGuard implements CanActivate {
           type: 'https://api.booking-hub.com/errors/invalid-idempotency-key',
           title: 'Invalid Idempotency-Key format',
           status: HttpStatus.BAD_REQUEST,
-          detail:
-            `The Idempotency-Key header must be a valid UUID v4. Received: "${idempotencyKey}".`,
+          detail: `The Idempotency-Key header must be a valid UUID v4. Received: "${idempotencyKey}".`,
           code: 'VALIDATION_FAILED',
         },
         HttpStatus.BAD_REQUEST,

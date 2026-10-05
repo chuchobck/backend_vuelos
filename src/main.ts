@@ -21,7 +21,7 @@ async function bootstrap() {
     .setDescription('API base para los dominios de Alojamientos, Autos, Atracciones y Vuelos.')
     .setVersion('1.0')
     .build();
-  
+
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 

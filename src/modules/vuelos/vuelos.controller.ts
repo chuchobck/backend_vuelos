@@ -1,9 +1,31 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, ParseUUIDPipe, Headers } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiHeader, ApiSecurity } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Body,
+  Param,
+  Query,
+  ParseUUIDPipe,
+  Headers,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiHeader,
+  ApiSecurity,
+} from '@nestjs/swagger';
 import { SearchRequestDto } from './dto/search.dto';
 import { HoldRequestDto } from './dto/hold.dto';
 import { BookingRequestDto } from './dto/booking.dto';
-import { AddBaggageRequestDto, DateChangeSearchRequestDto, DateChangeRequestDto, CancelBookingRequestDto } from './dto/postventa.dto';
+import {
+  AddBaggageRequestDto,
+  DateChangeSearchRequestDto,
+  DateChangeRequestDto,
+  CancelBookingRequestDto,
+} from './dto/postventa.dto';
 import { WebhookSubscriptionDto } from './dto/webhooks.dto';
 
 import { VuelosService } from './vuelos.service';
@@ -18,7 +40,10 @@ export class VuelosController {
   @ApiOperation({ summary: 'Búsqueda de vuelos (Multidestino)' })
   @ApiHeader({ name: 'X-Device-Fingerprint', required: true })
   @ApiResponse({ status: 200, description: 'Ofertas de vuelos encontradas' })
-  search(@Headers('X-Device-Fingerprint') deviceFingerprint: string, @Body() searchRequestDto: SearchRequestDto) {
+  search(
+    @Headers('X-Device-Fingerprint') deviceFingerprint: string,
+    @Body() searchRequestDto: SearchRequestDto,
+  ) {
     return {};
   }
 
@@ -38,7 +63,10 @@ export class VuelosController {
   @ApiOperation({ summary: 'Bloquear inventario' })
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiResponse({ status: 201, description: 'Inventario retenido. Devuelve precio congelado.' })
-  holdOffer(@Headers('Idempotency-Key') idempotencyKey: string, @Body() holdRequestDto: HoldRequestDto) {
+  holdOffer(
+    @Headers('Idempotency-Key') idempotencyKey: string,
+    @Body() holdRequestDto: HoldRequestDto,
+  ) {
     return {};
   }
 
@@ -74,7 +102,7 @@ export class VuelosController {
     @Query('createdFrom') createdFrom?: string,
     @Query('createdTo') createdTo?: string,
     @Query('limit') limit: number = 10,
-    @Query('cursor') cursor?: string
+    @Query('cursor') cursor?: string,
   ) {
     return {};
   }
@@ -85,8 +113,14 @@ export class VuelosController {
   @ApiOperation({ summary: 'Crear reserva y gestionar emisión de ticket' })
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiResponse({ status: 201, description: 'Reserva creada y ticket emitido correctamente.' })
-  @ApiResponse({ status: 202, description: 'Reserva creada; pago o emisión de ticket continúa de forma asíncrona.' })
-  createBooking(@Headers('Idempotency-Key') idempotencyKey: string, @Body() bookingRequestDto: BookingRequestDto) {
+  @ApiResponse({
+    status: 202,
+    description: 'Reserva creada; pago o emisión de ticket continúa de forma asíncrona.',
+  })
+  createBooking(
+    @Headers('Idempotency-Key') idempotencyKey: string,
+    @Body() bookingRequestDto: BookingRequestDto,
+  ) {
     return {};
   }
 
@@ -95,7 +129,10 @@ export class VuelosController {
   @ApiSecurity('OAuth2Security', ['flights:read'])
   @ApiOperation({ summary: 'Detalle completo de reserva' })
   @ApiParam({ name: 'bookingId', type: 'string', format: 'uuid' })
-  @ApiResponse({ status: 200, description: 'Detalle de reserva (itinerarios, pasajeros, historial)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Detalle de reserva (itinerarios, pasajeros, historial)',
+  })
   getBookingDetail(@Param('bookingId', ParseUUIDPipe) bookingId: string) {
     return {};
   }
@@ -117,7 +154,10 @@ export class VuelosController {
   @ApiParam({ name: 'bookingId', type: 'string', format: 'uuid' })
   @ApiParam({ name: 'ticketId', type: 'string' })
   @ApiResponse({ status: 200, description: 'Detalle del ticket' })
-  getTicketDetail(@Param('bookingId', ParseUUIDPipe) bookingId: string, @Param('ticketId') ticketId: string) {
+  getTicketDetail(
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Param('ticketId') ticketId: string,
+  ) {
     return {};
   }
 
@@ -139,7 +179,11 @@ export class VuelosController {
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiParam({ name: 'bookingId', type: 'string', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'Maleta agregada' })
-  addBaggage(@Headers('Idempotency-Key') idempotencyKey: string, @Param('bookingId', ParseUUIDPipe) bookingId: string, @Body() addBaggageRequestDto: AddBaggageRequestDto) {
+  addBaggage(
+    @Headers('Idempotency-Key') idempotencyKey: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Body() addBaggageRequestDto: AddBaggageRequestDto,
+  ) {
     return {};
   }
 
@@ -149,7 +193,10 @@ export class VuelosController {
   @ApiOperation({ summary: 'Buscar disponibilidad para cambio de fecha' })
   @ApiParam({ name: 'bookingId', type: 'string', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'Opciones de cambio' })
-  searchDateChange(@Param('bookingId', ParseUUIDPipe) bookingId: string, @Body() dateChangeSearchRequestDto: DateChangeSearchRequestDto) {
+  searchDateChange(
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Body() dateChangeSearchRequestDto: DateChangeSearchRequestDto,
+  ) {
     return [];
   }
 
@@ -160,7 +207,11 @@ export class VuelosController {
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiParam({ name: 'bookingId', type: 'string', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'Cambio confirmado' })
-  confirmDateChange(@Headers('Idempotency-Key') idempotencyKey: string, @Param('bookingId', ParseUUIDPipe) bookingId: string, @Body() dateChangeRequestDto: DateChangeRequestDto) {
+  confirmDateChange(
+    @Headers('Idempotency-Key') idempotencyKey: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Body() dateChangeRequestDto: DateChangeRequestDto,
+  ) {
     return {};
   }
 
@@ -181,7 +232,11 @@ export class VuelosController {
   @ApiHeader({ name: 'Idempotency-Key', required: true })
   @ApiParam({ name: 'bookingId', type: 'string', format: 'uuid' })
   @ApiResponse({ status: 200, description: 'Cancelación exitosa' })
-  cancelBooking(@Headers('Idempotency-Key') idempotencyKey: string, @Param('bookingId', ParseUUIDPipe) bookingId: string, @Body() cancelBookingRequestDto: CancelBookingRequestDto) {
+  cancelBooking(
+    @Headers('Idempotency-Key') idempotencyKey: string,
+    @Param('bookingId', ParseUUIDPipe) bookingId: string,
+    @Body() cancelBookingRequestDto: CancelBookingRequestDto,
+  ) {
     return {};
   }
 
