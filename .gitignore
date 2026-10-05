@@ -37,3 +37,6 @@ lerna-debug.log*
 .env
 .env.test
 .env.production
+
+# Cliente de Prisma: lo genera "prisma generate" (corre solo en npm install)
+/src/generated

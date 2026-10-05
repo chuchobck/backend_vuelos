@@ -1,6 +1,7 @@
 dist
 coverage
 node_modules
+src/generated
 package-lock.json
 
 # Contratos y módulos de los otros equipos: vienen de la plantilla y no se reformatean,

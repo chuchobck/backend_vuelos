@@ -1,10 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { habilitarBigIntEnJson } from './prisma/serializacion-bigint';
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
+  habilitarBigIntEnJson();
+
   const app = await NestFactory.create(AppModule);
 
   app.setGlobalPrefix('api/v1');
