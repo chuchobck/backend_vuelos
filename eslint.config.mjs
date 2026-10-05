@@ -35,13 +35,5 @@ export default tseslint.config(
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },
-  {
-    // Controlador y servicio de ejemplo de la plantilla: son mocks con parámetros sin usar.
-    // Esta excepción se borra cuando cada submódulo reemplace el mock (fases 4 a 10).
-    files: ['src/modules/vuelos/vuelos.controller.ts', 'src/modules/vuelos/vuelos.service.ts'],
-    rules: {
-      '@typescript-eslint/no-unused-vars': 'warn',
-    },
-  },
   prettier,
 );

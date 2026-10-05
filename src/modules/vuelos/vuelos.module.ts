@@ -1,11 +1,5 @@
 import { Module } from '@nestjs/common';
-import { VuelosService } from './vuelos.service';
-import { VuelosController } from './vuelos.controller';
-import { CommonModule } from '../../common/common.module';
 
-@Module({
-  imports: [CommonModule],
-  controllers: [VuelosController],
-  providers: [VuelosService],
-})
+// Agrupa los submódulos de vuelos (catálogo y operaciones). Se llena desde la fase 4.
+@Module({})
 export class VuelosModule {}
