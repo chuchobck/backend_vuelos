@@ -6,10 +6,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Publico } from '../../common/decorators/publico.decorator';
+import { ETIQUETAS } from '../../config/swagger';
 import { SaludRespuestaDto } from './dto/salud-respuesta.dto';
 import { SaludService } from './salud.service';
 
-@ApiTags('Salud')
+@ApiTags(ETIQUETAS.salud)
 @Controller()
 export class SaludController {
   constructor(private readonly servicio: SaludService) {}
