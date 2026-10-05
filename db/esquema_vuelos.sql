@@ -347,6 +347,7 @@ CREATE TABLE inventario_cabina (
 
 CREATE TABLE tarifa_cabecera (
     id                         bigint         GENERATED ALWAYS AS IDENTITY,
+    id_publico                 uuid           NOT NULL DEFAULT gen_random_uuid(),
     vuelo_programado_id        uuid           NOT NULL,
     familia_tarifa_id          bigint         NOT NULL,
     moneda_id                  bigint         NOT NULL,
@@ -354,6 +355,7 @@ CREATE TABLE tarifa_cabecera (
     cargo_cambio               numeric(12,2)  NOT NULL DEFAULT 0,
     activo                     boolean        NOT NULL DEFAULT true,
     CONSTRAINT pk_tarifa_cabecera PRIMARY KEY (id),
+    CONSTRAINT uq_tarifa_cabecera_id_publico UNIQUE (id_publico),
     CONSTRAINT uq_tarifa_cabecera_vuelo_familia UNIQUE (vuelo_programado_id, familia_tarifa_id),
     CONSTRAINT fk_tarifa_cabecera_vuelo_programado FOREIGN KEY (vuelo_programado_id) REFERENCES vuelo_programado (id) ON DELETE RESTRICT,
     CONSTRAINT fk_tarifa_cabecera_familia_tarifa FOREIGN KEY (familia_tarifa_id) REFERENCES familia_tarifa (id) ON DELETE RESTRICT,
@@ -1297,6 +1299,7 @@ COMMENT ON COLUMN vuelo_programado.salida_programada IS 'Instante exacto de sali
 COMMENT ON COLUMN vuelo_programado.mapa_asientos_id IS 'Configuración de la aeronave asignada a esta salida. De aquí salen el tipo de aeronave y el mapa de asientos.';
 COMMENT ON COLUMN inventario_cabina.cupos_totales IS 'Cupo que se vende. Puede ser menor que los asientos físicos de la cabina.';
 COMMENT ON COLUMN inventario_cabina.cupos_disponibles IS 'Contador de inventario (availableSeats). Se descuenta al retener y se devuelve al liberar, expirar o cancelar, siempre con UPDATE condicionado en una transacción. Es la fila que se bloquea para que dos retenciones no vendan el mismo cupo.';
+COMMENT ON COLUMN tarifa_cabecera.id_publico IS 'Identificador de la tarifa en la API de administración (/admin/fares/{id}). Su clave natural es (salida, familia) y el id bigint es interno.';
 COMMENT ON COLUMN tarifa_cabecera.precio_equipaje_adicional IS 'Precio por maleta adicional (extraCheckedBaggagePrice).';
 COMMENT ON COLUMN tarifa_cabecera.cargo_cambio IS 'Cargo por cambio de fecha (changeFee) en la moneda de la tarifa.';
 COMMENT ON COLUMN tarifa_detalle.impuestos IS 'Impuestos y tasas por pasajero (IVA y tasas aeroportuarias). El total es tarifa_base + impuestos y no se guarda.';

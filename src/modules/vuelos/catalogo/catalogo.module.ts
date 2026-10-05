@@ -6,6 +6,7 @@ import { FamiliaTarifaModule } from './familia-tarifa/familia-tarifa.module';
 import { MapaAsientosModule } from './mapa-asientos/mapa-asientos.module';
 import { ModeloAeronaveModule } from './modelo-aeronave/modelo-aeronave.module';
 import { PaisModule } from './pais/pais.module';
+import { TarifaModule } from './tarifa/tarifa.module';
 import { VueloProgramadoModule } from './vuelo-programado/vuelo-programado.module';
 import { VueloModule } from './vuelo/vuelo.module';
 
@@ -24,6 +25,7 @@ import { VueloModule } from './vuelo/vuelo.module';
     MapaAsientosModule,
     VueloModule,
     VueloProgramadoModule,
+    TarifaModule,
   ],
 })
 export class CatalogoModule {}

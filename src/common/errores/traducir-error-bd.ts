@@ -173,6 +173,11 @@ const POR_RESTRICCION: Record<string, Regla> = {
     CodigoError.VALIDATION_FAILED,
     'The actual arrival needs an actual departure before it',
   ),
+  uq_tarifa_cabecera_vuelo_familia: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'The departure already has a fare for this fare family',
+  ),
   uq_usuario_correo: regla(
     409,
     CodigoError.VALIDATION_FAILED,

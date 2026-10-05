@@ -7,6 +7,7 @@ import { familiaTarifaRoutes } from './familia-tarifa/familia-tarifa.routes';
 import { mapaAsientosRoutes } from './mapa-asientos/mapa-asientos.routes';
 import { modeloAeronaveRoutes } from './modelo-aeronave/modelo-aeronave.routes';
 import { paisRoutes } from './pais/pais.routes';
+import { tarifaRoutes } from './tarifa/tarifa.routes';
 import { vueloProgramadoRoutes } from './vuelo-programado/vuelo-programado.routes';
 import { vueloRoutes } from './vuelo/vuelo.routes';
 
@@ -25,6 +26,7 @@ export const catalogoRoutes: Routes = [
       ...mapaAsientosRoutes,
       ...vueloRoutes,
       ...vueloProgramadoRoutes,
+      ...tarifaRoutes,
     ],
   },
 ];
