@@ -9,6 +9,7 @@ import { rutas } from './routes/index.routes';
 // import { AlojamientosModule } from './modules/alojamientos/alojamientos.module';
 // import { AutosModule } from './modules/autos/autos.module';
 // import { AtraccionesModule } from './modules/atracciones/atracciones.module';
+import { SaludModule } from './modules/salud/salud.module';
 import { VuelosModule } from './modules/vuelos/vuelos.module';
 
 @Module({
@@ -23,6 +24,7 @@ import { VuelosModule } from './modules/vuelos/vuelos.module';
     // Módulos Compartidos
     PrismaModule,
     CommonModule,
+    SaludModule,
 
     // =========================================================================
     // ATENCIÓN ALUMNO: Descomenta solo el módulo que corresponde a tu grupo

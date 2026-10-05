@@ -11,7 +11,11 @@ import {
 } from './extensiones/transaccion-auditada';
 
 function crearCliente(url: string) {
-  const adaptador = new PrismaPg({ connectionString: url }, { schema: esquemaDeUrl(url) });
+  // Sin tope, pg espera para siempre una base caída y /health nunca responde.
+  const adaptador = new PrismaPg(
+    { connectionString: url, connectionTimeoutMillis: 5_000 },
+    { schema: esquemaDeUrl(url) },
+  );
   return new PrismaClient({ adapter: adaptador }).$extends(bloqueoBorradoFisico);
 }
 
@@ -39,9 +43,17 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     this.db = crearCliente(config.getOrThrow<string>('DATABASE_URL'));
   }
 
+  /**
+   * Con el adaptador de pg la conexión es perezosa: se prueba con una consulta real.
+   * Si la base no responde, la API arranca igual y /health responde 503 hasta que vuelva.
+   */
   async onModuleInit(): Promise<void> {
-    await this.db.$connect();
-    this.logger.log('Conectado a PostgreSQL');
+    try {
+      await this.db.$queryRaw`SELECT 1`;
+      this.logger.log('Conectado a PostgreSQL');
+    } catch (error) {
+      this.logger.warn(`PostgreSQL no responde al arrancar: ${resumirError(error)}`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -62,6 +74,12 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       return trabajo(tx);
     }, opciones);
   }
+}
+
+/** Los errores de Prisma traen saltos de línea y el detalle al final; se dejan en una línea. */
+export function resumirError(error: unknown): string {
+  const mensaje = error instanceof Error ? error.message : String(error);
+  return mensaje.replace(/\s+/g, ' ').trim();
 }
 
 function esquemaDeUrl(url: string): string {
