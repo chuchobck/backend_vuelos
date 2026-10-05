@@ -37,5 +37,11 @@ export default tseslint.config(
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },
+  {
+    // Scripts de Node que corre db/reset.sh fuera de la API: son CommonJS sin compilar.
+    files: ['db/**/*.js'],
+    languageOptions: { sourceType: 'commonjs' },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
   prettier,
 );
