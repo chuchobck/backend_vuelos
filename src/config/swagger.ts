@@ -17,10 +17,12 @@ export const ETIQUETAS = {
   estadoVuelos: 'Estado de Vuelos',
   webhooks: 'Webhooks',
   salud: 'Salud',
+  auth: 'Auth',
 } as const;
 
 const DESCRIPCIONES_PROPIAS: Partial<Record<keyof typeof ETIQUETAS, string>> = {
   salud: 'Fuera del contrato: chequeo de vida para Render',
+  auth: 'Fuera del contrato: proveedor de identidad simulado (RDA1) que emite los JWT',
 };
 
 /** Swagger UI en /api/docs y el OpenAPI en JSON en /api/docs-json. */
