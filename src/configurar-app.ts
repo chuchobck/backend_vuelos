@@ -1,4 +1,5 @@
-import { INestApplication, ValidationPipe, VersioningType } from '@nestjs/common';
+import { INestApplication, VersioningType } from '@nestjs/common';
+import { crearPipeValidacion } from './common/pipes/validacion.pipe';
 import { configurarSwagger } from './config/swagger';
 import { PREFIJO_GLOBAL, VERSION_POR_DEFECTO } from './routes/index.routes';
 
@@ -11,13 +12,7 @@ export function configurarApp(app: INestApplication): void {
   app.setGlobalPrefix(PREFIJO_GLOBAL);
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: VERSION_POR_DEFECTO });
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-    }),
-  );
+  app.useGlobalPipes(crearPipeValidacion());
 
   configurarSwagger(app);
 }
