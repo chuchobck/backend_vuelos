@@ -79,7 +79,8 @@ Lo transversal ya lo da la API a cualquier controller nuevo, sin código extra:
 | Texto libre del cliente               | `@TextoLimpio()` en el DTO (recorta, normaliza y rechaza controles y HTML); ver `src/common/sanitizacion/README.md`    |
 | Límite de peticiones                  | Ya aplica a toda ruta; `@LimiteEstricto(5, 60)` da uno propio y `@SinLimiteDePeticiones()` la excluye                  |
 | Escritura con auditoría               | `prisma.transaccionAuditada(tx => ...)` toma usuario e IP del contexto de la petición                                   |
-| Request id, IP y usuario              | `obtenerContexto()` en `common/contexto`; el guard de JWT (fase 3) llamará a `fijarUsuario(sub)`                        |
+| Permisos y usuario                    | `@Scopes('flights:book')` (el scope del contrato) y `@UsuarioActual()`; toda ruta exige JWT salvo `@Publico()`           |
+| Request id, IP y usuario              | `obtenerContexto()` en `common/contexto`; el guard de JWT llama a `fijarUsuario(sub)` con cada token válido              |
 
 Pruebas: `npm run test:e2e`. Un controller que solo existe en la prueba se agrega con
 `crearApp([MiControllerDePrueba])` (ver `test/utils/crear-app.ts`).

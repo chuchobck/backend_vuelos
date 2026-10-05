@@ -28,12 +28,22 @@ Los pagos y el GDS son simulados. El plan y el estado de las fases están en `do
 - Las tablas de detalle no tienen controller: las maneja el service de su cabecera.
 - Todas las URLs cuelgan de `/flights/v1`. Swagger en `/api/docs` con las 7 etiquetas del contrato.
 
+## Seguridad
+
+- Toda ruta exige JWT (guard global). Las públicas llevan `@Publico()`; las del contrato,
+  `@Scopes(...)` con el scope que declara la operación en el contrato. Ver `src/common/README.md`.
+- El usuario de la petición sale de `@UsuarioActual()`; su `id` es el `id_propietario`.
+- Nunca registrar ni devolver contraseñas, hashes ni tokens, tampoco en mensajes de error.
+- Los scopes de cada rol están en `src/modules/auth/scopes.ts`, no en la base.
+
 ## Datos
 
 - La base es la fuente de verdad (`db/*.sql`); no se usa `prisma migrate`.
 - Eliminación lógica siempre; nada de `DELETE` físico en datos de negocio.
 - Las fechas van siempre en UTC (un `date` llega a medianoche UTC).
 - El dinero llega como `Decimal` y se convierte en el mapper; un `bigint` nunca sale al cliente.
+- Las pruebas e2e no borran: crean cuentas `@e2e.quinde.example` y al final las desactivan.
+- Ningún `.json` con el mismo nombre base que un `.ts`: Jest importaría el JSON.
 
 ## Git
 
