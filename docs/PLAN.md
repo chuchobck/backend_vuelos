@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-05 · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-10-05 (cierre de la fase 1 en local) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1.
 
@@ -9,7 +9,7 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | Fase | Estado | Verificado |
 | --- | --- | --- |
 | 0. Base del repo | Hecha (2026-10-05) | `npm ci`, `npm run lint`, `npm run format:check` y `npm run build` pasan en un clon limpio; el hook rechaza mensajes de commit inválidos; `db/reset.sh` carga esquema y semilla en PostgreSQL 18 |
-| 1. Núcleo | Siguiente | |
+| 1. Núcleo | Hecha en local (2026-10-05); falta el despliegue en Render | Cada commit pasa `npm ci`, `build`, `lint` y `format:check` por separado. Con el `.env` local: `GET /flights/v1/health` responde 200 y la base registra el `SELECT 1`; `/flights/v2/health` responde 404; `/api/docs` abre y `/api/docs-json` lista la ruta. Con la base caída, `/health` responde 503. La imagen de `docker build` arranca, responde lo mismo contra la base local y su HEALTHCHECK queda `healthy`. La extensión bloquea `delete` y `deleteMany` y la transacción auditada deja usuario e IP en `auditoria` (probado dentro de una transacción revertida) |
 | 2 a 11 | Pendientes | |
 
 ## Decisiones
@@ -20,17 +20,19 @@ La plantilla manda en lenguaje y framework; lo único que se reemplaza es el ORM
 | --- | --- | --- |
 | Lenguaje | TypeScript | La plantilla ya está en TypeScript. Nest usa decoradores y tipos para validar los DTO y generar Swagger; en JavaScript habría que reescribirla y agregar Babel. Esto cambia lo que habíamos dicho antes (JavaScript). |
 | Framework | NestJS 10, el de la plantilla | Es Nest, no Next: Next.js es para frontend con React. Se queda en la versión 10 para no separarse de los otros equipos. |
-| ORM | Prisma 7 en lugar de TypeORM | La plantilla trae TypeORM con `synchronize: true`, que crea y altera tablas a partir de las entidades. Nuestra base nace del SQL y tiene triggers y ENUM; Prisma solo la lee con `db pull`. |
+| ORM | Prisma 7.10 (versión fija) en lugar de TypeORM | La plantilla trae TypeORM con `synchronize: true`, que crea y altera tablas a partir de las entidades. Nuestra base nace del SQL y tiene triggers y ENUM; Prisma solo la lee con `db pull`. Prisma 7 exige un adaptador: se usa `@prisma/adapter-pg`. |
+| Cliente de Prisma | Generado en `src/generated`, fuera de git | Lo crea `prisma generate` en el `postinstall`; así no se versiona código generado ni se desfasa del `schema.prisma`. |
 | Fuente de verdad de la base | Los archivos de `db/` | Un cambio se hace en el SQL y después se corre `prisma db pull`. No se usa `prisma migrate`. |
 | Rutas | Una sola tabla en `src/routes/index.routes.ts` | Usa el `RouterModule` de Nest: cada módulo declara su ruta en un `*.routes.ts` y el índice las junta. Los controladores no llevan prefijos. |
 | Versionado | En la URL: `/flights/v1/...` | Es la misma base que el `servers` del contrato. Prefijo global `flights` más versionado de Nest con versión 1 por defecto; una v2 se agrega por controlador con `@Version('2')`. |
-| Capas de cada módulo | routes → controller → service → repository | El controller solo maneja HTTP, el service tiene las reglas y el repository es el único que usa Prisma. |
+| Capas de cada módulo | routes → controller → service → repository, más mapper y dto | Un módulo por entidad. El controller solo maneja HTTP, el service tiene las reglas, el repository es el único que usa Prisma y el mapper traduce la fila en español al JSON del contrato. |
 | Idioma | Rutas y JSON en inglés; código, carpetas y base en español | El contrato fija el inglés hacia afuera. Un mapper por módulo traduce entre los dos. |
 | Errores | Filtro global que responde `application/problem+json` | El contrato exige `ProblemDetails` con un `code` de lista cerrada. |
 | Documentación viva | Swagger generado del código en `/api/docs` | Una prueba compara el OpenAPI generado con `contracts/vuelos-openapi.yaml`, para que no se separen. |
 | Autenticación | Módulo `auth` propio que emite JWT | El contrato deja la identidad en otro servicio, pero en RDA1 la API tiene que funcionar sola. En RDA2 se cambia por el proveedor real. |
 | Eliminación | Lógica: `activo = false` o cambio de estado | Ningún endpoint ejecuta un `DELETE` de SQL sobre datos de negocio. |
-| CRUD de catálogo | Rutas `/flights/v1/admin/...`, fuera del contrato | El contrato no tiene mantenimiento de aeropuertos, vuelos ni tarifas, y el curso pide CRUD. |
+| CRUD de catálogo | Rutas `/flights/v1/admin/...`, fuera del contrato, con una clase base compartida | El contrato no tiene mantenimiento de aeropuertos, vuelos ni tarifas, y el curso pide CRUD. Las 10 entidades repiten listar, ver, crear, editar y dar de baja lógica. |
+| Swagger | `/api/docs`, versión 1.5.0.0, esquema bearer, 7 etiquetas del contrato más las propias | Las etiquetas viven en `src/config/swagger.ts` (`ETIQUETAS`) para que cada controller use la misma. |
 | Pagos y GDS | Simulados | El pago llega como `paymentReference` y se da por bueno; la emisión de boletos es local. |
 
 El diseño de rutas está probado sobre la plantilla: `GET /flights/v1/bookings/{bookingId}/tickets` respondió 200 y `/flights/v2/...` respondió 404.
@@ -70,123 +72,143 @@ Por eso un controlador nunca abre la base ni arma un error a mano: recibe un DTO
 
 ## Esqueleto
 
-Todo lo de vuelos queda dentro de `src/modules/vuelos`, como pide la plantilla, dividido en submódulos. Lo transversal va en `common`, `config`, `prisma` y `routes`.
+Todo lo de vuelos queda dentro de `src/modules/vuelos`, como pide la plantilla, con **un módulo por entidad**: `catalogo/` para el CRUD de administrador y `operaciones/` para los endpoints del contrato. Fuera de vuelos quedan `salud` y `auth`. Lo transversal va en `common`, `config`, `prisma` y `routes`. Lo marcado con ✓ ya existe al cerrar la fase 1.
 
 ```text
 quinde-vuelos-api/
 ├── contracts/                    # contratos de la plantilla, no se tocan
-├── db/
+├── db/                           # fuente de verdad de la base
 │   ├── esquema_vuelos.sql
 │   ├── esquema_seguridad.sql     # fase 3: usuarios, roles y tokens
 │   ├── semilla_vuelos.sql
 │   ├── semilla_seguridad.sql     # roles, permisos y usuario administrador
 │   ├── prueba_esquema.sql
 │   └── reset.sh
-├── docs/
-│   ├── logo.svg
-│   ├── logo-icono.svg
-│   └── PLAN.md
+├── docs/                         # PLAN.md, logo.svg, logo-icono.svg (ícono de Swagger)
 ├── prisma/
-│   └── schema.prisma             # lo genera db pull, no se edita a mano
+│   └── schema.prisma             # ✓ lo escribe db pull, no se edita a mano
+├── prisma.config.ts              # ✓ datasource del CLI (lee .env con dotenv)
 ├── src/
-│   ├── main.ts                   # arranque: seguridad, versionado, Swagger
-│   ├── app.module.ts
-│   ├── config/                   # variables de entorno validadas al arrancar
+│   ├── main.ts                   # ✓ prefijo flights, versión v1, Swagger
+│   ├── app.module.ts             # ✓
+│   ├── config/
+│   │   ├── entorno.ts            # ✓ DATABASE_URL, PORT y NODE_ENV validadas al arrancar
+│   │   └── swagger.ts            # ✓ título, versión, bearer, ETIQUETAS, ícono
 │   ├── routes/
-│   │   └── index.routes.ts       # la única tabla de rutas de la API
+│   │   └── index.routes.ts       # ✓ la única tabla de rutas de la API
+│   ├── generated/prisma/         # ✓ cliente generado (fuera de git)
 │   ├── prisma/
-│   │   ├── prisma.module.ts
-│   │   ├── prisma.service.ts
-│   │   └── extensiones/          # bloqueo de delete físico, transacción auditada
+│   │   ├── prisma.module.ts      # ✓ global
+│   │   ├── prisma.service.ts     # ✓ db (cliente extendido) y transaccionAuditada
+│   │   ├── serializacion-bigint.ts  # ✓ BigInt → texto en JSON
+│   │   └── extensiones/          # ✓ bloqueo de delete físico, actor de auditoría
 │   ├── common/
-│   │   ├── contexto/             # usuario e IP de la petición en curso
-│   │   ├── decorators/           # @Publico, @Scopes, @UsuarioActual
+│   │   ├── decorators/           # ✓ @Publico; luego @Scopes, @UsuarioActual
 │   │   ├── dto/                  # de la plantilla: respuesta base y paginación
+│   │   ├── guards/               # idempotency-key (plantilla); jwt-auth y scopes en la fase 3
+│   │   ├── contexto/             # usuario e IP de la petición en curso
 │   │   ├── errores/              # códigos del contrato, excepción de negocio
 │   │   ├── filters/              # problem-details.filter.ts
-│   │   ├── guards/               # jwt-auth, scopes, idempotency-key (plantilla)
 │   │   ├── interceptors/         # idempotencia, request-id
 │   │   ├── pipes/                # uuid, fecha, código IATA
 │   │   └── sanitizacion/         # limpieza de texto para los DTO
 │   └── modules/
-│       ├── salud/                # GET /health
+│       ├── salud/                # ✓ GET /health
 │       ├── auth/                 # registro, login, refresh, logout, me
 │       └── vuelos/
-│           ├── vuelos.module.ts  # junta los submódulos
-│           ├── vuelos.routes.ts  # rutas de todos los submódulos
-│           ├── compartido/       # cálculo de precios, mapeo de enums
-│           ├── catalogo/         # aeropuertos, aerolíneas, vuelos, tarifas
-│           ├── busqueda/
-│           ├── retenciones/
-│           ├── reservas/
-│           ├── boletos/
-│           ├── postventa/
-│           ├── checkin/
-│           ├── estado-vuelos/
-│           └── webhooks/
+│           ├── vuelos.module.ts  # ✓ junta los submódulos (vacío por ahora)
+│           ├── vuelos.routes.ts  # ✓ cuelga las rutas de catálogo y operaciones
+│           ├── compartido/       # cálculo de precios, mapeo de enums español ↔ contrato
+│           ├── catalogo/         # CRUD de administrador en /admin/...
+│           │   ├── base/         # clase base compartida: repository, service y controller
+│           │   ├── pais/
+│           │   ├── ciudad/
+│           │   ├── aeropuerto/
+│           │   ├── aerolinea/
+│           │   ├── modelo-aeronave/
+│           │   ├── familia-tarifa/
+│           │   ├── mapa-asientos/
+│           │   ├── vuelo/
+│           │   ├── vuelo-programado/
+│           │   └── tarifa/
+│           └── operaciones/      # endpoints del contrato
+│               ├── busqueda/
+│               ├── oferta/
+│               ├── retencion/
+│               ├── reserva/
+│               ├── boleto/
+│               ├── equipaje/
+│               ├── cambio-fecha/
+│               ├── cancelacion/
+│               ├── checkin/
+│               ├── pase-abordar/
+│               ├── estado-vuelo/
+│               └── webhook/
 ├── test/                         # pruebas e2e, una carpeta por fase
-├── Dockerfile
-├── docker-compose.yml
-└── .env.example
+├── Dockerfile                    # ✓ multi-etapa para Render
+├── docker-compose.yml            # ✓ PostgreSQL 18; puerto con DB_PORT
+└── .env.example                  # ✓
 ```
 
-Cada submódulo repite la misma forma. Ejemplo con reservas:
+Cada entidad repite la misma forma. Ejemplo con aeropuerto:
 
 ```text
-reservas/
-├── reservas.module.ts
-├── reservas.routes.ts      # { path: 'bookings', module: ReservasModule }
-├── reservas.controller.ts  # solo HTTP: recibe el DTO y responde
-├── reservas.service.ts     # reglas de negocio y transacciones
-├── reservas.repository.ts  # único archivo que usa Prisma
-├── reservas.mapper.ts      # fila en español → JSON del contrato
-└── dto/                    # entrada y salida, con validación y Swagger
+catalogo/aeropuerto/
+├── aeropuerto.module.ts
+├── aeropuerto.routes.ts      # [{ path: 'airports', module: AeropuertoModule }]
+├── aeropuerto.controller.ts  # @Controller() sin prefijo: solo HTTP
+├── aeropuerto.service.ts     # reglas de negocio y transacciones
+├── aeropuerto.repository.ts  # único archivo que usa Prisma
+├── aeropuerto.mapper.ts      # fila en español → JSON del contrato en inglés
+└── dto/                      # entrada y salida, con validación y Swagger
 ```
 
-El índice de rutas queda así de corto:
+Las rutas se anidan con `RouterModule`: cada `*.routes.ts` exporta su arreglo, `vuelos.routes.ts` los cuelga (el catálogo bajo `admin`, las operaciones anidadas, por ejemplo `bookings/:bookingId/tickets` dentro de `bookings`) y el índice junta todo:
 
 ```ts
 // src/routes/index.routes.ts
 export const rutas: Routes = [
-  { path: 'health', module: SaludModule },
-  { path: 'auth', module: AuthModule },
-  ...vuelosRoutes, // search, offers, bookings, flights, webhooks, admin
+  ...saludRoutes, // health
+  ...authRoutes, // auth (fase 3)
+  ...vuelosRoutes, // admin/..., search, offers, bookings, flights, webhooks
 ];
 ```
 
+El prefijo `flights` y la versión `1` no van en la tabla: los ponen `setGlobalPrefix` y `enableVersioning` en `main.ts`, así que toda ruta queda en `/flights/v1/<path>`.
+
 ## Mapa del contrato
 
-Los 22 endpoints del contrato se reparten en 8 submódulos. Todas las rutas cuelgan de `/flights/v1`.
+Los 22 endpoints del contrato se reparten en 12 entidades de `operaciones/`. Todas las rutas cuelgan de `/flights/v1`.
 
-| Endpoint | Submódulo | Permiso | Idempotency-Key | Tablas principales |
+| Endpoint | Entidad | Permiso | Idempotency-Key | Tablas principales |
 | --- | --- | --- | --- | --- |
 | `POST /search` | busqueda | Público, exige `X-Device-Fingerprint` | No | `vuelo_programado`, `inventario_cabina`, `tarifa_*`, `itinerario_*`, `oferta_*` |
-| `GET /offers/{offerId}/seatmap` | busqueda | Público | No | `mapa_asientos_*`, `asiento`, `reserva_detalle_asiento` |
-| `POST /offers/hold` | retenciones | `flights:hold` | Sí | `retencion_*`, `inventario_cabina` |
-| `GET /offers/hold/{holdId}` | retenciones | `flights:read` | No | `retencion_*` |
-| `DELETE /offers/hold/{holdId}` | retenciones | `flights:hold` | No | `retencion_cabecera` cambia de estado y devuelve el cupo |
-| `GET /bookings` | reservas | `flights:read` | No | `reserva_cabecera` |
-| `POST /bookings` | reservas | `flights:book` | Sí | `reserva_cabecera` y sus detalles, `boleto_*` |
-| `GET /bookings/{bookingId}` | reservas | `flights:read` | No | `reserva_*` |
-| `GET /bookings/{bookingId}/tickets` y `/tickets/{ticketId}` | boletos | `flights:read` | No | `boleto_cabecera`, `boleto_detalle` |
-| `GET /bookings/{bookingId}/baggage-options` | postventa | `flights:read` | No | `tarifa_*`, `familia_tarifa` |
-| `POST /bookings/{bookingId}/baggage` | postventa | `flights:book` | Sí | `reserva_detalle_equipaje`, `reserva_detalle_pago` |
-| `POST /bookings/{bookingId}/date-change/search` | postventa | `flights:read` | No | `cambio_*` |
-| `POST /bookings/{bookingId}/date-change` | postventa | `flights:book` | Sí | `cambio_*`, `reserva_detalle_itinerario` |
-| `GET /bookings/{bookingId}/cancellation-quote` | postventa | `flights:read` | No | `cotizacion_cancelacion` |
-| `POST /bookings/{bookingId}/cancel` | postventa | `flights:cancel` | Sí | `reserva_cabecera`, `boleto_*`, `inventario_cabina` |
+| `GET /offers/{offerId}/seatmap` | oferta | Público | No | `mapa_asientos_*`, `asiento`, `reserva_detalle_asiento` |
+| `POST /offers/hold` | retencion | `flights:hold` | Sí | `retencion_*`, `inventario_cabina` |
+| `GET /offers/hold/{holdId}` | retencion | `flights:read` | No | `retencion_*` |
+| `DELETE /offers/hold/{holdId}` | retencion | `flights:hold` | No | `retencion_cabecera` cambia de estado y devuelve el cupo |
+| `GET /bookings` | reserva | `flights:read` | No | `reserva_cabecera` |
+| `POST /bookings` | reserva | `flights:book` | Sí | `reserva_cabecera` y sus detalles, `boleto_*` |
+| `GET /bookings/{bookingId}` | reserva | `flights:read` | No | `reserva_*` |
+| `GET /bookings/{bookingId}/tickets` y `/tickets/{ticketId}` | boleto | `flights:read` | No | `boleto_cabecera`, `boleto_detalle` |
+| `GET /bookings/{bookingId}/baggage-options` | equipaje | `flights:read` | No | `tarifa_*`, `familia_tarifa` |
+| `POST /bookings/{bookingId}/baggage` | equipaje | `flights:book` | Sí | `reserva_detalle_equipaje`, `reserva_detalle_pago` |
+| `POST /bookings/{bookingId}/date-change/search` | cambio-fecha | `flights:read` | No | `cambio_*` |
+| `POST /bookings/{bookingId}/date-change` | cambio-fecha | `flights:book` | Sí | `cambio_*`, `reserva_detalle_itinerario` |
+| `GET /bookings/{bookingId}/cancellation-quote` | cancelacion | `flights:read` | No | `cotizacion_cancelacion` |
+| `POST /bookings/{bookingId}/cancel` | cancelacion | `flights:cancel` | Sí | `reserva_cabecera`, `boleto_*`, `inventario_cabina` |
 | `POST /bookings/{bookingId}/check-in` | checkin | `flights:book` | No | `checkin`, `pase_abordar` |
-| `GET /bookings/{bookingId}/boarding-passes` | checkin | `flights:read` | No | `pase_abordar` |
-| `GET /flights/{flightNumber}/status` | estado-vuelos | Público | No | `vuelo`, `vuelo_programado` |
-| `GET /webhooks`, `POST /webhooks`, `DELETE /webhooks/{id}` | webhooks | `flights:webhooks` | No | `webhook_*`, `evento`, `evento_entrega` |
+| `GET /bookings/{bookingId}/boarding-passes` | pase-abordar | `flights:read` | No | `pase_abordar` |
+| `GET /flights/{flightNumber}/status` | estado-vuelo | Público | No | `vuelo`, `vuelo_programado` |
+| `GET /webhooks`, `POST /webhooks`, `DELETE /webhooks/{id}` | webhook | `flights:webhooks` | No | `webhook_*`, `evento`, `evento_entrega` |
 
 Fuera del contrato se agregan tres grupos de rutas:
 
-| Rutas | Submódulo | Permiso | Para qué |
+| Rutas | Módulo | Permiso | Para qué |
 | --- | --- | --- | --- |
-| `GET /health` | salud | Público | Chequeo de vida para Render; consulta la base |
+| `GET /health` | salud | Público | Chequeo de vida para Render; consulta la base. Hecho en la fase 1 |
 | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `GET /auth/me` | auth | Público, salvo `logout` y `me` | Emitir los JWT mientras no exista el proveedor de identidad |
-| `/admin/airports`, `/admin/airlines`, `/admin/flights`, `/admin/departures`, `/admin/fares` | catalogo | `flights:admin` | CRUD con eliminación lógica |
+| `/admin/countries`, `/admin/cities`, `/admin/airports`, `/admin/airlines`, `/admin/aircraft-models`, `/admin/fare-families`, `/admin/seat-maps`, `/admin/flights`, `/admin/departures`, `/admin/fares` | catalogo (pais, ciudad, aeropuerto, aerolinea, modelo-aeronave, familia-tarifa, mapa-asientos, vuelo, vuelo-programado, tarifa) | `flights:admin` | CRUD con eliminación lógica |
 
 ## Seguridad
 
@@ -234,7 +256,7 @@ Dos controles, en este orden: el permiso del token y la propiedad del recurso.
 
 ### Auditoría
 
-Cada escritura corre dentro de una transacción que primero fija `app.id_usuario` y `app.direccion_ip`. Con eso los triggers de la base llenan la tabla `auditoria` sin código extra en los servicios.
+Cada escritura corre dentro de una transacción que primero fija `app.id_usuario` y `app.direccion_ip`. Con eso los triggers de la base llenan la tabla `auditoria` sin código extra en los servicios. La vía es `PrismaService.transaccionAuditada(actor, tx => ...)`, que usa `set_config(..., true)` para que el valor muera con la transacción y no pase a otra petición que reciba la misma conexión del pool.
 
 ## Fases
 
@@ -246,7 +268,7 @@ Las fases 0 a 3 son la base, la 4 fija el patrón de módulo y las 5 a 7 son el 
 | 1. Núcleo | `feat/f1-nucleo` | Sin TypeORM, Prisma conectado, tabla de rutas, `/health`, Swagger, primer despliegue | `/flights/v1/health` responde 200 en Render y `/api/docs` abre |
 | 2. Transversales | `feat/f2-transversales` | Errores `ProblemDetails`, validación, sanitización, helmet, CORS, límite de peticiones | Cualquier error, incluido un 404 de ruta, sale como `application/problem+json` |
 | 3. Auth | `feat/f3-auth` | Registro, login, refresh, logout, guards de JWT y de permisos | Una ruta protegida responde 401 sin token y 403 sin el permiso |
-| 4. Catálogo | `feat/f4-catalogo` | CRUD de aeropuertos, aerolíneas, vuelos, salidas y tarifas | Un `DELETE` deja la fila con `activo = false` y una fila en `auditoria` con el `sub` del administrador |
+| 4. Catálogo | `feat/f4-catalogo` | Clase base y CRUD de las 10 entidades de catálogo | Un `DELETE` deja la fila con `activo = false` y una fila en `auditoria` con el `sub` del administrador |
 | 5. Búsqueda | `feat/f5-busqueda` | `POST /search` y mapa de asientos | UIO→GYE devuelve ofertas directas y UIO→GPS ofertas con escala, con precios iguales a los de la base |
 | 6. Retenciones | `feat/f6-retenciones` | Hold con idempotencia y vencimiento | Dos peticiones simultáneas por el último cupo: una gana y la otra recibe 409 |
 | 7. Reservas y boletos | `feat/f7-reservas` | `POST /bookings`, consultas, emisión de boletos | El flujo búsqueda → hold → reserva → boleto pasa de punta a punta en una prueba e2e |
@@ -286,14 +308,18 @@ Dos commits no estaban en el plan original. La plantilla no compila tal como vie
 
 ### Fase 1 · Núcleo
 
-1. `refactor: quitar TypeORM y las entidades de ejemplo`
-2. `feat(config): validar las variables de entorno al arrancar`
-3. `feat(prisma): introspección del esquema vuelos y PrismaService`
-4. `feat(prisma): bloquear el delete físico y agregar la transacción auditada`
-5. `feat(rutas): tabla de rutas con prefijo flights y versión v1`
-6. `feat(salud): endpoint health con chequeo de base`
-7. `docs(swagger): título, versión del contrato y esquema bearer`
-8. `ci: Dockerfile y primer despliegue en Render con Neon`
+1. `fix(docker): hacer configurable el puerto de la base y de la API`
+2. `refactor: quitar TypeORM y el controlador de ejemplo de vuelos`
+3. `feat(config): validar las variables de entorno al arrancar`
+4. `feat(prisma): introspeccionar el esquema vuelos y agregar PrismaService`
+5. `feat(prisma): bloquear el delete físico y agregar la transacción auditada`
+6. `feat(rutas): agregar la tabla de rutas con prefijo flights y versión v1`
+7. `feat(salud): agregar GET /health con chequeo de la base`
+8. `docs(swagger): configurar título, versión del contrato, esquema bearer e ícono`
+9. `ci: agregar Dockerfile multi-etapa para Render`
+10. `docs: cerrar la fase 1 en el plan y el README`
+
+El despliegue en Render con Neon queda fuera de esta rama: necesita credenciales y se hace a mano desde el panel. El commit 1 no estaba en el plan; el 2 también borra los DTO de ejemplo de la plantilla, que solo usaba el controlador mock (siguen en el historial y en `upstream`).
 
 ### Fase 2 · Transversales
 
@@ -317,12 +343,14 @@ Dos commits no estaban en el plan original. La plantilla no compila tal como vie
 
 ### Fase 4 · Catálogo
 
-1. `feat(catalogo): repositorio base con eliminación lógica`
-2. `feat(catalogo): CRUD de aeropuertos`
-3. `feat(catalogo): CRUD de aerolíneas`
-4. `feat(catalogo): CRUD de vuelos y salidas programadas`
-5. `feat(catalogo): CRUD de tarifas`
-6. `test(catalogo): e2e de alta, edición, baja lógica y auditoría`
+1. `feat(catalogo): clase base de CRUD con eliminación lógica`
+2. `feat(catalogo): CRUD de países y ciudades`
+3. `feat(catalogo): CRUD de aeropuertos`
+4. `feat(catalogo): CRUD de aerolíneas y modelos de aeronave`
+5. `feat(catalogo): CRUD de familias tarifarias y mapas de asientos`
+6. `feat(catalogo): CRUD de vuelos y vuelos programados`
+7. `feat(catalogo): CRUD de tarifas`
+8. `test(catalogo): e2e de alta, edición, baja lógica y auditoría`
 
 ### Fase 5 · Búsqueda
 
@@ -376,6 +404,34 @@ Dos commits no estaban en el plan original. La plantilla no compila tal como vie
 3. `docs: guía de despliegue y colección de peticiones`
 4. `chore(release): versión 1.0.0 para RDA1`
 
+## Hallazgos
+
+### Fase 1
+
+Lo que hace Prisma 7 con nuestra base, verificado con `prisma db pull` contra PostgreSQL 18:
+
+| Tema | Qué pasó | Qué implica |
+| --- | --- | --- |
+| Introspección | 42 modelos y 16 enums desde `?schema=vuelos`, sin `@@schema` porque hay un solo esquema | Los modelos se llaman como las tablas (`vuelo_programado`, `reserva_cabecera`) |
+| ENUM | Cada `CREATE TYPE ... AS ENUM` pasa a un `enum` de Prisma con los mismos valores en español (`PROGRAMADO`, `RETENIDA`...); en la consulta llegan como texto | La traducción al inglés del contrato va en los mappers (`compartido/`) |
+| `COMMENT ON` | No se copia el texto. Prisma deja solo un aviso genérico (`/// This model or at least one of its fields has comments in the database...`) en el modelo o enum, y nada en los campos comentados | La documentación de columnas y la equivalencia de enums con el contrato siguen viviendo solo en `db/esquema_vuelos.sql` |
+| `CHECK` | No se representan; solo un aviso por modelo | Las reglas las sigue haciendo cumplir la base; los DTO repiten las que el cliente debe conocer y el filtro de la fase 2 traduce la violación (23514) |
+| Vistas | Las 3 vistas de la sección 16 no se introspeccionan (haría falta `previewFeatures = ["views"]`) | Se decide en la fase 5 o 7: activar `views` o leerlas con `$queryRaw` |
+| Triggers y funciones | No aparecen en el esquema de Prisma | Siguen actuando igual; por eso la auditoría y la integridad no dependen del código |
+| Índices parciales | `db pull` agregó `previewFeatures = ["partialIndexes"]` por sí solo | Ninguna acción |
+| Comentarios en `schema.prisma` | `db pull` reescribe el archivo y borra cualquier comentario, incluso dentro del `generator` | Las explicaciones van en `prisma.config.ts`, no en el esquema |
+| `bigint` | Llega como `BigInt` y `JSON.stringify` lanza `TypeError` | `BigInt.prototype.toJSON` lo serializa como texto (`habilitarBigIntEnJson` en `main.ts`). Las PK bigint son internas; el contrato expone los uuid |
+| `numeric` | Llega como `Prisma.Decimal`, que en JSON sale como texto (`"100"`) | Los mappers lo convierten a número o a texto con dos decimales, según el contrato |
+| `date` | Llega como `Date` a medianoche UTC (`fecha_salida`) | Al formatear, no aplicar zona horaria o se corre un día hacia atrás en Ecuador |
+| `GENERATED ALWAYS AS IDENTITY` | Sale como `@default(autoincrement())` | Nunca enviar `id` al crear; la base lo rechaza |
+| `?schema=vuelos` | El adaptador de `pg` no lo lee de la URL | `PrismaService` lo extrae de la URL y lo pasa en `{ schema }` |
+| Conexión | Con el adaptador, `$connect()` no abre conexión; sin tope, `pg` espera indefinidamente a una base caída | Al arrancar se prueba con `SELECT 1`, y el pool corta a los 5 s |
+| `prisma.config.ts` | Prisma 7 ya no lee `.env` por su cuenta | Se carga con `import 'dotenv/config'` |
+| Extensión de imports | El generador deduce si poner `.ts` en los imports según encuentre un `tsconfig`; en `docker build` generaba `./internal/class.ts` y Node no arrancaba | `importFileExtension = ""` fijo en el `generator` |
+| Peers opcionales | `@prisma/client` declara `prisma` y `typescript` como peers opcionales; npm los instala con `--omit=dev` | La imagen usa también `--omit=optional` (de 846 MB a 524 MB) |
+| Transacciones anidadas | En Prisma 7, `$transaction` ya no está prohibido dentro de una transacción interactiva | `TransaccionVuelos` lo permite; no se usa por ahora |
+| Bloqueo de delete | La extensión cubre `delete` y `deleteMany`, pero no los borrados anidados dentro de un `update` ni `$executeRaw` | Esos casos quedan para revisión de código; los `ON DELETE RESTRICT` del esquema siguen de respaldo |
+
 ## Pendientes
 
 Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corresponde.
@@ -383,7 +439,10 @@ Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corr
 - [ ] Confirmar con el equipo o el docente que el módulo de vuelos puede usar Prisma en lugar del TypeORM de la plantilla.
 - [ ] Definir dónde vive el código: repo propio o una rama `vuelos` dentro de la plantilla. El plan sirve para los dos casos.
 - [ ] Fecha de entrega de RDA1, para repartir las fases en semanas.
-- [ ] Fase 1: probar `prisma db pull` contra `?schema=vuelos`. No se pudo probar todavía. Hay que instalar `prisma@7`: sin versión, npm instala hoy una candidata de la 8 que no trae `db pull`.
+- [x] Fase 1: probar `prisma db pull` contra `?schema=vuelos`. Funciona con `prisma@7.10.0` fijo (ver Hallazgos).
+- [ ] Fase 1: desplegar en Render con Neon (crear el servicio desde el `Dockerfile`, cargar `DATABASE_URL`, `NODE_ENV=production`, health check en `/flights/v1/health`) y cargar `db/esquema_vuelos.sql` y la semilla en Neon. Después, etiqueta `v0.1.0`.
+- [ ] Fase 2: el filtro de errores debe traducir `BorradoFisicoProhibidoError` (error de programación, 500) y los errores de Prisma `P2010` de base caída.
+- [ ] Fase 3: el guard global de JWT debe respetar `@Publico()`, que ya marca `/health`.
 - [ ] Fase 2: revisar cómo reporta Prisma el error de PostgreSQL 18 al violar un `ON DELETE RESTRICT` (código 23001 en lugar de 23503).
 - [ ] Fase 1: el servicio gratuito de Render se duerme tras 15 minutos sin uso; la primera petición después tarda.
 - [ ] Fase 7: la tabla `pais` solo tiene Ecuador, así que un pasajero con otra nacionalidad se rechaza hasta agregar su país.

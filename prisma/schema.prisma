@@ -1,0 +1,855 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  previewFeatures     = ["partialIndexes"]
+  importFileExtension = ""
+  moduleFormat        = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model aerolinea {
+  id                                            BigInt                   @id(map: "pk_aerolinea") @default(autoincrement())
+  codigo_iata                                   String                   @unique(map: "uq_aerolinea_codigo_iata") @db.VarChar(2)
+  nombre                                        String
+  prefijo_boleto                                String?                  @unique(map: "uq_aerolinea_prefijo_boleto") @db.VarChar(3)
+  activo                                        Boolean                  @default(true)
+  familia_tarifa                                familia_tarifa[]
+  mapa_asientos_cabecera                        mapa_asientos_cabecera[]
+  oferta_cabecera                               oferta_cabecera[]
+  vuelo_vuelo_aerolinea_idToaerolinea           vuelo[]                  @relation("vuelo_aerolinea_idToaerolinea")
+  vuelo_vuelo_aerolinea_operadora_idToaerolinea vuelo[]                  @relation("vuelo_aerolinea_operadora_idToaerolinea")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model aeropuerto {
+  id                                            BigInt  @id(map: "pk_aeropuerto") @default(autoincrement())
+  codigo_iata                                   String  @unique(map: "uq_aeropuerto_codigo_iata") @db.VarChar(3)
+  nombre                                        String
+  ciudad_id                                     BigInt
+  activo                                        Boolean @default(true)
+  ciudad                                        ciudad  @relation(fields: [ciudad_id], references: [id], onUpdate: NoAction, map: "fk_aeropuerto_ciudad")
+  vuelo_vuelo_aeropuerto_destino_idToaeropuerto vuelo[] @relation("vuelo_aeropuerto_destino_idToaeropuerto")
+  vuelo_vuelo_aeropuerto_origen_idToaeropuerto  vuelo[] @relation("vuelo_aeropuerto_origen_idToaeropuerto")
+
+  @@index([ciudad_id], map: "ix_aeropuerto_ciudad")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model asiento {
+  id                       BigInt                    @id(map: "pk_asiento") @default(autoincrement())
+  mapa_asientos_detalle_id BigInt
+  letra                    String                    @db.VarChar(1)
+  posicion                 posicion_asiento
+  mapa_asientos_detalle    mapa_asientos_detalle     @relation(fields: [mapa_asientos_detalle_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_asiento_fila")
+  reserva_detalle_asiento  reserva_detalle_asiento[]
+
+  @@unique([mapa_asientos_detalle_id, letra], map: "uq_asiento_fila_letra")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model auditoria {
+  id               BigInt              @id(map: "pk_auditoria") @default(autoincrement())
+  fecha_evento     DateTime            @default(now()) @db.Timestamptz(6)
+  nombre_tabla     String
+  operacion        operacion_auditoria
+  id_registro      String
+  id_usuario       String?
+  usuario_bd       String              @default(dbgenerated("SESSION_USER"))
+  direccion_ip     String?             @db.Inet
+  datos_anteriores Json?
+  datos_nuevos     Json?
+
+  @@index([fecha_evento], map: "ix_auditoria_fecha_evento")
+  @@index([nombre_tabla, id_registro, fecha_evento], map: "ix_auditoria_registro")
+  @@index([id_usuario, fecha_evento], map: "ix_auditoria_usuario", where: raw("(id_usuario IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model boleto_cabecera {
+  id                       String                   @id(map: "pk_boleto_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pasajero_id              BigInt                   @unique(map: "uq_boleto_cabecera_activo_por_pasajero", where: raw("(estado = ANY (ARRAY['PENDIENTE'::estado_boleto, 'EMITIENDO'::estado_boleto, 'EMITIDO'::estado_boleto]))"))
+  numero_boleto            String?                  @unique(map: "uq_boleto_cabecera_numero") @db.VarChar(13)
+  estado                   estado_boleto            @default(PENDIENTE)
+  fecha_emision            DateTime?                @db.Timestamptz(6)
+  motivo_fallo             String?
+  fecha_creacion           DateTime                 @default(now()) @db.Timestamptz(6)
+  reserva_detalle_pasajero reserva_detalle_pasajero @relation(fields: [pasajero_id], references: [id], onUpdate: NoAction, map: "fk_boleto_cabecera_pasajero")
+  boleto_detalle           boleto_detalle[]
+
+  @@index([pasajero_id], map: "ix_boleto_cabecera_pasajero")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model boleto_detalle {
+  id                  BigInt           @id(map: "pk_boleto_detalle") @default(autoincrement())
+  boleto_id           String           @db.Uuid
+  vuelo_programado_id String           @db.Uuid
+  numero_cupon        Int?             @db.SmallInt
+  estado              estado_cupon     @default(PENDIENTE)
+  boleto_cabecera     boleto_cabecera  @relation(fields: [boleto_id], references: [id], onUpdate: NoAction, map: "fk_boleto_detalle_cabecera")
+  vuelo_programado    vuelo_programado @relation(fields: [vuelo_programado_id], references: [id], onUpdate: NoAction, map: "fk_boleto_detalle_vuelo_programado")
+
+  @@unique([boleto_id, numero_cupon], map: "uq_boleto_detalle_cupon")
+  @@unique([boleto_id, vuelo_programado_id], map: "uq_boleto_detalle_vuelo")
+  @@index([vuelo_programado_id], map: "ix_boleto_detalle_vuelo_programado")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model cambio_cabecera {
+  id                   String                @id(map: "pk_cambio_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reserva_id           String                @db.Uuid
+  estado               estado_cambio         @default(OFERTADO)
+  cargo_cambio         Decimal               @default(0) @db.Decimal(12, 2)
+  pago_id              BigInt?               @unique(map: "uq_cambio_cabecera_pago")
+  fecha_creacion       DateTime              @default(now()) @db.Timestamptz(6)
+  fecha_expiracion     DateTime              @db.Timestamptz(6)
+  fecha_resolucion     DateTime?             @db.Timestamptz(6)
+  reserva_detalle_pago reserva_detalle_pago? @relation(fields: [pago_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_cambio_cabecera_pago")
+  reserva_cabecera     reserva_cabecera      @relation(fields: [reserva_id], references: [id], onUpdate: NoAction, map: "fk_cambio_cabecera_reserva")
+  cambio_detalle       cambio_detalle[]
+
+  @@index([reserva_id], map: "ix_cambio_cabecera_reserva")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model cambio_detalle {
+  id                         BigInt                     @id(map: "pk_cambio_detalle") @default(autoincrement())
+  cambio_id                  String                     @db.Uuid
+  reserva_itinerario_id      BigInt
+  itinerario_nuevo_id        String                     @db.Uuid
+  diferencia_tarifa          Decimal                    @db.Decimal(12, 2)
+  diferencia_impuestos       Decimal                    @db.Decimal(12, 2)
+  cambio_cabecera            cambio_cabecera            @relation(fields: [cambio_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cambio_detalle_cabecera")
+  itinerario_cabecera        itinerario_cabecera        @relation(fields: [itinerario_nuevo_id], references: [id], onUpdate: NoAction, map: "fk_cambio_detalle_itinerario_nuevo")
+  reserva_detalle_itinerario reserva_detalle_itinerario @relation(fields: [reserva_itinerario_id], references: [id], onUpdate: NoAction, map: "fk_cambio_detalle_itinerario_original")
+
+  @@unique([cambio_id, reserva_itinerario_id], map: "uq_cambio_detalle_itinerario")
+  @@index([itinerario_nuevo_id], map: "ix_cambio_detalle_itinerario_nuevo")
+  @@index([reserva_itinerario_id], map: "ix_cambio_detalle_itinerario_original")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model checkin {
+  id                       BigInt                   @id(map: "pk_checkin") @default(autoincrement())
+  pasajero_id              BigInt
+  vuelo_programado_id      String                   @db.Uuid
+  estado                   estado_checkin
+  motivo_fallo             String?
+  fecha_registro           DateTime                 @default(now()) @db.Timestamptz(6)
+  reserva_detalle_pasajero reserva_detalle_pasajero @relation(fields: [pasajero_id], references: [id], onUpdate: NoAction, map: "fk_checkin_pasajero")
+  vuelo_programado         vuelo_programado         @relation(fields: [vuelo_programado_id], references: [id], onUpdate: NoAction, map: "fk_checkin_vuelo_programado")
+  pase_abordar             pase_abordar?
+
+  @@unique([pasajero_id, vuelo_programado_id], map: "uq_checkin_registrado", where: raw("(estado = 'REGISTRADO'::estado_checkin)"))
+  @@index([pasajero_id], map: "ix_checkin_pasajero")
+  @@index([vuelo_programado_id], map: "ix_checkin_vuelo_programado")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model ciudad {
+  id           BigInt       @id(map: "pk_ciudad") @default(autoincrement())
+  pais_id      BigInt
+  nombre       String
+  zona_horaria String       @default("America/Guayaquil")
+  activo       Boolean      @default(true)
+  aeropuerto   aeropuerto[]
+  pais         pais         @relation(fields: [pais_id], references: [id], onUpdate: NoAction, map: "fk_ciudad_pais")
+
+  @@unique([pais_id, nombre], map: "uq_ciudad_pais_nombre")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model clave_idempotencia {
+  id               BigInt                @id(map: "pk_clave_idempotencia") @default(autoincrement())
+  id_propietario   String
+  operacion        operacion_idempotente
+  clave            String                @db.Uuid
+  huella_solicitud String                @db.VarChar(64)
+  codigo_http      Int?                  @db.SmallInt
+  respuesta        Json?
+  fecha_creacion   DateTime              @default(now()) @db.Timestamptz(6)
+  fecha_expiracion DateTime              @db.Timestamptz(6)
+
+  @@unique([id_propietario, operacion, clave], map: "uq_clave_idempotencia")
+  @@index([fecha_expiracion], map: "ix_clave_idempotencia_fecha_expiracion")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model cotizacion_cancelacion {
+  id               String           @id(map: "pk_cotizacion_cancelacion") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reserva_id       String           @unique(map: "uq_cotizacion_cancelacion_aceptada", where: raw("(fecha_aceptacion IS NOT NULL)")) @db.Uuid
+  monto_reembolso  Decimal          @db.Decimal(12, 2)
+  monto_penalidad  Decimal          @db.Decimal(12, 2)
+  fecha_creacion   DateTime         @default(now()) @db.Timestamptz(6)
+  fecha_expiracion DateTime         @db.Timestamptz(6)
+  fecha_aceptacion DateTime?        @db.Timestamptz(6)
+  motivo           String?
+  fecha_completada DateTime?        @db.Timestamptz(6)
+  reserva_cabecera reserva_cabecera @relation(fields: [reserva_id], references: [id], onUpdate: NoAction, map: "fk_cotizacion_cancelacion_reserva")
+
+  @@index([reserva_id], map: "ix_cotizacion_cancelacion_reserva")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model evento {
+  id                 String              @id(map: "pk_evento") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tipo_evento_id     BigInt
+  reserva_id         String?             @db.Uuid
+  retencion_id       String?             @db.Uuid
+  estado_reserva     estado_reserva?
+  fecha_evento       DateTime            @default(now()) @db.Timestamptz(6)
+  reserva_cabecera   reserva_cabecera?   @relation(fields: [reserva_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_evento_reserva")
+  retencion_cabecera retencion_cabecera? @relation(fields: [retencion_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_evento_retencion")
+  tipo_evento        tipo_evento         @relation(fields: [tipo_evento_id], references: [id], onUpdate: NoAction, map: "fk_evento_tipo_evento")
+  evento_entrega     evento_entrega[]
+
+  @@index([reserva_id], map: "ix_evento_reserva", where: raw("(reserva_id IS NOT NULL)"))
+  @@index([retencion_id], map: "ix_evento_retencion", where: raw("(retencion_id IS NOT NULL)"))
+  @@index([tipo_evento_id, fecha_evento], map: "ix_evento_tipo_fecha")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model evento_entrega {
+  id               BigInt           @id(map: "pk_evento_entrega") @default(autoincrement())
+  evento_id        String           @db.Uuid
+  webhook_id       String           @db.Uuid
+  numero_intento   Int              @default(1) @db.SmallInt
+  codigo_http      Int?             @db.SmallInt
+  entregado        Boolean          @default(false)
+  fecha_intento    DateTime         @default(now()) @db.Timestamptz(6)
+  evento           evento           @relation(fields: [evento_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_evento_entrega_evento")
+  webhook_cabecera webhook_cabecera @relation(fields: [webhook_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_evento_entrega_webhook")
+
+  @@unique([evento_id, webhook_id, numero_intento], map: "uq_evento_entrega_intento")
+  @@index([fecha_intento], map: "ix_evento_entrega_pendiente", where: raw("(NOT entregado)"))
+  @@index([webhook_id], map: "ix_evento_entrega_webhook")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model familia_tarifa {
+  id                               BigInt                       @id(map: "pk_familia_tarifa") @default(autoincrement())
+  aerolinea_id                     BigInt
+  clase_cabina                     clase_cabina
+  codigo                           String
+  nombre                           String
+  es_cambiable                     Boolean
+  porcentaje_penalidad_cancelacion Decimal                      @default(100) @db.Decimal(5, 2)
+  incluye_articulo_personal        Boolean                      @default(true)
+  equipaje_mano_incluido           Int                          @default(0) @db.SmallInt
+  equipaje_bodega_incluido         Int                          @default(0) @db.SmallInt
+  maximo_equipaje_adicional        Int                          @default(3) @db.SmallInt
+  activo                           Boolean                      @default(true)
+  aerolinea                        aerolinea                    @relation(fields: [aerolinea_id], references: [id], onUpdate: NoAction, map: "fk_familia_tarifa_aerolinea")
+  reserva_detalle_itinerario       reserva_detalle_itinerario[]
+  retencion_detalle                retencion_detalle[]
+  tarifa_cabecera                  tarifa_cabecera[]
+
+  @@unique([aerolinea_id, clase_cabina, codigo], map: "uq_familia_tarifa_aerolinea_cabina_codigo")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model inventario_cabina {
+  id                  BigInt           @id(map: "pk_inventario_cabina") @default(autoincrement())
+  vuelo_programado_id String           @db.Uuid
+  clase_cabina        clase_cabina
+  cupos_totales       Int              @db.SmallInt
+  cupos_disponibles   Int              @db.SmallInt
+  vuelo_programado    vuelo_programado @relation(fields: [vuelo_programado_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_inventario_cabina_vuelo_programado")
+
+  @@unique([vuelo_programado_id, clase_cabina], map: "uq_inventario_cabina_vuelo_cabina")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model itinerario_cabecera {
+  id                         String                       @id(map: "pk_itinerario_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fecha_creacion             DateTime                     @default(now()) @db.Timestamptz(6)
+  cambio_detalle             cambio_detalle[]
+  itinerario_detalle         itinerario_detalle[]
+  oferta_detalle             oferta_detalle[]
+  reserva_detalle_itinerario reserva_detalle_itinerario[]
+  retencion_detalle          retencion_detalle[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model itinerario_detalle {
+  id                  BigInt              @id(map: "pk_itinerario_detalle") @default(autoincrement())
+  itinerario_id       String              @db.Uuid
+  orden               Int                 @db.SmallInt
+  vuelo_programado_id String              @db.Uuid
+  itinerario_cabecera itinerario_cabecera @relation(fields: [itinerario_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_itinerario_detalle_cabecera")
+  vuelo_programado    vuelo_programado    @relation(fields: [vuelo_programado_id], references: [id], onUpdate: NoAction, map: "fk_itinerario_detalle_vuelo_programado")
+
+  @@unique([itinerario_id, orden], map: "uq_itinerario_detalle_orden")
+  @@unique([itinerario_id, vuelo_programado_id], map: "uq_itinerario_detalle_vuelo")
+  @@index([vuelo_programado_id], map: "ix_itinerario_detalle_vuelo_programado")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model mapa_asientos_cabecera {
+  id                    BigInt                  @id(map: "pk_mapa_asientos_cabecera") @default(autoincrement())
+  aerolinea_id          BigInt
+  modelo_aeronave_id    BigInt
+  nombre                String
+  activo                Boolean                 @default(true)
+  aerolinea             aerolinea               @relation(fields: [aerolinea_id], references: [id], onUpdate: NoAction, map: "fk_mapa_asientos_cabecera_aerolinea")
+  modelo_aeronave       modelo_aeronave         @relation(fields: [modelo_aeronave_id], references: [id], onUpdate: NoAction, map: "fk_mapa_asientos_cabecera_modelo")
+  mapa_asientos_detalle mapa_asientos_detalle[]
+  vuelo_programado      vuelo_programado[]
+
+  @@unique([aerolinea_id, modelo_aeronave_id, nombre], map: "uq_mapa_asientos_cabecera_nombre")
+  @@index([modelo_aeronave_id], map: "ix_mapa_asientos_cabecera_modelo")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model mapa_asientos_detalle {
+  id                     BigInt                 @id(map: "pk_mapa_asientos_detalle") @default(autoincrement())
+  mapa_asientos_id       BigInt
+  numero_fila            Int                    @db.SmallInt
+  clase_cabina           clase_cabina
+  espacio_extra          Boolean                @default(false)
+  salida_emergencia      Boolean                @default(false)
+  asiento                asiento[]
+  mapa_asientos_cabecera mapa_asientos_cabecera @relation(fields: [mapa_asientos_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_mapa_asientos_detalle_cabecera")
+
+  @@unique([mapa_asientos_id, numero_fila], map: "uq_mapa_asientos_detalle_fila")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model modelo_aeronave {
+  id                     BigInt                   @id(map: "pk_modelo_aeronave") @default(autoincrement())
+  codigo_iata            String                   @unique(map: "uq_modelo_aeronave_codigo_iata") @db.VarChar(3)
+  nombre                 String
+  activo                 Boolean                  @default(true)
+  mapa_asientos_cabecera mapa_asientos_cabecera[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model moneda {
+  id                 BigInt               @id(map: "pk_moneda") @default(autoincrement())
+  codigo_iso         String               @unique(map: "uq_moneda_codigo_iso") @db.VarChar(3)
+  nombre             String
+  decimales          Int                  @default(2) @db.SmallInt
+  activo             Boolean              @default(true)
+  retencion_cabecera retencion_cabecera[]
+  tarifa_cabecera    tarifa_cabecera[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model oferta_cabecera {
+  id                 String               @id(map: "pk_oferta_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  aerolinea_id       BigInt
+  huella_dispositivo String
+  fecha_creacion     DateTime             @default(now()) @db.Timestamptz(6)
+  fecha_expiracion   DateTime             @db.Timestamptz(6)
+  aerolinea          aerolinea            @relation(fields: [aerolinea_id], references: [id], onUpdate: NoAction, map: "fk_oferta_cabecera_aerolinea")
+  oferta_detalle     oferta_detalle[]
+  retencion_cabecera retencion_cabecera[]
+
+  @@index([aerolinea_id], map: "ix_oferta_cabecera_aerolinea")
+  @@index([fecha_expiracion], map: "ix_oferta_cabecera_fecha_expiracion")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model oferta_detalle {
+  id                  BigInt              @id(map: "pk_oferta_detalle") @default(autoincrement())
+  oferta_id           String              @db.Uuid
+  itinerario_id       String              @db.Uuid
+  orden               Int                 @db.SmallInt
+  oferta_cabecera     oferta_cabecera     @relation(fields: [oferta_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_oferta_detalle_cabecera")
+  itinerario_cabecera itinerario_cabecera @relation(fields: [itinerario_id], references: [id], onUpdate: NoAction, map: "fk_oferta_detalle_itinerario")
+
+  @@unique([oferta_id, itinerario_id], map: "uq_oferta_detalle_itinerario")
+  @@unique([oferta_id, orden], map: "uq_oferta_detalle_orden")
+  @@index([itinerario_id], map: "ix_oferta_detalle_itinerario")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model pais {
+  id                       BigInt                     @id(map: "pk_pais") @default(autoincrement())
+  codigo_iso2              String                     @unique(map: "uq_pais_codigo_iso2") @db.VarChar(2)
+  codigo_iso3              String                     @unique(map: "uq_pais_codigo_iso3") @db.VarChar(3)
+  nombre                   String                     @unique(map: "uq_pais_nombre")
+  activo                   Boolean                    @default(true)
+  ciudad                   ciudad[]
+  reserva_detalle_pasajero reserva_detalle_pasajero[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model pase_abordar {
+  id                 BigInt             @id(map: "pk_pase_abordar") @default(autoincrement())
+  checkin_id         BigInt             @unique(map: "uq_pase_abordar_checkin")
+  grupo_abordaje     String?
+  posicion_abordaje  String?
+  codigo_barras      String             @unique(map: "uq_pase_abordar_codigo_barras")
+  tipo_codigo_barras tipo_codigo_barras @default(PDF417)
+  fecha_emision      DateTime           @default(now()) @db.Timestamptz(6)
+  checkin            checkin            @relation(fields: [checkin_id], references: [id], onUpdate: NoAction, map: "fk_pase_abordar_checkin")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model reserva_cabecera {
+  id                         String                       @id(map: "pk_reserva_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  retencion_id               String                       @unique(map: "uq_reserva_cabecera_retencion") @db.Uuid
+  pnr                        String                       @unique(map: "uq_reserva_cabecera_pnr") @db.VarChar(6)
+  estado                     estado_reserva               @default(PENDIENTE)
+  fecha_creacion             DateTime                     @default(now()) @db.Timestamptz(6)
+  fecha_actualizacion        DateTime                     @default(now()) @db.Timestamptz(6)
+  cambio_cabecera            cambio_cabecera[]
+  cotizacion_cancelacion     cotizacion_cancelacion?
+  evento                     evento[]
+  retencion_cabecera         retencion_cabecera           @relation(fields: [retencion_id], references: [id], onUpdate: NoAction, map: "fk_reserva_cabecera_retencion")
+  reserva_detalle_historial  reserva_detalle_historial[]
+  reserva_detalle_itinerario reserva_detalle_itinerario[]
+  reserva_detalle_pago       reserva_detalle_pago?
+  reserva_detalle_pasajero   reserva_detalle_pasajero[]
+
+  @@index([estado, fecha_actualizacion], map: "ix_reserva_cabecera_en_proceso", where: raw("(estado = ANY (ARRAY['PENDIENTE'::estado_reserva, 'PENDIENTE_PAGO'::estado_reserva, 'EMITIENDO_BOLETOS'::estado_reserva, 'CAMBIO_PENDIENTE'::estado_reserva, 'CANCELACION_PENDIENTE'::estado_reserva]))"))
+  @@index([fecha_creacion(sort: Desc), id(sort: Desc)], map: "ix_reserva_cabecera_listado")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model reserva_detalle_asiento {
+  id                       BigInt                   @id(map: "pk_reserva_detalle_asiento") @default(autoincrement())
+  pasajero_id              BigInt
+  vuelo_programado_id      String                   @db.Uuid
+  asiento_id               BigInt
+  fecha_asignacion         DateTime                 @default(now()) @db.Timestamptz(6)
+  fecha_liberacion         DateTime?                @db.Timestamptz(6)
+  asiento                  asiento                  @relation(fields: [asiento_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_asiento_asiento")
+  reserva_detalle_pasajero reserva_detalle_pasajero @relation(fields: [pasajero_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_asiento_pasajero")
+  vuelo_programado         vuelo_programado         @relation(fields: [vuelo_programado_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_asiento_vuelo")
+
+  @@unique([vuelo_programado_id, asiento_id], map: "uq_reserva_detalle_asiento_ocupado", where: raw("(fecha_liberacion IS NULL)"))
+  @@unique([pasajero_id, vuelo_programado_id], map: "uq_reserva_detalle_asiento_pasajero_vuelo", where: raw("(fecha_liberacion IS NULL)"))
+  @@index([asiento_id], map: "ix_reserva_detalle_asiento_asiento")
+  @@index([pasajero_id], map: "ix_reserva_detalle_asiento_pasajero")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model reserva_detalle_equipaje {
+  id                         BigInt                     @id(map: "pk_reserva_detalle_equipaje") @default(autoincrement())
+  pasajero_id                BigInt
+  reserva_itinerario_id      BigInt
+  pago_id                    BigInt
+  cantidad                   Int                        @db.SmallInt
+  precio_unitario            Decimal                    @db.Decimal(12, 2)
+  fecha_registro             DateTime                   @default(now()) @db.Timestamptz(6)
+  reserva_detalle_itinerario reserva_detalle_itinerario @relation(fields: [reserva_itinerario_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_equipaje_itinerario")
+  reserva_detalle_pago       reserva_detalle_pago       @relation(fields: [pago_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_equipaje_pago")
+  reserva_detalle_pasajero   reserva_detalle_pasajero   @relation(fields: [pasajero_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_equipaje_pasajero")
+
+  @@index([reserva_itinerario_id], map: "ix_reserva_detalle_equipaje_itinerario")
+  @@index([pago_id], map: "ix_reserva_detalle_equipaje_pago")
+  @@index([pasajero_id], map: "ix_reserva_detalle_equipaje_pasajero")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model reserva_detalle_historial {
+  id               BigInt           @id(map: "pk_reserva_detalle_historial") @default(autoincrement())
+  reserva_id       String           @db.Uuid
+  estado_anterior  estado_reserva?
+  estado_nuevo     estado_reserva?
+  descripcion      String
+  fecha_evento     DateTime         @default(now()) @db.Timestamptz(6)
+  reserva_cabecera reserva_cabecera @relation(fields: [reserva_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_historial_reserva")
+
+  @@index([reserva_id, fecha_evento], map: "ix_reserva_detalle_historial_reserva")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model reserva_detalle_itinerario {
+  id                       BigInt                     @id(map: "pk_reserva_detalle_itinerario") @default(autoincrement())
+  reserva_id               String                     @db.Uuid
+  itinerario_id            String                     @db.Uuid
+  familia_tarifa_id        BigInt
+  orden                    Int                        @db.SmallInt
+  tarifa_base              Decimal                    @db.Decimal(12, 2)
+  impuestos                Decimal                    @db.Decimal(12, 2)
+  vigente                  Boolean                    @default(true)
+  cambio_detalle           cambio_detalle[]
+  reserva_detalle_equipaje reserva_detalle_equipaje[]
+  familia_tarifa           familia_tarifa             @relation(fields: [familia_tarifa_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_itinerario_familia")
+  itinerario_cabecera      itinerario_cabecera        @relation(fields: [itinerario_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_itinerario_itinerario")
+  reserva_cabecera         reserva_cabecera           @relation(fields: [reserva_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_itinerario_reserva")
+
+  @@unique([reserva_id, itinerario_id], map: "uq_reserva_detalle_itinerario")
+  @@unique([reserva_id, orden], map: "uq_reserva_detalle_itinerario_orden_vigente", where: raw("vigente"))
+  @@index([familia_tarifa_id], map: "ix_reserva_detalle_itinerario_familia")
+  @@index([itinerario_id], map: "ix_reserva_detalle_itinerario_itinerario")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model reserva_detalle_pago {
+  id                       BigInt                     @id(map: "pk_reserva_detalle_pago") @default(autoincrement())
+  reserva_id               String                     @unique(map: "uq_reserva_detalle_pago_emision", where: raw("(concepto = 'EMISION'::concepto_pago)")) @db.Uuid
+  referencia_pago          String                     @unique(map: "uq_reserva_detalle_pago_referencia")
+  concepto                 concepto_pago
+  fecha_registro           DateTime                   @default(now()) @db.Timestamptz(6)
+  cambio_cabecera          cambio_cabecera?
+  reserva_detalle_equipaje reserva_detalle_equipaje[]
+  reserva_cabecera         reserva_cabecera           @relation(fields: [reserva_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_pago_reserva")
+
+  @@index([reserva_id], map: "ix_reserva_detalle_pago_reserva")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model reserva_detalle_pasajero {
+  id                             BigInt                     @id(map: "pk_reserva_detalle_pasajero") @default(autoincrement())
+  reserva_id                     String                     @db.Uuid
+  codigo_pasajero                String
+  tipo_pasajero                  tipo_pasajero
+  adulto_responsable_id          BigInt?                    @unique(map: "uq_reserva_detalle_pasajero_infante_por_adulto", where: raw("(tipo_pasajero = 'INFANTE'::tipo_pasajero)"))
+  nombres                        String
+  apellidos                      String
+  tipo_documento                 tipo_documento
+  numero_documento               String                     @db.VarChar(20)
+  pais_nacionalidad_id           BigInt
+  fecha_vencimiento_documento    DateTime?                  @db.Date
+  fecha_nacimiento               DateTime                   @db.Date
+  genero                         genero
+  correo                         String
+  telefono                       String                     @db.VarChar(16)
+  boleto_cabecera                boleto_cabecera?
+  checkin                        checkin[]
+  reserva_detalle_asiento        reserva_detalle_asiento[]
+  reserva_detalle_equipaje       reserva_detalle_equipaje[]
+  reserva_detalle_pasajero       reserva_detalle_pasajero?  @relation("reserva_detalle_pasajeroToreserva_detalle_pasajero", fields: [adulto_responsable_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_reserva_detalle_pasajero_adulto")
+  other_reserva_detalle_pasajero reserva_detalle_pasajero?  @relation("reserva_detalle_pasajeroToreserva_detalle_pasajero")
+  pais                           pais                       @relation(fields: [pais_nacionalidad_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_pasajero_pais")
+  reserva_cabecera               reserva_cabecera           @relation(fields: [reserva_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_pasajero_reserva")
+
+  @@unique([reserva_id, codigo_pasajero], map: "uq_reserva_detalle_pasajero_codigo")
+  @@unique([reserva_id, tipo_documento, numero_documento], map: "uq_reserva_detalle_pasajero_documento")
+  @@index([adulto_responsable_id], map: "ix_reserva_detalle_pasajero_adulto", where: raw("(adulto_responsable_id IS NOT NULL)"))
+  @@index([tipo_documento, numero_documento], map: "ix_reserva_detalle_pasajero_documento")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model retencion_cabecera {
+  id                String              @id(map: "pk_retencion_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  oferta_id         String              @db.Uuid
+  id_propietario    String
+  moneda_id         BigInt
+  estado            estado_retencion    @default(RETENIDA)
+  adultos           Int                 @default(1) @db.SmallInt
+  jovenes           Int                 @default(0) @db.SmallInt
+  ninos             Int                 @default(0) @db.SmallInt
+  infantes          Int                 @default(0) @db.SmallInt
+  fecha_creacion    DateTime            @default(now()) @db.Timestamptz(6)
+  fecha_expiracion  DateTime            @db.Timestamptz(6)
+  fecha_cierre      DateTime?           @db.Timestamptz(6)
+  evento            evento[]
+  reserva_cabecera  reserva_cabecera?
+  moneda            moneda              @relation(fields: [moneda_id], references: [id], onUpdate: NoAction, map: "fk_retencion_cabecera_moneda")
+  oferta_cabecera   oferta_cabecera     @relation(fields: [oferta_id], references: [id], onUpdate: NoAction, map: "fk_retencion_cabecera_oferta")
+  retencion_detalle retencion_detalle[]
+
+  @@index([oferta_id], map: "ix_retencion_cabecera_oferta")
+  @@index([fecha_expiracion], map: "ix_retencion_cabecera_por_expirar", where: raw("(estado = 'RETENIDA'::estado_retencion)"))
+  @@index([id_propietario, fecha_creacion(sort: Desc)], map: "ix_retencion_cabecera_propietario")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model retencion_detalle {
+  id                    BigInt              @id(map: "pk_retencion_detalle") @default(autoincrement())
+  retencion_id          String              @db.Uuid
+  itinerario_id         String              @db.Uuid
+  familia_tarifa_id     BigInt
+  tarifa_base_congelada Decimal             @db.Decimal(12, 2)
+  impuestos_congelados  Decimal             @db.Decimal(12, 2)
+  retencion_cabecera    retencion_cabecera  @relation(fields: [retencion_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_retencion_detalle_cabecera")
+  familia_tarifa        familia_tarifa      @relation(fields: [familia_tarifa_id], references: [id], onUpdate: NoAction, map: "fk_retencion_detalle_familia_tarifa")
+  itinerario_cabecera   itinerario_cabecera @relation(fields: [itinerario_id], references: [id], onUpdate: NoAction, map: "fk_retencion_detalle_itinerario")
+
+  @@unique([retencion_id, itinerario_id], map: "uq_retencion_detalle_itinerario")
+  @@index([familia_tarifa_id], map: "ix_retencion_detalle_familia_tarifa")
+  @@index([itinerario_id], map: "ix_retencion_detalle_itinerario")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model tarifa_cabecera {
+  id                        BigInt           @id(map: "pk_tarifa_cabecera") @default(autoincrement())
+  vuelo_programado_id       String           @db.Uuid
+  familia_tarifa_id         BigInt
+  moneda_id                 BigInt
+  precio_equipaje_adicional Decimal          @db.Decimal(12, 2)
+  cargo_cambio              Decimal          @default(0) @db.Decimal(12, 2)
+  activo                    Boolean          @default(true)
+  familia_tarifa            familia_tarifa   @relation(fields: [familia_tarifa_id], references: [id], onUpdate: NoAction, map: "fk_tarifa_cabecera_familia_tarifa")
+  moneda                    moneda           @relation(fields: [moneda_id], references: [id], onUpdate: NoAction, map: "fk_tarifa_cabecera_moneda")
+  vuelo_programado          vuelo_programado @relation(fields: [vuelo_programado_id], references: [id], onUpdate: NoAction, map: "fk_tarifa_cabecera_vuelo_programado")
+  tarifa_detalle            tarifa_detalle[]
+
+  @@unique([vuelo_programado_id, familia_tarifa_id], map: "uq_tarifa_cabecera_vuelo_familia")
+  @@index([familia_tarifa_id], map: "ix_tarifa_cabecera_familia_tarifa")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model tarifa_detalle {
+  id              BigInt          @id(map: "pk_tarifa_detalle") @default(autoincrement())
+  tarifa_id       BigInt
+  tipo_pasajero   tipo_pasajero
+  tarifa_base     Decimal         @db.Decimal(12, 2)
+  impuestos       Decimal         @db.Decimal(12, 2)
+  tarifa_cabecera tarifa_cabecera @relation(fields: [tarifa_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_tarifa_detalle_cabecera")
+
+  @@unique([tarifa_id, tipo_pasajero], map: "uq_tarifa_detalle_tarifa_tipo")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model tipo_evento {
+  id              BigInt            @id(map: "pk_tipo_evento") @default(autoincrement())
+  codigo          String            @unique(map: "uq_tipo_evento_codigo")
+  descripcion     String
+  activo          Boolean           @default(true)
+  evento          evento[]
+  webhook_detalle webhook_detalle[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model vuelo {
+  id                                                 BigInt             @id(map: "pk_vuelo") @default(autoincrement())
+  aerolinea_id                                       BigInt
+  aerolinea_operadora_id                             BigInt
+  numero                                             String             @db.VarChar(4)
+  aeropuerto_origen_id                               BigInt
+  aeropuerto_destino_id                              BigInt
+  activo                                             Boolean            @default(true)
+  aerolinea_vuelo_aerolinea_idToaerolinea            aerolinea          @relation("vuelo_aerolinea_idToaerolinea", fields: [aerolinea_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_aerolinea")
+  aerolinea_vuelo_aerolinea_operadora_idToaerolinea  aerolinea          @relation("vuelo_aerolinea_operadora_idToaerolinea", fields: [aerolinea_operadora_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_aerolinea_operadora")
+  aeropuerto_vuelo_aeropuerto_destino_idToaeropuerto aeropuerto         @relation("vuelo_aeropuerto_destino_idToaeropuerto", fields: [aeropuerto_destino_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_aeropuerto_destino")
+  aeropuerto_vuelo_aeropuerto_origen_idToaeropuerto  aeropuerto         @relation("vuelo_aeropuerto_origen_idToaeropuerto", fields: [aeropuerto_origen_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_aeropuerto_origen")
+  vuelo_programado                                   vuelo_programado[]
+
+  @@unique([aerolinea_id, numero], map: "uq_vuelo_aerolinea_numero")
+  @@index([aerolinea_operadora_id], map: "ix_vuelo_aerolinea_operadora")
+  @@index([aeropuerto_destino_id], map: "ix_vuelo_aeropuerto_destino")
+  @@index([aeropuerto_origen_id, aeropuerto_destino_id], map: "ix_vuelo_ruta", where: raw("activo"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model vuelo_programado {
+  id                      String                    @id(map: "pk_vuelo_programado") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  vuelo_id                BigInt
+  mapa_asientos_id        BigInt
+  fecha_salida            DateTime                  @db.Date
+  salida_programada       DateTime                  @db.Timestamptz(6)
+  llegada_programada      DateTime                  @db.Timestamptz(6)
+  salida_estimada         DateTime?                 @db.Timestamptz(6)
+  llegada_estimada        DateTime?                 @db.Timestamptz(6)
+  salida_real             DateTime?                 @db.Timestamptz(6)
+  llegada_real            DateTime?                 @db.Timestamptz(6)
+  terminal_salida         String?
+  terminal_llegada        String?
+  estado                  estado_vuelo              @default(PROGRAMADO)
+  boleto_detalle          boleto_detalle[]
+  checkin                 checkin[]
+  inventario_cabina       inventario_cabina[]
+  itinerario_detalle      itinerario_detalle[]
+  reserva_detalle_asiento reserva_detalle_asiento[]
+  tarifa_cabecera         tarifa_cabecera[]
+  mapa_asientos_cabecera  mapa_asientos_cabecera    @relation(fields: [mapa_asientos_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_programado_mapa_asientos")
+  vuelo                   vuelo                     @relation(fields: [vuelo_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_programado_vuelo")
+
+  @@unique([vuelo_id, fecha_salida], map: "uq_vuelo_programado_vuelo_fecha")
+  @@index([fecha_salida], map: "ix_vuelo_programado_fecha_salida")
+  @@index([mapa_asientos_id], map: "ix_vuelo_programado_mapa_asientos")
+  @@index([salida_programada], map: "ix_vuelo_programado_salida_programada")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model webhook_cabecera {
+  id              String            @id(map: "pk_webhook_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id_propietario  String
+  url             String
+  secreto         String
+  activo          Boolean           @default(true)
+  fecha_creacion  DateTime          @default(now()) @db.Timestamptz(6)
+  evento_entrega  evento_entrega[]
+  webhook_detalle webhook_detalle[]
+
+  @@unique([id_propietario, url], map: "uq_webhook_cabecera_propietario_url", where: raw("activo"))
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model webhook_detalle {
+  id               BigInt           @id(map: "pk_webhook_detalle") @default(autoincrement())
+  webhook_id       String           @db.Uuid
+  tipo_evento_id   BigInt
+  webhook_cabecera webhook_cabecera @relation(fields: [webhook_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_webhook_detalle_cabecera")
+  tipo_evento      tipo_evento      @relation(fields: [tipo_evento_id], references: [id], onUpdate: NoAction, map: "fk_webhook_detalle_tipo_evento")
+
+  @@unique([webhook_id, tipo_evento_id], map: "uq_webhook_detalle_evento")
+  @@index([tipo_evento_id], map: "ix_webhook_detalle_tipo_evento")
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum clase_cabina {
+  ECONOMICA
+  ECONOMICA_PREMIUM
+  EJECUTIVA
+  PRIMERA
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum concepto_pago {
+  EMISION
+  EQUIPAJE_ADICIONAL
+  CAMBIO_FECHA
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_boleto {
+  PENDIENTE
+  EMITIENDO
+  EMITIDO
+  FALLIDO
+  ANULADO
+  REEMBOLSADO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_cambio {
+  OFERTADO
+  PENDIENTE
+  CONFIRMADO
+  EXPIRADO
+  FALLIDO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_checkin {
+  REGISTRADO
+  FALLIDO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_cupon {
+  PENDIENTE
+  EMITIDO
+  FALLIDO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_reserva {
+  PENDIENTE
+  PENDIENTE_PAGO
+  EMITIENDO_BOLETOS
+  CONFIRMADA
+  FALLIDA
+  CAMBIO_PENDIENTE
+  CANCELACION_PENDIENTE
+  CANCELADA
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_retencion {
+  RETENIDA
+  LIBERADA
+  EXPIRADA
+  CONSUMIDA
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_vuelo {
+  PROGRAMADO
+  EMBARCANDO
+  DESPEGADO
+  DEMORADO
+  ATERRIZADO
+  CANCELADO
+  DESVIADO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum genero {
+  M
+  F
+  X
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum operacion_auditoria {
+  INSERCION
+  ACTUALIZACION
+  ELIMINACION
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum operacion_idempotente {
+  CREAR_RETENCION
+  CREAR_RESERVA
+  AGREGAR_EQUIPAJE
+  CONFIRMAR_CAMBIO_FECHA
+  CANCELAR_RESERVA
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum posicion_asiento {
+  VENTANA
+  CENTRO
+  PASILLO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum tipo_codigo_barras {
+  AZTEC
+  PDF417
+  QR
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum tipo_documento {
+  PASAPORTE
+  CEDULA
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum tipo_pasajero {
+  ADULTO
+  JOVEN
+  NINO
+  INFANTE
+}

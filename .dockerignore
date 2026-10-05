@@ -1,8 +1,13 @@
 node_modules
 npm-debug.log
 dist
+coverage
 .env
+.env.*
 .git
 .gitignore
 .dockerignore
+.husky
 *.md
+# El cliente de Prisma se genera dentro de la imagen
+src/generated

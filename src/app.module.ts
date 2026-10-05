@@ -1,35 +1,30 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
+import { RouterModule } from '@nestjs/core';
 
 import { CommonModule } from './common/common.module';
+import { validarEntorno } from './config/entorno';
+import { PrismaModule } from './prisma/prisma.module';
+import { rutas } from './routes/index.routes';
 // import { AlojamientosModule } from './modules/alojamientos/alojamientos.module';
 // import { AutosModule } from './modules/autos/autos.module';
 // import { AtraccionesModule } from './modules/atracciones/atracciones.module';
+import { SaludModule } from './modules/salud/salud.module';
 import { VuelosModule } from './modules/vuelos/vuelos.module';
 
 @Module({
   imports: [
-    // Carga de variables de entorno globales
+    // Carga las variables de entorno y las valida; si falta una, la API no levanta
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
-    }),
-
-    // Configuración centralizada de TypeORM usando DATABASE_URL
-    TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        url: configService.get<string>('DATABASE_URL'),
-        autoLoadEntities: true,
-        synchronize: configService.get<string>('NODE_ENV') !== 'production', // Precaución en producción
-      }),
+      validate: validarEntorno,
     }),
 
     // Módulos Compartidos
+    PrismaModule,
     CommonModule,
+    SaludModule,
 
     // =========================================================================
     // ATENCIÓN ALUMNO: Descomenta solo el módulo que corresponde a tu grupo
@@ -38,6 +33,9 @@ import { VuelosModule } from './modules/vuelos/vuelos.module';
     // AutosModule,
     // AtraccionesModule,
     VuelosModule,
+
+    // Tabla de rutas: src/routes/index.routes.ts
+    RouterModule.register(rutas),
   ],
   controllers: [],
   providers: [],

@@ -13,14 +13,14 @@ está en [docs/PLAN.md](docs/PLAN.md).
 
 ## Estado
 
-| Fase                                  | Estado    |
-| ------------------------------------- | --------- |
-| 0. Base del repo                      | Hecha     |
-| 1. Núcleo (Prisma, rutas, despliegue) | Siguiente |
-| 2 a 11                                | Pendiente |
+| Fase                                  | Estado                                 |
+| ------------------------------------- | -------------------------------------- |
+| 0. Base del repo                      | Hecha                                  |
+| 1. Núcleo (Prisma, rutas, despliegue) | Hecha en local; falta desplegar Render |
+| 2 a 11                                | Pendiente                              |
 
-Hoy la API levanta con el **controlador de ejemplo de la plantilla**: los endpoints de vuelos
-responden datos vacíos y todavía no leen la base. La lógica real entra desde la fase 1.
+Hoy la API expone solo `GET /flights/v1/health`, que consulta la base. Prisma ya lee el esquema
+`vuelos`; los endpoints del contrato entran desde la fase 4.
 
 ## Requisitos
 
@@ -31,26 +31,34 @@ responden datos vacíos y todavía no leen la base. La lógica real entra desde 
 ## Arranque
 
 ```bash
-npm ci                    # instala dependencias y activa el hook de commits
+npm ci                    # dependencias, cliente de Prisma y hook de commits
 cp .env.example .env      # variables de entorno locales
 docker compose up -d      # PostgreSQL 18 en el puerto 5432
 ./db/reset.sh             # crea la base y carga esquema + semilla
 npm run start:dev         # API en http://localhost:3000
+curl localhost:3000/flights/v1/health
 ```
+
+La API no arranca si falta `DATABASE_URL`, `PORT` o `NODE_ENV`, o si tienen un formato inválido.
+
+Si los puertos 5432 o 3000 ya están ocupados, cámbialos en `.env`: `DB_PORT` para la base
+(junto con el puerto de `DATABASE_URL`) y `PORT` para la API.
 
 Documentación Swagger: <http://localhost:3000/api/docs>
 
 ## Scripts
 
-| Comando                | Qué hace                                         |
-| ---------------------- | ------------------------------------------------ |
-| `npm run start:dev`    | Levanta la API y recarga al guardar              |
-| `npm run build`        | Compila a `dist/`                                |
-| `npm run lint`         | Revisa el código con ESLint                      |
-| `npm run lint:fix`     | Igual, corrigiendo lo que se pueda               |
-| `npm run format`       | Aplica Prettier                                  |
-| `npm run format:check` | Verifica el formato sin cambiar archivos         |
-| `./db/reset.sh`        | Borra, crea y carga la base (esquema y semilla)  |
+| Comando                   | Qué hace                                                    |
+| ------------------------- | ----------------------------------------------------------- |
+| `npm run start:dev`       | Levanta la API y recarga al guardar                         |
+| `npm run build`           | Compila a `dist/`                                           |
+| `npm run lint`            | Revisa el código con ESLint                                 |
+| `npm run lint:fix`        | Igual, corrigiendo lo que se pueda                          |
+| `npm run format`          | Aplica Prettier                                             |
+| `npm run format:check`    | Verifica el formato sin cambiar archivos                    |
+| `npm run prisma:pull`     | Relee el esquema de la base y regenera el cliente de Prisma |
+| `npm run prisma:generate` | Regenera el cliente de Prisma (`npm ci` ya lo hace)         |
+| `./db/reset.sh`           | Borra, crea y carga la base (esquema y semilla)             |
 
 ## Base de datos
 
@@ -67,6 +75,8 @@ Los archivos de `db/` son la fuente de verdad: la base se crea desde el SQL, no 
   hay que volver a correr `./db/reset.sh`.
 - La semilla se carga una sola vez por base; para recargar, siempre `./db/reset.sh`.
 - `./db/reset.sh --solo-esquema` deja la base sin datos.
+- Prisma no crea ni cambia tablas: un cambio se hace en el SQL, se recarga la base y se corre
+  `npm run prisma:pull`. `prisma/schema.prisma` no se edita a mano y no se usa `prisma migrate`.
 
 Para correr la prueba del esquema (deja datos de prueba, por eso se resetea al final):
 
@@ -74,6 +84,17 @@ Para correr la prueba del esquema (deja datos de prueba, por eso se resetea al f
 ./db/reset.sh --solo-esquema
 docker exec -i booking_db_container psql -U postgres -d booking_db -q < db/prueba_esquema.sql
 ./db/reset.sh
+```
+
+## Imagen Docker
+
+El `Dockerfile` es la imagen que usará Render. No lleva credenciales: `PORT`, `NODE_ENV` y
+`DATABASE_URL` llegan del entorno.
+
+```bash
+docker build -t quinde-vuelos-api .
+docker run --rm -p 3000:3000 -e PORT=3000 -e NODE_ENV=production \
+  -e DATABASE_URL="postgresql://...?schema=vuelos" quinde-vuelos-api
 ```
 
 ## Cómo se trabaja

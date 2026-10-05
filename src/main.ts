@@ -1,12 +1,19 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { configurarSwagger } from './config/swagger';
+import { habilitarBigIntEnJson } from './prisma/serializacion-bigint';
+import { PREFIJO_GLOBAL, VERSION_POR_DEFECTO } from './routes/index.routes';
+import { ValidationPipe, VersioningType } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
+  habilitarBigIntEnJson();
+
   const app = await NestFactory.create(AppModule);
 
-  app.setGlobalPrefix('api/v1');
+  // /flights/v1/...: prefijo global más versión en la URL
+  app.setGlobalPrefix(PREFIJO_GLOBAL);
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: VERSION_POR_DEFECTO });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -16,15 +23,8 @@ async function bootstrap() {
     }),
   );
 
-  const config = new DocumentBuilder()
-    .setTitle('Booking Prototipo API')
-    .setDescription('API base para los dominios de Alojamientos, Autos, Atracciones y Vuelos.')
-    .setVersion('1.0')
-    .build();
+  configurarSwagger(app);
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
-
-  await app.listen(process.env.PORT || 3000);
+  await app.listen(app.get(ConfigService).getOrThrow<number>('PORT'));
 }
 bootstrap();
