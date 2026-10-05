@@ -2,7 +2,7 @@
 // Imprime el hash argon2id de la contraseña que llega en la variable SEED_ADMIN_PASSWORD.
 // Lo usa db/reset.sh para sembrar el administrador de desarrollo: SQL no sabe calcular
 // argon2id. La contraseña se lee del entorno y no de un argumento para que no aparezca en
-// la lista de procesos. Los parámetros son los mismos que usa la API (src/config/argon2.json).
+// la lista de procesos. Los parámetros son los mismos que usa la API (src/config/parametros-argon2.json).
 //
 //   SEED_ADMIN_PASSWORD='...' node db/hash-contrasena.js
 'use strict';
@@ -16,7 +16,7 @@ try {
   console.error('Falta el paquete argon2: corre "npm ci" antes de ./db/reset.sh');
   process.exit(1);
 }
-const parametros = require(path.join(__dirname, '..', 'src', 'config', 'argon2.json'));
+const parametros = require(path.join(__dirname, '..', 'src', 'config', 'parametros-argon2.json'));
 
 const contrasena = process.env.SEED_ADMIN_PASSWORD ?? '';
 // Mismas reglas que el registro de la API: de 12 a 128 caracteres.

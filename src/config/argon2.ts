@@ -1,8 +1,10 @@
-import * as parametros from './argon2.json';
+import * as parametros from './parametros-argon2.json';
 
 /**
- * Parámetros de argon2id para las contraseñas. Viven en argon2.json porque también los usa
- * db/hash-contrasena.js (la semilla del administrador), que no pasa por TypeScript.
+ * Parámetros de argon2id para las contraseñas. Viven en parametros-argon2.json porque también
+ * los usa db/hash-contrasena.js (la semilla del administrador), que no pasa por TypeScript.
+ * El JSON no se llama argon2.json a propósito: Jest resuelve `config/argon2` probando .js y
+ * .json antes que .ts, y con el mismo nombre importaba el JSON en lugar de este archivo.
  *
  * Son los mínimos que recomienda OWASP (Password Storage Cheat Sheet) para argon2id, pensados
  * para el plan gratuito de Render (512 MB, CPU compartida): unos 30 a 60 ms por hash.
@@ -16,8 +18,17 @@ import * as parametros from './argon2.json';
  * recalculan con los nuevos en el siguiente login correcto (ver ContrasenaService).
  */
 export const PARAMETROS_ARGON2 = {
-  memoryCost: parametros.memoryCost,
-  timeCost: parametros.timeCost,
-  parallelism: parametros.parallelism,
-  hashLength: parametros.hashLength,
+  memoryCost: entero('memoryCost'),
+  timeCost: entero('timeCost'),
+  parallelism: entero('parallelism'),
+  hashLength: entero('hashLength'),
 } as const;
+
+/** Un parámetro ausente haría que argon2 use sus valores por defecto sin avisar: se corta aquí. */
+function entero(nombre: keyof typeof parametros): number {
+  const valor: unknown = parametros[nombre];
+  if (typeof valor !== 'number' || !Number.isInteger(valor) || valor < 1) {
+    throw new Error(`parametros-argon2.json: ${nombre} debe ser un entero positivo`);
+  }
+  return valor;
+}
