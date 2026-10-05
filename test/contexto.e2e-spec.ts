@@ -363,6 +363,7 @@ describe('Validación de X-Request-Id y de TRUST_PROXY', () => {
   it('validarEntorno rechaza TRUST_PROXY=true y explica por qué', () => {
     const base = {
       DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
+      JWT_SECRET: 'x'.repeat(32),
       PORT: '3000',
       NODE_ENV: 'test',
     };
