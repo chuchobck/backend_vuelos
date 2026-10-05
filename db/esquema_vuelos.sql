@@ -197,6 +197,7 @@ CREATE TABLE moneda (
 
 CREATE TABLE familia_tarifa (
     id                                bigint        GENERATED ALWAYS AS IDENTITY,
+    id_publico                        uuid          NOT NULL DEFAULT gen_random_uuid(),
     aerolinea_id                      bigint        NOT NULL,
     clase_cabina                      clase_cabina  NOT NULL,
     codigo                            text          NOT NULL,
@@ -209,6 +210,7 @@ CREATE TABLE familia_tarifa (
     maximo_equipaje_adicional         smallint      NOT NULL DEFAULT 3,
     activo                            boolean       NOT NULL DEFAULT true,
     CONSTRAINT pk_familia_tarifa PRIMARY KEY (id),
+    CONSTRAINT uq_familia_tarifa_id_publico UNIQUE (id_publico),
     CONSTRAINT uq_familia_tarifa_aerolinea_cabina_codigo UNIQUE (aerolinea_id, clase_cabina, codigo),
     CONSTRAINT fk_familia_tarifa_aerolinea FOREIGN KEY (aerolinea_id) REFERENCES aerolinea (id) ON DELETE RESTRICT,
     CONSTRAINT ck_familia_tarifa_codigo CHECK (codigo ~ '^[A-Z0-9_]{2,20}$'),
@@ -239,11 +241,13 @@ CREATE TABLE tipo_evento (
 
 CREATE TABLE mapa_asientos_cabecera (
     id                  bigint   GENERATED ALWAYS AS IDENTITY,
+    id_publico          uuid     NOT NULL DEFAULT gen_random_uuid(),
     aerolinea_id        bigint   NOT NULL,
     modelo_aeronave_id  bigint   NOT NULL,
     nombre              text     NOT NULL,
     activo              boolean  NOT NULL DEFAULT true,
     CONSTRAINT pk_mapa_asientos_cabecera PRIMARY KEY (id),
+    CONSTRAINT uq_mapa_asientos_cabecera_id_publico UNIQUE (id_publico),
     CONSTRAINT uq_mapa_asientos_cabecera_nombre UNIQUE (aerolinea_id, modelo_aeronave_id, nombre),
     CONSTRAINT fk_mapa_asientos_cabecera_aerolinea FOREIGN KEY (aerolinea_id) REFERENCES aerolinea (id) ON DELETE RESTRICT,
     CONSTRAINT fk_mapa_asientos_cabecera_modelo FOREIGN KEY (modelo_aeronave_id) REFERENCES modelo_aeronave (id) ON DELETE RESTRICT,
@@ -1277,9 +1281,11 @@ COMMENT ON COLUMN pais.codigo_iso3 IS 'Alfa-3, el formato que usan los pasaporte
 COMMENT ON COLUMN ciudad.id_publico IS 'Identificador de la ciudad en la API de administración (/admin/cities/{id}). La ciudad no tiene un código natural único y el id bigint es interno.';
 COMMENT ON COLUMN ciudad.zona_horaria IS 'Zona horaria IANA. America/Guayaquil para el continente y Pacific/Galapagos para Galápagos.';
 COMMENT ON COLUMN aerolinea.prefijo_boleto IS 'Código numérico de 3 dígitos con el que empiezan los boletos electrónicos de la aerolínea.';
+COMMENT ON COLUMN familia_tarifa.id_publico IS 'Identificador de la familia en la API de administración (/admin/fare-families/{id}). Su clave natural es compuesta (aerolínea, cabina, código) y el id bigint es interno.';
 COMMENT ON COLUMN familia_tarifa.codigo IS 'fareBrand del contrato, en mayúsculas.';
 COMMENT ON COLUMN familia_tarifa.porcentaje_penalidad_cancelacion IS 'Porcentaje que se retiene al cancelar. 100 significa no reembolsable: isRefundable del contrato es (porcentaje < 100).';
 COMMENT ON COLUMN familia_tarifa.maximo_equipaje_adicional IS 'Tope de maletas adicionales por pasajero e itinerario (maxAllowed).';
+COMMENT ON COLUMN mapa_asientos_cabecera.id_publico IS 'Identificador del mapa en la API de administración (/admin/seat-maps/{id}). Su única clave natural incluye el nombre, que se puede cambiar.';
 COMMENT ON COLUMN mapa_asientos_detalle.espacio_extra IS 'Característica EXTRA_LEGROOM del contrato.';
 COMMENT ON COLUMN mapa_asientos_detalle.salida_emergencia IS 'Característica EMERGENCY_EXIT del contrato.';
 COMMENT ON COLUMN vuelo.aerolinea_id IS 'Aerolínea que comercializa el vuelo (marketingCarrier). Su código IATA más "numero" forma el flightNumber.';

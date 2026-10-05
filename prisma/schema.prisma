@@ -247,6 +247,7 @@ model evento_entrega {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model familia_tarifa {
   id                               BigInt                       @id(map: "pk_familia_tarifa") @default(autoincrement())
+  id_publico                       String                       @unique(map: "uq_familia_tarifa_id_publico") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   aerolinea_id                     BigInt
   clase_cabina                     clase_cabina
   codigo                           String
@@ -309,6 +310,7 @@ model itinerario_detalle {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model mapa_asientos_cabecera {
   id                    BigInt                  @id(map: "pk_mapa_asientos_cabecera") @default(autoincrement())
+  id_publico            String                  @unique(map: "uq_mapa_asientos_cabecera_id_publico") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   aerolinea_id          BigInt
   modelo_aeronave_id    BigInt
   nombre                String

@@ -143,6 +143,16 @@ const POR_RESTRICCION: Record<string, Regla> = {
     CodigoError.VALIDATION_FAILED,
     'An aircraft model with this IATA code already exists',
   ),
+  uq_familia_tarifa_aerolinea_cabina_codigo: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'The airline already has a fare family with this code in this cabin',
+  ),
+  uq_mapa_asientos_cabecera_nombre: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'The airline already has a seat map with this name for this aircraft model',
+  ),
   uq_usuario_correo: regla(
     409,
     CodigoError.VALIDATION_FAILED,
