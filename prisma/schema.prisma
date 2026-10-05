@@ -161,6 +161,7 @@ model checkin {
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model ciudad {
   id           BigInt       @id(map: "pk_ciudad") @default(autoincrement())
+  id_publico   String       @unique(map: "uq_ciudad_id_publico") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   pais_id      BigInt
   nombre       String
   zona_horaria String       @default("America/Guayaquil")

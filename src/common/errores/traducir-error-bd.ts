@@ -103,6 +103,26 @@ const POR_RESTRICCION: Record<string, Regla> = {
     CodigoError.VALIDATION_FAILED,
     'A webhook with this URL already exists',
   ),
+  uq_pais_codigo_iso2: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A country with this code already exists',
+  ),
+  uq_pais_codigo_iso3: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A country with this ISO 3166-1 alpha-3 code already exists',
+  ),
+  uq_pais_nombre: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A country with this name already exists',
+  ),
+  uq_ciudad_pais_nombre: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A city with this name already exists in the country',
+  ),
   uq_usuario_correo: regla(
     409,
     CodigoError.VALIDATION_FAILED,

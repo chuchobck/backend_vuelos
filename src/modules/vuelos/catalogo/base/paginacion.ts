@@ -53,6 +53,21 @@ export interface Pagina<T> {
   nextCursor?: string;
 }
 
+/** Página de filas → página de la API, con el mapper de la entidad. */
+export function aPagina<Fila, Dto>(
+  pagina: { filas: Fila[]; nextCursor?: string },
+  mapper: (fila: Fila) => Dto,
+): Pagina<Dto> {
+  return pagina.nextCursor === undefined
+    ? { items: pagina.filas.map(mapper) }
+    : { items: pagina.filas.map(mapper), nextCursor: pagina.nextCursor };
+}
+
+/** Los filtros comunes a partir de la query. */
+export function filtroBase(consulta: ConsultaCatalogoDto): { incluirInactivos: boolean } {
+  return { incluirInactivos: consulta.includeInactive ?? false };
+}
+
 /**
  * El cursor es la clave pública de la última fila de la página (un código o un uuid) en
  * base64url: opaco para el cliente y sin el id interno, que nunca sale de la API.

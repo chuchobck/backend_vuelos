@@ -9,6 +9,12 @@ export const REGEX_IATA_AEROPUERTO = /^[A-Z]{3}$/;
 /** Aerolínea IATA: 2 caracteres, letras mayúsculas o dígitos (ck_aerolinea_codigo_iata). */
 export const REGEX_IATA_AEROLINEA = /^[A-Z0-9]{2}$/;
 
+/** País ISO 3166-1 alfa-2: 2 letras mayúsculas (ck_pais_codigo_iso2). */
+export const REGEX_PAIS_ISO2 = /^[A-Z]{2}$/;
+
+/** País ISO 3166-1 alfa-3: 3 letras mayúsculas (ck_pais_codigo_iso3). */
+export const REGEX_PAIS_ISO3 = /^[A-Z]{3}$/;
+
 const REGEX_FECHA = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 export function esUuid(valor: unknown): valor is string {

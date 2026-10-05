@@ -1,3 +1,4 @@
+import { isUUID } from 'class-validator';
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
 
 /** Cliente con el que se consulta: el normal o el de una transacción en curso. */
@@ -39,6 +40,14 @@ export abstract class RepositorioCatalogo<Fila, Filtro extends FiltroCatalogo = 
   /** Toda escritura del catálogo: la auditoría registra al usuario y la IP de la petición. */
   enTransaccion<T>(trabajo: (tx: Ejecutor) => Promise<T>): Promise<T> {
     return this.prisma.transaccionAuditada(trabajo);
+  }
+
+  /**
+   * Para las entidades con clave uuid: un texto que no es uuid (un cursor decodificado, por
+   * ejemplo) no se manda a la base, que lo rechazaría con un error de formato.
+   */
+  protected esUuid(clave: string): boolean {
+    return isUUID(clave);
   }
 
   /** `activo = true`, salvo que la lista pida también los dados de baja. */

@@ -19,7 +19,13 @@ export const ETIQUETAS = {
   webhooks: 'Webhooks',
   salud: 'Salud',
   auth: 'Auth',
+  adminPais: 'Admin · País',
+  adminCiudad: 'Admin · Ciudad',
 } as const;
+
+/** Descripción común de las etiquetas del catálogo: no son parte del contrato. */
+const DESCRIPCION_ADMIN =
+  'Fuera del contrato: CRUD de administración del catálogo (scope flights:admin). DELETE da de baja (activo = false), no borra.';
 
 const DESCRIPCIONES_PROPIAS: Partial<Record<keyof typeof ETIQUETAS, string>> = {
   salud: 'Fuera del contrato: chequeo de vida para Render',
@@ -82,7 +88,10 @@ export function configurarSwagger(app: INestApplication): void {
     );
 
   for (const [clave, nombre] of Object.entries(ETIQUETAS)) {
-    constructor.addTag(nombre, DESCRIPCIONES_PROPIAS[clave as keyof typeof ETIQUETAS]);
+    const descripcion = clave.startsWith('admin')
+      ? DESCRIPCION_ADMIN
+      : DESCRIPCIONES_PROPIAS[clave as keyof typeof ETIQUETAS];
+    constructor.addTag(nombre, descripcion);
   }
 
   const documento = SwaggerModule.createDocument(app, constructor.build());

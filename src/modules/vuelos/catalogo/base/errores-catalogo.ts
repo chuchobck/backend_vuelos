@@ -36,3 +36,12 @@ export const cursorInvalido = () =>
   new ErrorNegocio(400, CODIGO_SIN_EQUIVALENTE, 'cursor: is not a cursor of this list', {
     invalidParams: [{ name: 'cursor', reason: 'is not a cursor of this list' }],
   });
+
+/**
+ * Un uso para el detalle del 409, o nada si no hay: `usos(3, 'active airport')` da
+ * `['3 active airports']`. El plural agrega `s`, salvo que se indique otro.
+ */
+export function usos(cantidad: number, singular: string, plural = `${singular}s`): string[] {
+  if (cantidad === 0) return [];
+  return [`${cantidad} ${cantidad === 1 ? singular : plural}`];
+}

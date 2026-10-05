@@ -131,11 +131,13 @@ CREATE TABLE pais (
 
 CREATE TABLE ciudad (
     id            bigint   GENERATED ALWAYS AS IDENTITY,
+    id_publico    uuid     NOT NULL DEFAULT gen_random_uuid(),
     pais_id       bigint   NOT NULL,
     nombre        text     NOT NULL,
     zona_horaria  text     NOT NULL DEFAULT 'America/Guayaquil',
     activo        boolean  NOT NULL DEFAULT true,
     CONSTRAINT pk_ciudad PRIMARY KEY (id),
+    CONSTRAINT uq_ciudad_id_publico UNIQUE (id_publico),
     CONSTRAINT uq_ciudad_pais_nombre UNIQUE (pais_id, nombre),
     CONSTRAINT fk_ciudad_pais FOREIGN KEY (pais_id) REFERENCES pais (id) ON DELETE RESTRICT,
     CONSTRAINT ck_ciudad_nombre CHECK (btrim(nombre) <> ''),
@@ -1272,6 +1274,7 @@ COMMENT ON TABLE clave_idempotencia         IS 'Registro de las cabeceras Idempo
 COMMENT ON TABLE auditoria                  IS 'Log de cambios: una fila por cada alta, cambio o baja en las tablas de negocio. La escribe el disparador fn_auditar y es de solo inserción. No es el historial que ve el cliente: ese es reserva_detalle_historial.';
 
 COMMENT ON COLUMN pais.codigo_iso3 IS 'Alfa-3, el formato que usan los pasaportes. El contrato no fija formato para nationality: la API puede aceptar alfa-2 o alfa-3.';
+COMMENT ON COLUMN ciudad.id_publico IS 'Identificador de la ciudad en la API de administración (/admin/cities/{id}). La ciudad no tiene un código natural único y el id bigint es interno.';
 COMMENT ON COLUMN ciudad.zona_horaria IS 'Zona horaria IANA. America/Guayaquil para el continente y Pacific/Galapagos para Galápagos.';
 COMMENT ON COLUMN aerolinea.prefijo_boleto IS 'Código numérico de 3 dígitos con el que empiezan los boletos electrónicos de la aerolínea.';
 COMMENT ON COLUMN familia_tarifa.codigo IS 'fareBrand del contrato, en mayúsculas.';
