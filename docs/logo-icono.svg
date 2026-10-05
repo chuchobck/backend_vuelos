@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 124" role="img" aria-label="Quinde">
+  <title>Quinde</title>
+  <g>
+    <!-- ala trasera -->
+    <polygon points="62,58 30,10 78,50" fill="#5EEAD4"/>
+    <!-- ala delantera -->
+    <polygon points="58,62 8,34 70,48" fill="#14B8A6"/>
+    <!-- cuerpo -->
+    <polygon points="84,40 66,46 34,100 50,98 80,62" fill="#0F766E"/>
+    <!-- cola -->
+    <polygon points="34,100 22,112 44,106 50,98" fill="#115E59"/>
+    <!-- cabeza -->
+    <polygon points="84,40 80,62 96,50 94,40" fill="#0D9488"/>
+    <!-- pico -->
+    <polygon points="94,40 96,46 132,36" fill="#F5B700"/>
+    <!-- ojo -->
+    <circle cx="88" cy="46" r="1.8" fill="#F8FAFC"/>
+  </g>
+</svg>
