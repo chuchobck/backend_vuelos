@@ -1,7 +1,7 @@
 {
-  "name": "booking-prototipo-plantilla",
+  "name": "quinde-vuelos-api",
   "version": "1.0.0",
-  "description": "Plantilla base para el sistema de Booking Prototipo",
+  "description": "Quinde · API de Vuelos: implementación del contrato GDS Flight Core API v1.5.0.0 para vuelos nacionales de Ecuador",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -34,5 +34,8 @@
     "@types/express": "^4.17.17",
     "@types/node": "^20.3.1",
     "typescript": "^5.1.3"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
