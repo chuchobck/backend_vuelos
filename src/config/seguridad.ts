@@ -16,7 +16,13 @@ const CABECERAS_PERMITIDAS = [
 ];
 
 /** Cabeceras de la respuesta que el navegador deja leer al código del origen permitido. */
-const CABECERAS_EXPUESTAS = ['X-Request-Id', 'Retry-After'];
+const CABECERAS_EXPUESTAS = [
+  'X-Request-Id',
+  'Retry-After',
+  'X-RateLimit-Limit',
+  'X-RateLimit-Remaining',
+  'X-RateLimit-Reset',
+];
 
 /**
  * Seguridad HTTP de la app: helmet, CORS por lista de orígenes y tope del cuerpo.

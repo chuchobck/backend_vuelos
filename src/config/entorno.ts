@@ -58,6 +58,20 @@ export class VariablesEntorno {
   @Validate(ListaDeOrigenes)
   @IsOptional()
   CORS_ORIGINS?: string;
+
+  /** Peticiones por IP y por ventana en toda la API. Sin valor: 100. */
+  @Max(100_000, { message: 'RATE_LIMIT_MAX debe estar entre 1 y 100000' })
+  @Min(1, { message: 'RATE_LIMIT_MAX debe estar entre 1 y 100000' })
+  @IsInt({ message: 'RATE_LIMIT_MAX debe ser un número entero' })
+  @IsOptional()
+  RATE_LIMIT_MAX?: number;
+
+  /** Duración de la ventana del límite, en segundos. Sin valor: 60. */
+  @Max(86_400, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
+  @Min(1, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
+  @IsInt({ message: 'RATE_LIMIT_WINDOW_SECONDS debe ser un número entero' })
+  @IsOptional()
+  RATE_LIMIT_WINDOW_SECONDS?: number;
 }
 
 /** Se pasa a ConfigModule.forRoot({ validate }); corre una sola vez, al arrancar. */
