@@ -725,6 +725,64 @@ model webhook_detalle {
   @@index([tipo_evento_id], map: "ix_webhook_detalle_tipo_evento")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model rol {
+  id          BigInt        @id(map: "pk_rol") @default(autoincrement())
+  codigo      String        @unique(map: "uq_rol_codigo")
+  descripcion String
+  activo      Boolean       @default(true)
+  usuario_rol usuario_rol[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model token_refresco {
+  id                   String             @id(map: "pk_token_refresco") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuario_id           String             @db.Uuid
+  id_familia           String             @db.Uuid
+  hash_token           String             @unique(map: "uq_token_refresco_hash") @db.VarChar(64)
+  fecha_creacion       DateTime           @default(now()) @db.Timestamptz(6)
+  fecha_expiracion     DateTime           @db.Timestamptz(6)
+  fecha_revocacion     DateTime?          @db.Timestamptz(6)
+  motivo_revocacion    motivo_revocacion?
+  reemplazado_por_id   String?            @db.Uuid
+  token_refresco       token_refresco?    @relation("token_refrescoTotoken_refresco", fields: [reemplazado_por_id], references: [id], onUpdate: NoAction, map: "fk_token_refresco_reemplazo")
+  other_token_refresco token_refresco[]   @relation("token_refrescoTotoken_refresco")
+  usuario              usuario            @relation(fields: [usuario_id], references: [id], onUpdate: NoAction, map: "fk_token_refresco_usuario")
+
+  @@index([id_familia], map: "ix_token_refresco_familia")
+  @@index([fecha_expiracion], map: "ix_token_refresco_fecha_expiracion")
+  @@index([reemplazado_por_id], map: "ix_token_refresco_reemplazo", where: raw("(reemplazado_por_id IS NOT NULL)"))
+  @@index([usuario_id], map: "ix_token_refresco_usuario")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model usuario {
+  id              String           @id(map: "pk_usuario") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  correo          String           @unique(map: "uq_usuario_correo")
+  hash_contrasena String
+  activo          Boolean          @default(true)
+  fecha_creacion  DateTime         @default(now()) @db.Timestamptz(6)
+  token_refresco  token_refresco[]
+  usuario_rol     usuario_rol[]
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model usuario_rol {
+  id               BigInt   @id(map: "pk_usuario_rol") @default(autoincrement())
+  usuario_id       String   @db.Uuid
+  rol_id           BigInt
+  activo           Boolean  @default(true)
+  fecha_asignacion DateTime @default(now()) @db.Timestamptz(6)
+  rol              rol      @relation(fields: [rol_id], references: [id], onUpdate: NoAction, map: "fk_usuario_rol_rol")
+  usuario          usuario  @relation(fields: [usuario_id], references: [id], onUpdate: NoAction, map: "fk_usuario_rol_usuario")
+
+  @@unique([usuario_id, rol_id], map: "uq_usuario_rol")
+  @@index([rol_id], map: "ix_usuario_rol_rol")
+}
+
 /// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 enum clase_cabina {
   ECONOMICA
@@ -852,4 +910,11 @@ enum tipo_pasajero {
   JOVEN
   NINO
   INFANTE
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum motivo_revocacion {
+  CIERRE_SESION
+  REUTILIZACION
+  USUARIO_INACTIVO
 }
