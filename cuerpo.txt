@@ -1,1 +1,0 @@
-{"type":"https://api.booking-hub.com/errors/rate-limit-exceeded","title":"Too Many Requests","status":429,"detail":"Too many requests; retry in 60 seconds","code":"RATE_LIMIT_EXCEEDED"}
