@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AeropuertoModule } from './aeropuerto/aeropuerto.module';
 import { CiudadModule } from './ciudad/ciudad.module';
 import { PaisModule } from './pais/pais.module';
 
@@ -7,6 +8,6 @@ import { PaisModule } from './pais/pais.module';
  * módulo por entidad; sus rutas cuelgan de /flights/v1/admin (catalogo.routes.ts).
  */
 @Module({
-  imports: [PaisModule, CiudadModule],
+  imports: [PaisModule, CiudadModule, AeropuertoModule],
 })
 export class CatalogoModule {}

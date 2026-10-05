@@ -123,6 +123,11 @@ const POR_RESTRICCION: Record<string, Regla> = {
     CodigoError.VALIDATION_FAILED,
     'A city with this name already exists in the country',
   ),
+  uq_aeropuerto_codigo_iata: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'An airport with this IATA code already exists',
+  ),
   uq_usuario_correo: regla(
     409,
     CodigoError.VALIDATION_FAILED,
