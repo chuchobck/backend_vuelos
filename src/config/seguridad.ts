@@ -1,0 +1,54 @@
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { ConfigService } from '@nestjs/config';
+import helmet from 'helmet';
+import { listarOrigenes } from './origenes-cors';
+
+/** Tope del cuerpo de una petición (JSON y formularios). Más grande responde 413. */
+export const LIMITE_CUERPO = '100kb';
+
+/** Cabeceras que un navegador puede enviar a esta API desde un origen permitido. */
+const CABECERAS_PERMITIDAS = [
+  'Authorization',
+  'Content-Type',
+  'Idempotency-Key',
+  'X-Device-Fingerprint',
+  'X-Request-Id',
+];
+
+/** Cabeceras de la respuesta que el navegador deja leer al código del origen permitido. */
+const CABECERAS_EXPUESTAS = ['X-Request-Id', 'Retry-After'];
+
+/**
+ * Seguridad HTTP de la app: helmet, CORS por lista de orígenes y tope del cuerpo.
+ * Va antes de las rutas; los errores que genere (413, por ejemplo) los da el filtro global.
+ */
+export function configurarSeguridad(app: NestExpressApplication): void {
+  const config = app.get(ConfigService);
+  const enProduccion = config.get<string>('NODE_ENV') === 'production';
+
+  // Helmet con su política por defecto. Swagger UI en /api/docs funciona con ella: carga
+  // su script y su CSS desde la misma ruta y el ícono viene como data URI (img-src data:).
+  // `upgrade-insecure-requests` solo se deja en producción: en http://localhost el navegador
+  // subiría los recursos a https y Swagger UI no cargaría.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: enProduccion ? {} : { 'upgrade-insecure-requests': null },
+      },
+    }),
+  );
+
+  // Una lista vacía no deja pasar ningún origen: sin CORS_ORIGINS la API no es llamable
+  // desde un navegador de otro origen. No se usan cookies, así que no hay `credentials`.
+  app.enableCors({
+    origin: listarOrigenes(config.get<string>('CORS_ORIGINS')),
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: CABECERAS_PERMITIDAS,
+    exposedHeaders: CABECERAS_EXPUESTAS,
+    maxAge: 600,
+  });
+
+  app.useBodyParser('json', { limit: LIMITE_CUERPO });
+  app.useBodyParser('urlencoded', { limit: LIMITE_CUERPO, extended: true });
+}

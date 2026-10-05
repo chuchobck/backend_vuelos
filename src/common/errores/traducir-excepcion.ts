@@ -52,7 +52,39 @@ export function traducirExcepcion(excepcion: unknown, contexto: ContextoError): 
     return traducirHttp(excepcion, contexto);
   }
 
+  const delParser = errorDelParser(excepcion);
+  if (delParser) {
+    return { ...traducirHttp(delParser, contexto), causa: excepcion };
+  }
+
   return respuesta(problemaGenerico(500), excepcion);
+}
+
+/**
+ * Los errores de body-parser (cuerpo demasiado grande, encoding no soportado, JSON roto) son
+ * `http-errors` de Express, no HttpException. Su `status` es 4xx y `expose` es true cuando el
+ * mensaje se puede mostrar. Cualquier otro objeto con `status` no es de fiar: sigue siendo 500.
+ */
+function errorDelParser(excepcion: unknown): HttpException | undefined {
+  if (typeof excepcion !== 'object' || excepcion === null) return undefined;
+  const { status, expose, type } = excepcion as {
+    status?: unknown;
+    expose?: unknown;
+    type?: unknown;
+  };
+  if (typeof status !== 'number' || status < 400 || status > 499 || expose !== true) {
+    return undefined;
+  }
+
+  const mensajes: Record<string, string> = {
+    'entity.too.large': 'Request body is too large',
+    'entity.parse.failed': 'Malformed JSON body',
+    'encoding.unsupported': 'Unsupported content encoding',
+    'charset.unsupported': 'Unsupported charset',
+  };
+  const mensaje =
+    typeof type === 'string' && mensajes[type] ? mensajes[type] : (excepcion as Error).message;
+  return new HttpException(mensaje, status);
 }
 
 function traducirHttp(excepcion: HttpException, contexto: ContextoError): RespuestaError {
