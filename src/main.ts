@@ -1,29 +1,18 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { configurarSwagger } from './config/swagger';
-import { habilitarBigIntEnJson } from './prisma/serializacion-bigint';
-import { PREFIJO_GLOBAL, VERSION_POR_DEFECTO } from './routes/index.routes';
-import { ValidationPipe, VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { AppModule } from './app.module';
+import { configurarApp } from './configurar-app';
+import { habilitarBigIntEnJson } from './prisma/serializacion-bigint';
 
 async function bootstrap() {
   habilitarBigIntEnJson();
 
-  const app = await NestFactory.create(AppModule);
-
-  // /flights/v1/...: prefijo global más versión en la URL
-  app.setGlobalPrefix(PREFIJO_GLOBAL);
-  app.enableVersioning({ type: VersioningType.URI, defaultVersion: VERSION_POR_DEFECTO });
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      forbidNonWhitelisted: true,
-    }),
-  );
-
-  configurarSwagger(app);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // Los logs del arranque esperan a que configurarApp ponga el logger con request id
+    bufferLogs: true,
+  });
+  configurarApp(app);
 
   await app.listen(app.get(ConfigService).getOrThrow<number>('PORT'));
 }

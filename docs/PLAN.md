@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-05 (cierre de la fase 1 en local) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-10-05 (cierre de la fase 2) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1.
 
@@ -10,7 +10,8 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | --- | --- | --- |
 | 0. Base del repo | Hecha (2026-10-05) | `npm ci`, `npm run lint`, `npm run format:check` y `npm run build` pasan en un clon limpio; el hook rechaza mensajes de commit inválidos; `db/reset.sh` carga esquema y semilla en PostgreSQL 18 |
 | 1. Núcleo | Hecha en local (2026-10-05); falta el despliegue en Render | Cada commit pasa `npm ci`, `build`, `lint` y `format:check` por separado. Con el `.env` local: `GET /flights/v1/health` responde 200 y la base registra el `SELECT 1`; `/flights/v2/health` responde 404; `/api/docs` abre y `/api/docs-json` lista la ruta. Con la base caída, `/health` responde 503. La imagen de `docker build` arranca, responde lo mismo contra la base local y su HEALTHCHECK queda `healthy`. La extensión bloquea `delete` y `deleteMany` y la transacción auditada deja usuario e IP en `auditoria` (probado dentro de una transacción revertida) |
-| 2 a 11 | Pendientes | |
+| 2. Transversales | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (137 pruebas contra la base real) pasan en cada commit. Con `curl` contra la API: ruta inexistente → 404 `application/problem+json`; `POST` sobre ruta existente que no lo admite → 405 con `Allow`; cuerpo inválido, campo no permitido, HTML en un texto y UUID mal formado → 400 `VALIDATION_FAILED` con `invalidParams`; errores de base provocados a propósito (unique, FK, `ON DELETE RESTRICT`) → 409/422 sin detalles internos, y la base queda igual (0 filas nuevas en `pais` y en `auditoria`); error no controlado → 500 sin detalle ni stack; 105 peticiones en un minuto → 429 con `Retry-After`; cuerpo de más de 100 kB → 413; cabeceras de helmet presentes; Swagger UI en `/api/docs` carga en un navegador headless sin errores de consola ni peticiones fallidas; `X-Request-Id` generado, respetado si es válido, reemplazado si no, y presente en los errores |
+| 3 a 11 | Pendientes | |
 
 ## Decisiones
 
@@ -89,10 +90,15 @@ quinde-vuelos-api/
 │   └── schema.prisma             # ✓ lo escribe db pull, no se edita a mano
 ├── prisma.config.ts              # ✓ datasource del CLI (lee .env con dotenv)
 ├── src/
-│   ├── main.ts                   # ✓ prefijo flights, versión v1, Swagger
+│   ├── main.ts                   # ✓ arranque: crea la app y llama a configurarApp
+│   ├── configurar-app.ts         # ✓ prefijo flights, versión v1, middlewares, pipes, Swagger (lo usan main y los e2e)
 │   ├── app.module.ts             # ✓
 │   ├── config/
-│   │   ├── entorno.ts            # ✓ DATABASE_URL, PORT y NODE_ENV validadas al arrancar
+│   │   ├── entorno.ts            # ✓ variables validadas al arrancar (obligatorias y opcionales)
+│   │   ├── seguridad.ts          # ✓ helmet, CORS y tope del cuerpo
+│   │   ├── limite-peticiones.ts  # ✓ opciones de @nestjs/throttler
+│   │   ├── origenes-cors.ts      # ✓ lectura y validación de CORS_ORIGINS
+│   │   ├── proxy.ts              # ✓ lectura y validación de TRUST_PROXY
 │   │   └── swagger.ts            # ✓ título, versión, bearer, ETIQUETAS, ícono
 │   ├── routes/
 │   │   └── index.routes.ts       # ✓ la única tabla de rutas de la API
@@ -103,15 +109,16 @@ quinde-vuelos-api/
 │   │   ├── serializacion-bigint.ts  # ✓ BigInt → texto en JSON
 │   │   └── extensiones/          # ✓ bloqueo de delete físico, actor de auditoría
 │   ├── common/
-│   │   ├── decorators/           # ✓ @Publico; luego @Scopes, @UsuarioActual
+│   │   ├── decorators/           # ✓ @Publico, @LimiteEstricto, @SinLimiteDePeticiones; luego @Scopes, @UsuarioActual
 │   │   ├── dto/                  # de la plantilla: respuesta base y paginación
-│   │   ├── guards/               # idempotency-key (plantilla); jwt-auth y scopes en la fase 3
-│   │   ├── contexto/             # usuario e IP de la petición en curso
-│   │   ├── errores/              # códigos del contrato, excepción de negocio
-│   │   ├── filters/              # problem-details.filter.ts
-│   │   ├── interceptors/         # idempotencia, request-id
-│   │   ├── pipes/                # uuid, fecha, código IATA
-│   │   └── sanitizacion/         # limpieza de texto para los DTO
+│   │   ├── guards/               # ✓ limite-peticiones (global) e idempotency-key (plantilla); jwt-auth y scopes en la fase 3
+│   │   ├── contexto/             # ✓ request id, IP y usuario de la petición en curso (AsyncLocalStorage)
+│   │   ├── errores/              # ✓ códigos del contrato, ErrorNegocio, traducción de errores de Prisma y de triggers
+│   │   ├── filters/              # ✓ problem-details.filter.ts
+│   │   ├── logger/               # ✓ logger de Nest con el request id en cada línea
+│   │   ├── interceptors/         # idempotencia (fase 6)
+│   │   ├── pipes/                # ✓ ValidationPipe global, uuid, fecha, código IATA
+│   │   └── sanitizacion/         # ✓ @TextoLimpio y piezas sueltas (ver su README)
 │   └── modules/
 │       ├── salud/                # ✓ GET /health
 │       ├── auth/                 # registro, login, refresh, logout, me
@@ -144,7 +151,7 @@ quinde-vuelos-api/
 │               ├── pase-abordar/
 │               ├── estado-vuelo/
 │               └── webhook/
-├── test/                         # pruebas e2e, una carpeta por fase
+├── test/                         # ✓ pruebas e2e (Jest + supertest) contra la base real; utils/ con crearApp y fixtures
 ├── Dockerfile                    # ✓ multi-etapa para Render
 ├── docker-compose.yml            # ✓ PostgreSQL 18; puerto con DB_PORT
 └── .env.example                  # ✓
@@ -323,13 +330,20 @@ El despliegue en Render con Neon queda fuera de esta rama: necesita credenciales
 
 ### Fase 2 · Transversales
 
-1. `feat(errores): filtro global ProblemDetails`
-2. `feat(errores): traducir errores de Prisma y de triggers a códigos del contrato`
-3. `feat(validacion): ValidationPipe global y pipes de uuid, fecha e IATA`
-4. `feat(sanitizacion): transformadores de texto para los DTO`
-5. `feat(seguridad): helmet, CORS por lista y límite de tamaño del cuerpo`
-6. `feat(seguridad): límite de peticiones con Retry-After`
-7. `feat(contexto): request-id y contexto de usuario e IP`
+1. `docs: agregar CLAUDE.md con las reglas del proyecto`
+2. `test(infra): agregar Jest y supertest con un primer e2e de /flights/v1/health`
+3. `feat(errores): agregar filtro global ProblemDetails y ErrorNegocio`
+4. `feat(errores): traducir errores de Prisma y de triggers a códigos del contrato`
+5. `feat(validacion): agregar ValidationPipe global y pipes de uuid, fecha e IATA`
+6. `feat(sanitizacion): agregar decoradores de limpieza de texto para los DTO`
+7. `feat(seguridad): agregar helmet, CORS por lista de orígenes y tope de 100 kB`
+8. `feat(seguridad): agregar límite de peticiones global con Retry-After`
+9. `feat(contexto): agregar X-Request-Id y contexto por petición con AsyncLocalStorage`
+10. `docs: cerrar la fase 2 en el plan y los README`
+
+Los commits 1 y 2 (CLAUDE.md y Jest) no estaban en el plan original. El e2e del commit 2 obligó a sacar la configuración de la app de `main.ts` a `configurar-app.ts`, para que las pruebas levanten la misma API que se despliega.
+
+Variables de entorno nuevas, todas opcionales y en `.env.example`: `CORS_ORIGINS`, `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_SECONDS` y `TRUST_PROXY`.
 
 ### Fase 3 · Auth
 
@@ -432,6 +446,30 @@ Lo que hace Prisma 7 con nuestra base, verificado con `prisma db pull` contra Po
 | Transacciones anidadas | En Prisma 7, `$transaction` ya no está prohibido dentro de una transacción interactiva | `TransaccionVuelos` lo permite; no se usa por ahora |
 | Bloqueo de delete | La extensión cubre `delete` y `deleteMany`, pero no los borrados anidados dentro de un `update` ni `$executeRaw` | Esos casos quedan para revisión de código; los `ON DELETE RESTRICT` del esquema siguen de respaldo |
 
+### Fase 2
+
+Lo que se vio al probar Prisma 7 (adaptador de `pg`) contra PostgreSQL 18.6, con transacciones que siempre se revierten:
+
+| Tema | Qué pasó | Qué implica |
+| --- | --- | --- |
+| Dónde está el error de la base | El dato útil está en `error.meta.driverAdapterError.cause`: `originalCode` (SQLSTATE), `kind` y a veces `constraint.index`. El `code` de Prisma cambia según cómo se consulte: el mismo SQLSTATE sale como P2003 con un modelo y como P2010 con `$queryRaw` | `traducir-error-bd.ts` decide por SQLSTATE, no por el `code` de Prisma |
+| `ON DELETE RESTRICT` (pendiente de la fase 1) | PostgreSQL 18.6 responde SQLSTATE **23001** (`restrict_violation`), no 23503 (no se probó con otra versión). Prisma lo reconoce: `kind: RestrictViolation` y `constraint.index` con el nombre de la FK. Con un modelo (delete anidado en un `update`) llega como **P2003**; con SQL crudo como **P2010** (`Code: 23001`). Un `INSERT` con padre inexistente sí es 23503 | Se traduce a 409 en los dos caminos. Un `INSERT`/`UPDATE` con padre inexistente (23503) es 422 |
+| Triggers de la sección 15 | `RAISE EXCEPTION ... USING ERRCODE = 'check_violation', CONSTRAINT = ...` llega como SQLSTATE 23514 con solo el mensaje: el nombre de la restricción **no** viaja (el adaptador copia `code`, `severity`, `message` y `detail`) | Los 4 triggers se reconocen por el texto de su mensaje en español. Si se cambia ese texto en el SQL, hay que cambiarlo en `POR_MENSAJE_TRIGGER`; `test/errores-bd.e2e-spec.ts` dispara los 4 contra la base y falla si se desfasan |
+| CHECK sin trigger | El nombre sí viaja, dentro del mensaje (`violates check constraint "ck_..."`) | Se extrae con una expresión regular y se busca en `POR_RESTRICCION` |
+| `auditoria` inmutable | `UPDATE`/`DELETE` sobre `auditoria` lanza SQLSTATE 42501 | No se traduce: es un error de programación, responde 500 y queda en el log |
+| SQL crudo y el esquema | El adaptador solo aplica `{ schema }` a las consultas con modelo; `$queryRaw`/`$executeRaw` fallan con `relation "pais" does not exist` si la tabla no se califica | En SQL crudo, siempre `vuelos.<tabla>` |
+| Base caída | Con un modelo: `PrismaClientKnownRequestError` P1001 (`kind: DatabaseNotReachable`); con `$queryRaw`: P2010 con el mismo `kind` | 503 con `Retry-After: 5`, sin host ni puerto en la respuesta |
+| Choque concurrente | SQLSTATE 40001 llega como P2010 (raw) o P2034 (modelo), `kind: TransactionWriteConflict` | 409 con `Retry-After: 1` |
+| Errores del parser de Express | El cuerpo de más de 100 kB o el JSON roto llegan como `http-errors` (`status`, `expose`, `type`), no como `HttpException`; sin tratarlos salían como 500 | `errorDelParser` los pasa a 413/400/415 |
+| `ProblemDetails` y `code` | El esquema exige `code` y su lista no trae códigos para 401, 403, 404, 405, 413, 415 ni 5xx; no admite campos extra | Esos casos usan `VALIDATION_FAILED` y el `status` dice qué pasó (ver `CODIGO_SIN_EQUIVALENTE` en `codigo-error.ts`, un solo lugar para cambiarlo). El `type` es `about:blank` salvo cuando hay código específico |
+| `invalidParams` | El esquema sí lo admite | La validación llena `detail` (`campo: razón; ...`) e `invalidParams` (lista estructurada, rutas como `pasajeros[0].edad`) |
+| 405 | Nest responde 404 a un método no admitido | El filtro revisa las rutas registradas de Express (`app._router.stack`) y devuelve 405 con `Allow` |
+| Límite de peticiones | `@nestjs/throttler` cuenta por ruta e IP por defecto; los guards no corren en rutas que no existen, así que un 404 no cuenta; `/health` se excluyó a propósito | El contador `default` se configuró por IP para toda la API; `estricto` (por ruta) solo corre con `@LimiteEstricto`. Los 404 siguen sin límite. El almacén es memoria de un proceso: con más de una instancia de la API cada una cuenta aparte |
+| Parser y contexto asíncrono | Los eventos de la petición que escucha body-parser se emiten fuera del `AsyncLocalStorage`; si el contexto se abre antes, el parser lo pierde | El request id se asigna en el primer middleware (guardado también en `req`) y el contexto asíncrono se abre después del parser |
+| `X-Request-Id` inválido | No se rechaza la petición: se reemplaza por un UUID generado | La respuesta siempre trae un id válido. No va en el cuerpo del error (el esquema no admite campos extra) |
+| `trust proxy` | Sin configurarlo, detrás de Render todas las peticiones tienen la IP del proxy: el límite por IP se aplicaría a todos juntos y la auditoría guardaría la IP del proxy | `TRUST_PROXY=1` en Render. Por defecto `false`: así no se puede falsear la IP con `X-Forwarded-For`. `true` se rechaza |
+| Windows y `\uXXXX` | Al escribir archivos con una herramienta, las secuencias `‮` se convirtieron en el carácter real y rompieron una expresión regular | Los invisibles se arman con `String.fromCodePoint` |
+
 ## Pendientes
 
 Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corresponde.
@@ -441,9 +479,12 @@ Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corr
 - [ ] Fecha de entrega de RDA1, para repartir las fases en semanas.
 - [x] Fase 1: probar `prisma db pull` contra `?schema=vuelos`. Funciona con `prisma@7.10.0` fijo (ver Hallazgos).
 - [ ] Fase 1: desplegar en Render con Neon (crear el servicio desde el `Dockerfile`, cargar `DATABASE_URL`, `NODE_ENV=production`, health check en `/flights/v1/health`) y cargar `db/esquema_vuelos.sql` y la semilla en Neon. Después, etiqueta `v0.1.0`.
-- [ ] Fase 2: el filtro de errores debe traducir `BorradoFisicoProhibidoError` (error de programación, 500) y los errores de Prisma `P2010` de base caída.
-- [ ] Fase 3: el guard global de JWT debe respetar `@Publico()`, que ya marca `/health`.
-- [ ] Fase 2: revisar cómo reporta Prisma el error de PostgreSQL 18 al violar un `ON DELETE RESTRICT` (código 23001 en lugar de 23503).
+- [x] Fase 2: el filtro de errores traduce `BorradoFisicoProhibidoError` (500, queda en el log) y la base caída (503).
+- [ ] Fase 3: el guard global de JWT debe respetar `@Publico()`, que ya marca `/health`, y registrar el `sub` con `fijarUsuario()` (`common/contexto`) para que la auditoría lo lleve. Debe ir después de `GuardLimitePeticiones` en los providers de `CommonModule`; el login lleva `@LimiteEstricto(5, 60)`.
+- [x] Fase 2: revisar cómo reporta Prisma el `ON DELETE RESTRICT`: SQLSTATE 23001, P2003 con un modelo y P2010 con SQL crudo (ver Hallazgos de la fase 2).
+- [ ] Equipo: el contrato obliga a un `code` de lista cerrada pero no trae uno para 401, 403, 404, 405, 413, 415 ni 5xx. Hoy se usa `VALIDATION_FAILED` en esos casos; si el equipo acuerda códigos propios, se cambia en `codigo-error.ts`.
+- [ ] Fase 1/2: en Render poner `TRUST_PROXY=1` y `CORS_ORIGINS` con el origen del frontend.
+- [ ] Fase 2: las rutas que no existen (404) no cuentan en el límite de peticiones porque no pasan por ningún guard; si hace falta limitarlas, hay que pasar a un middleware.
 - [ ] Fase 1: el servicio gratuito de Render se duerme tras 15 minutos sin uso; la primera petición después tarda.
 - [ ] Fase 7: la tabla `pais` solo tiene Ecuador, así que un pasajero con otra nacionalidad se rechaza hasta agregar su país.
 - [ ] Fase 11: la semilla cubre 90 días desde el día en que se carga; hay que volver a sembrar antes de la entrega.

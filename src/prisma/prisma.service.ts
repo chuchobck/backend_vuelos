@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import type { ITXClientDenyList } from '@prisma/client/runtime/client';
+import { obtenerContexto } from '../common/contexto/contexto-peticion';
 import { PrismaClient } from '../generated/prisma/client';
 import { bloqueoBorradoFisico } from './extensiones/bloqueo-borrado-fisico';
 import {
@@ -29,7 +30,8 @@ export type TransaccionVuelos = Omit<ClienteVuelos, ITXClientDenyList>;
  * Dueño de la conexión a PostgreSQL. Solo los repositories lo inyectan.
  *
  * - `db` sirve para lecturas; bloquea el delete físico sobre tablas de negocio.
- * - `transaccionAuditada` es la vía para escribir: fija el actor antes del cambio.
+ * - `transaccionAuditada` es la vía para escribir: fija el actor (el de la petición en curso)
+ *   antes del cambio.
  *
  * Prisma 7 se conecta con el adaptador de `pg`, que no lee el `?schema=` de la URL:
  * el esquema se toma de la URL y se pasa aparte (por defecto, `vuelos`).
@@ -63,17 +65,27 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   /**
    * Corre `trabajo` en una transacción que primero fija app.id_usuario y app.direccion_ip,
    * para que los triggers llenen la tabla auditoria con el actor correcto.
+   *
+   * El actor sale del contexto de la petición en curso: la IP del cliente y, desde la fase 3,
+   * el `sub` del JWT. Un proceso sin petición (una tarea que vence retenciones) lo pasa en
+   * `opciones.actor`.
    */
   transaccionAuditada<T>(
-    actor: ActorAuditoria,
     trabajo: (tx: TransaccionVuelos) => Promise<T>,
-    opciones?: OpcionesTransaccion,
+    opciones: OpcionesTransaccion & { actor?: ActorAuditoria } = {},
   ): Promise<T> {
+    const { actor = actorDelContexto(), ...opcionesPrisma } = opciones;
     return this.db.$transaction(async (tx) => {
       await fijarActor(tx, actor);
       return trabajo(tx);
-    }, opciones);
+    }, opcionesPrisma);
   }
+}
+
+/** Usuario e IP de la petición en curso; sin petición, el actor queda vacío. */
+function actorDelContexto(): ActorAuditoria {
+  const contexto = obtenerContexto();
+  return { idUsuario: contexto?.usuario ?? null, direccionIp: contexto?.ip ?? null };
 }
 
 /** Los errores de Prisma traen saltos de línea y el detalle al final; se dejan en una línea. */

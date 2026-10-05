@@ -17,10 +17,21 @@ está en [docs/PLAN.md](docs/PLAN.md).
 | ------------------------------------- | -------------------------------------- |
 | 0. Base del repo                      | Hecha                                  |
 | 1. Núcleo (Prisma, rutas, despliegue) | Hecha en local; falta desplegar Render |
-| 2 a 11                                | Pendiente                              |
+| 2. Transversales                      | Hecha                                  |
+| 3 a 11                                | Pendiente                              |
 
 Hoy la API expone solo `GET /flights/v1/health`, que consulta la base. Prisma ya lee el esquema
 `vuelos`; los endpoints del contrato entran desde la fase 4.
+
+Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
+
+- Todo error sale como `application/problem+json` con el esquema `ProblemDetails` del contrato
+  (también un 404 de ruta, un 405, un 413 y un fallo inesperado, sin detalles internos).
+- Los errores de Prisma y de los triggers de la base se traducen a un status y un `code` del contrato.
+- Validación global de DTO (`whitelist`, `forbidNonWhitelisted`), pipes de uuid, fecha e IATA y
+  `@TextoLimpio` para el texto libre ([guía](src/common/sanitizacion/README.md)).
+- helmet, CORS por lista de orígenes, cuerpo máximo de 100 kB y límite de peticiones por IP (429 con `Retry-After`).
+- `X-Request-Id` en cada respuesta y en cada línea de log.
 
 ## Requisitos
 
@@ -39,7 +50,16 @@ npm run start:dev         # API en http://localhost:3000
 curl localhost:3000/flights/v1/health
 ```
 
-La API no arranca si falta `DATABASE_URL`, `PORT` o `NODE_ENV`, o si tienen un formato inválido.
+La API no arranca si falta `DATABASE_URL`, `PORT` o `NODE_ENV`, o si alguna variable tiene un formato inválido.
+
+Variables opcionales (todas documentadas en `.env.example`):
+
+| Variable                    | Para qué                                                                                                   | Valor por defecto |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------- |
+| `CORS_ORIGINS`              | Orígenes de navegador permitidos, separados por coma (`https://app.example.com`, sin ruta ni `*`)          | ninguno           |
+| `RATE_LIMIT_MAX`            | Peticiones por IP y por ventana en toda la API                                                             | 100               |
+| `RATE_LIMIT_WINDOW_SECONDS` | Duración de la ventana del límite                                                                          | 60                |
+| `TRUST_PROXY`               | Proxies delante de la API para leer la IP real (`1` en Render; `true` no se acepta)                        | `false`           |
 
 Si los puertos 5432 o 3000 ya están ocupados, cámbialos en `.env`: `DB_PORT` para la base
 (junto con el puerto de `DATABASE_URL`) y `PORT` para la API.
@@ -52,6 +72,7 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | ------------------------- | ----------------------------------------------------------- |
 | `npm run start:dev`       | Levanta la API y recarga al guardar                         |
 | `npm run build`           | Compila a `dist/`                                           |
+| `npm run test:e2e`        | Pruebas e2e (Jest + supertest); necesitan PostgreSQL arriba |
 | `npm run lint`            | Revisa el código con ESLint                                 |
 | `npm run lint:fix`        | Igual, corrigiendo lo que se pueda                          |
 | `npm run format`          | Aplica Prettier                                             |
@@ -108,7 +129,8 @@ docker run --rm -p 3000:3000 -e PORT=3000 -e NODE_ENV=production \
   fix(docker): usar postgres 18
   ```
 
-- Antes de subir: `npm run lint && npm run format:check && npm run build`.
+- Antes de subir: `npm run lint && npm run format:check && npm run build && npm run test:e2e`.
+- Las reglas permanentes del proyecto están en [CLAUDE.md](CLAUDE.md).
 - `.env` nunca se sube; una variable nueva se agrega a `.env.example` en el mismo commit.
 
 ## Relación con la plantilla
