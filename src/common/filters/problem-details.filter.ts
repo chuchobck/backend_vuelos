@@ -1,6 +1,8 @@
 import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Request, Response } from 'express';
+import { ejecutarEnContexto, obtenerContexto } from '../contexto/contexto-peticion';
+import { contextoDeLaPeticion } from '../contexto/contexto.middleware';
 import { ErrorNegocio } from '../errores/error-negocio';
 import { CONTENT_TYPE_PROBLEMA } from '../errores/problem-details';
 import { traducirExcepcion } from '../errores/traducir-excepcion';
@@ -35,18 +37,25 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       metodosPermitidos: this.metodosDeLaRuta(ruta),
     });
 
-    if (esErrorInterno) {
-      // El stack se queda en el log; al cliente solo llega el ProblemDetails sin detalle.
-      const detalle = causa instanceof Error ? (causa.stack ?? causa.message) : String(causa);
-      this.logger.error(`${peticion.method} ${ruta} → ${problema.status}\n${detalle}`);
-    } else {
-      // Si vino de la base, el error original ayuda a ver qué restricción saltó.
-      const origen =
-        causa instanceof Error && !(causa instanceof ErrorNegocio) ? ` (${resumir(causa)})` : '';
-      this.logger.debug(
-        `${peticion.method} ${ruta} → ${problema.status} ${problema.code}${origen}`,
-      );
-    }
+    const registrar = () => {
+      if (esErrorInterno) {
+        // El stack se queda en el log; al cliente solo llega el ProblemDetails sin detalle.
+        const detalle = causa instanceof Error ? (causa.stack ?? causa.message) : String(causa);
+        this.logger.error(`${peticion.method} ${ruta} → ${problema.status}\n${detalle}`);
+      } else {
+        // Si vino de la base, el error original ayuda a ver qué restricción saltó.
+        const origen =
+          causa instanceof Error && !(causa instanceof ErrorNegocio) ? ` (${resumir(causa)})` : '';
+        this.logger.debug(
+          `${peticion.method} ${ruta} → ${problema.status} ${problema.code}${origen}`,
+        );
+      }
+    };
+    // Un error del parser del cuerpo llega antes de abrir el contexto asíncrono: el id se toma
+    // de la petición para que su línea de log lo lleve igual.
+    const contexto = contextoDeLaPeticion(peticion);
+    if (contexto && obtenerContexto() === undefined) ejecutarEnContexto(contexto, registrar);
+    else registrar();
 
     if (respuesta.headersSent) {
       respuesta.end();

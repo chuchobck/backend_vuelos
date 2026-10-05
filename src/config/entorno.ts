@@ -14,6 +14,7 @@ import {
   validateSync,
 } from 'class-validator';
 import { esOrigenValido, listarOrigenes } from './origenes-cors';
+import { parsearTrustProxy } from './proxy';
 
 export const ENTORNOS = ['development', 'production', 'test'] as const;
 export type Entorno = (typeof ENTORNOS)[number];
@@ -29,6 +30,20 @@ class ListaDeOrigenes implements ValidatorConstraintInterface {
     return (
       'CORS_ORIGINS debe ser una lista de orígenes separados por coma, como ' +
       `https://app.example.com (sin ruta, sin barra final y sin "*"); inválidos: ${invalidos.join(', ')}`
+    );
+  }
+}
+
+@ValidatorConstraint({ name: 'trustProxyValido' })
+class TrustProxyValido implements ValidatorConstraintInterface {
+  validate(valor: unknown): boolean {
+    return typeof valor === 'string' && parsearTrustProxy(valor) !== undefined;
+  }
+
+  defaultMessage(): string {
+    return (
+      'TRUST_PROXY debe ser false, un número de proxies (1, 2...) o una lista separada por coma ' +
+      'de IP, CIDR, loopback, linklocal o uniquelocal; "true" no se acepta porque deja falsear la IP'
     );
   }
 }
@@ -58,6 +73,11 @@ export class VariablesEntorno {
   @Validate(ListaDeOrigenes)
   @IsOptional()
   CORS_ORIGINS?: string;
+
+  /** Proxies delante de la API (Render: 1). Sin valor: ninguno. Ver src/config/proxy.ts. */
+  @Validate(TrustProxyValido)
+  @IsOptional()
+  TRUST_PROXY?: string;
 
   /** Peticiones por IP y por ventana en toda la API. Sin valor: 100. */
   @Max(100_000, { message: 'RATE_LIMIT_MAX debe estar entre 1 y 100000' })
