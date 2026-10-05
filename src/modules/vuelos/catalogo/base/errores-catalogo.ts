@@ -11,11 +11,11 @@ export const noEncontrado = (entidad: string, clave: string) =>
   new ErrorNegocio(404, CODIGO_SIN_EQUIVALENTE, `${entidad} ${clave} was not found`);
 
 /** 409: no se puede dar de baja porque otras filas activas la usan. */
-export const enUso = (entidad: string, clave: string, usos: string[]) =>
+export const enUso = (entidad: string, clave: string, usos: string[], verbo = 'deactivated') =>
   new ErrorNegocio(
     409,
     CODIGO_SIN_EQUIVALENTE,
-    `${entidad} ${clave} cannot be deactivated: it is used by ${usos.join(', ')}`,
+    `${entidad} ${clave} cannot be ${verbo}: it is used by ${usos.join(', ')}`,
   );
 
 /** 409: el estado actual no admite el cambio (una salida que ya despegó, por ejemplo). */

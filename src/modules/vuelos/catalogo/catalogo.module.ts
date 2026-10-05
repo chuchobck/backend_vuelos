@@ -6,6 +6,8 @@ import { FamiliaTarifaModule } from './familia-tarifa/familia-tarifa.module';
 import { MapaAsientosModule } from './mapa-asientos/mapa-asientos.module';
 import { ModeloAeronaveModule } from './modelo-aeronave/modelo-aeronave.module';
 import { PaisModule } from './pais/pais.module';
+import { VueloProgramadoModule } from './vuelo-programado/vuelo-programado.module';
+import { VueloModule } from './vuelo/vuelo.module';
 
 /**
  * CRUD de administración del catálogo (fuera del contrato, solo `flights:admin`). Junta un
@@ -20,6 +22,8 @@ import { PaisModule } from './pais/pais.module';
     ModeloAeronaveModule,
     FamiliaTarifaModule,
     MapaAsientosModule,
+    VueloModule,
+    VueloProgramadoModule,
   ],
 })
 export class CatalogoModule {}

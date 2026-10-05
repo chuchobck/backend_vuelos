@@ -26,6 +26,8 @@ export const ETIQUETAS = {
   adminModeloAeronave: 'Admin · Modelo de aeronave',
   adminFamiliaTarifa: 'Admin · Familia tarifaria',
   adminMapaAsientos: 'Admin · Mapa de asientos',
+  adminVuelo: 'Admin · Vuelo',
+  adminVueloProgramado: 'Admin · Vuelo programado',
 } as const;
 
 /** Descripción común de las etiquetas del catálogo: no son parte del contrato. */

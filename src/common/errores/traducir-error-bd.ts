@@ -153,6 +153,26 @@ const POR_RESTRICCION: Record<string, Regla> = {
     CodigoError.VALIDATION_FAILED,
     'The airline already has a seat map with this name for this aircraft model',
   ),
+  uq_vuelo_aerolinea_numero: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A flight with this number already exists',
+  ),
+  uq_vuelo_programado_vuelo_fecha: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'The flight already has a departure on that local date',
+  ),
+  ck_vuelo_programado_estimadas: regla(
+    422,
+    CodigoError.VALIDATION_FAILED,
+    'The estimated arrival must be after the estimated departure',
+  ),
+  ck_vuelo_programado_reales: regla(
+    422,
+    CodigoError.VALIDATION_FAILED,
+    'The actual arrival needs an actual departure before it',
+  ),
   uq_usuario_correo: regla(
     409,
     CodigoError.VALIDATION_FAILED,

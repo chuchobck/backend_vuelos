@@ -3,6 +3,7 @@ import {
   REGEX_IATA_AEROLINEA,
   REGEX_IATA_AEROPUERTO,
   REGEX_IATA_MODELO,
+  REGEX_NUMERO_VUELO,
   REGEX_PAIS_ISO2,
   rechazarParametro,
 } from './formatos';
@@ -49,6 +50,17 @@ export class CodigoModeloAeronavePipe implements PipeTransform<unknown, string> 
   transform(valor: unknown, metadata: ArgumentMetadata): string {
     if (typeof valor !== 'string' || !REGEX_IATA_MODELO.test(valor)) {
       rechazarParametro(metadata, 'must be a 3-character uppercase IATA aircraft code');
+    }
+    return valor as string;
+  }
+}
+
+/** Número de vuelo: aerolínea IATA más la parte numérica sin ceros a la izquierda (AV1234). */
+@Injectable()
+export class NumeroVueloPipe implements PipeTransform<unknown, string> {
+  transform(valor: unknown, metadata: ArgumentMetadata): string {
+    if (typeof valor !== 'string' || !REGEX_NUMERO_VUELO.test(valor)) {
+      rechazarParametro(metadata, 'must be a flight number such as AV1234');
     }
     return valor as string;
   }

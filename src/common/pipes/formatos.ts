@@ -15,6 +15,12 @@ export const REGEX_IATA_MODELO = /^[A-Z0-9]{3}$/;
 /** Prefijo numérico de los boletos de una aerolínea (ck_aerolinea_prefijo_boleto). */
 export const REGEX_PREFIJO_BOLETO = /^[0-9]{3}$/;
 
+/**
+ * Número de vuelo del contrato (flightNumber): la aerolínea IATA (2 caracteres) y la parte
+ * numérica sin ceros a la izquierda (ck_vuelo_numero), como AV1234 o LA45.
+ */
+export const REGEX_NUMERO_VUELO = /^[A-Z0-9]{2}[1-9][0-9]{0,3}$/;
+
 /** País ISO 3166-1 alfa-2: 2 letras mayúsculas (ck_pais_codigo_iso2). */
 export const REGEX_PAIS_ISO2 = /^[A-Z]{2}$/;
 

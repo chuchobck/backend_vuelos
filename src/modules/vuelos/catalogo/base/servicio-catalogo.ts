@@ -26,6 +26,9 @@ export abstract class ServicioCatalogo<
   /** Nombre de la entidad en los mensajes al cliente (en inglés): `Airport`, `City`... */
   protected abstract readonly entidad: string;
 
+  /** Cómo se dice la baja en el 409 (`deactivated`; una salida se `cancelled`). */
+  protected readonly verboBaja: string = 'deactivated';
+
   constructor(protected readonly repositorio: RepositorioCatalogo<Fila, Filtro>) {}
 
   /** Inserta y devuelve la clave pública de la fila nueva. */
@@ -97,7 +100,7 @@ export abstract class ServicioCatalogo<
       const fila = await this.exigir(clave, tx);
       if (!this.repositorio.estaActiva(fila)) return;
       const usos = await this.usosQueImpidenDesactivar(fila, tx);
-      if (usos.length > 0) throw enUso(this.entidad, clave, usos);
+      if (usos.length > 0) throw enUso(this.entidad, clave, usos, this.verboBaja);
       await this.repositorio.fijarActivo(fila, false, tx);
     });
   }
