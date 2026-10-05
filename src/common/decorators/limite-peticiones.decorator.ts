@@ -11,7 +11,8 @@ export const ES_LIMITE_ESTRICTO = 'esLimiteEstricto';
  *   @Post('login')
  *   iniciarSesion() {}
  *
- * Lo usará el login (fase 3). Al pasarse, responde 429 RATE_LIMIT_EXCEEDED con `Retry-After`.
+ * Lo usan login, register y refresh (LIMITES_AUTH en auth.controller.ts). Al pasarse, responde
+ * 429 RATE_LIMIT_EXCEEDED con `Retry-After`.
  */
 export function LimiteEstricto(limite: number, ventanaSegundos: number) {
   return applyDecorators(
