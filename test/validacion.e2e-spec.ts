@@ -10,6 +10,7 @@ import { FechaPipe } from '../src/common/pipes/fecha.pipe';
 import { UuidPipe } from '../src/common/pipes/uuid.pipe';
 import { crearApp } from './utils/crear-app';
 import { esperarProblemDetails } from './utils/problem-details';
+import { Publico } from '../src/common/decorators/publico.decorator';
 
 class PasajeroPrueba {
   @IsString()
@@ -30,6 +31,8 @@ class CuerpoPrueba {
   pasajeros: PasajeroPrueba[];
 }
 
+// Las pruebas de transversales no prueban la autenticación
+@Publico()
 @Controller('prueba-validacion')
 class ControllerDePrueba {
   @Post()

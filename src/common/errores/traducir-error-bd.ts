@@ -103,6 +103,11 @@ const POR_RESTRICCION: Record<string, Regla> = {
     CodigoError.VALIDATION_FAILED,
     'A webhook with this URL already exists',
   ),
+  uq_usuario_correo: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'An account with this email already exists',
+  ),
   uq_clave_idempotencia: regla(
     409,
     CodigoError.VALIDATION_FAILED,

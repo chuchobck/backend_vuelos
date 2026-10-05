@@ -6,7 +6,9 @@ import {
   IsString,
   Matches,
   Max,
+  MaxLength,
   Min,
+  MinLength,
   Validate,
   ValidationArguments,
   ValidatorConstraint,
@@ -17,6 +19,7 @@ import { esOrigenValido, listarOrigenes } from './origenes-cors';
 import { parsearTrustProxy } from './proxy';
 
 export const ENTORNOS = ['development', 'production', 'test'] as const;
+export const LARGO_MINIMO_JWT_SECRET = 32;
 export type Entorno = (typeof ENTORNOS)[number];
 
 @ValidatorConstraint({ name: 'listaDeOrigenes' })
@@ -68,6 +71,29 @@ export class VariablesEntorno {
 
   @IsIn(ENTORNOS, { message: `NODE_ENV es obligatorio y debe ser uno de: ${ENTORNOS.join(', ')}` })
   NODE_ENV: Entorno;
+
+  /**
+   * Clave HS256 de los tokens de acceso. Con menos de 32 caracteres (256 bits si es aleatoria)
+   * la firma se podría adivinar por fuerza bruta. Generar con:
+   *   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+   */
+  @MinLength(LARGO_MINIMO_JWT_SECRET, {
+    message: `JWT_SECRET debe tener al menos ${LARGO_MINIMO_JWT_SECRET} caracteres`,
+  })
+  @IsString({ message: 'JWT_SECRET es obligatoria' })
+  JWT_SECRET: string;
+
+  /** `iss` de los tokens que emite y acepta la API. Sin valor: quinde-vuelos-api. */
+  @Matches(/^\S+$/, { message: 'JWT_ISSUER no puede tener espacios' })
+  @MaxLength(200, { message: 'JWT_ISSUER admite hasta 200 caracteres' })
+  @IsOptional()
+  JWT_ISSUER?: string;
+
+  /** `aud` de los tokens que emite y acepta la API. Sin valor: quinde-vuelos-api. */
+  @Matches(/^\S+$/, { message: 'JWT_AUDIENCE no puede tener espacios' })
+  @MaxLength(200, { message: 'JWT_AUDIENCE admite hasta 200 caracteres' })
+  @IsOptional()
+  JWT_AUDIENCE?: string;
 
   /** Orígenes que pueden llamar desde un navegador. Sin valor: ninguno. */
   @Validate(ListaDeOrigenes)

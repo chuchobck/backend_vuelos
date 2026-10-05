@@ -885,9 +885,12 @@ BEGIN
         END IF;
     END IF;
 
-    -- el secreto de un webhook nunca se copia al log
+    -- secretos que nunca se copian al log: el de un webhook y el hash de una contraseña
+    -- (tabla usuario, db/esquema_seguridad.sql)
     IF v_anterior ? 'secreto' THEN v_anterior := v_anterior || '{"secreto": "***"}'; END IF;
     IF v_nuevo    ? 'secreto' THEN v_nuevo    := v_nuevo    || '{"secreto": "***"}'; END IF;
+    IF v_anterior ? 'hash_contrasena' THEN v_anterior := v_anterior || '{"hash_contrasena": "***"}'; END IF;
+    IF v_nuevo    ? 'hash_contrasena' THEN v_nuevo    := v_nuevo    || '{"hash_contrasena": "***"}'; END IF;
 
     -- una IP mal formada no debe tumbar la operación de negocio
     IF v_ip_texto IS NOT NULL THEN
@@ -1321,7 +1324,7 @@ COMMENT ON COLUMN auditoria.id_registro IS 'Valor de la columna id de la fila af
 COMMENT ON COLUMN auditoria.id_usuario IS 'Claim sub del JWT de quien hizo el cambio. Lo fija la API con set_config(''app.id_usuario'', ...). NULL si el cambio vino de un proceso interno o de un script.';
 COMMENT ON COLUMN auditoria.usuario_bd IS 'Rol de PostgreSQL con el que se abrió la conexión.';
 COMMENT ON COLUMN auditoria.datos_anteriores IS 'En ACTUALIZACION, solo las columnas que cambiaron con su valor previo. En ELIMINACION, la fila completa. jsonb porque la forma depende de la tabla auditada.';
-COMMENT ON COLUMN auditoria.datos_nuevos IS 'En ACTUALIZACION, las mismas columnas con su valor nuevo. En INSERCION, la fila completa. El secreto de los webhooks se guarda enmascarado.';
+COMMENT ON COLUMN auditoria.datos_nuevos IS 'En ACTUALIZACION, las mismas columnas con su valor nuevo. En INSERCION, la fila completa. El secreto de los webhooks y el hash de las contraseñas se guardan enmascarados.';
 
 COMMENT ON VIEW vista_vuelo_programado IS 'Vuelo programado con sus códigos IATA y la duración calculada.';
 COMMENT ON VIEW vista_retencion_precio IS 'lockedPrice de una retención.';

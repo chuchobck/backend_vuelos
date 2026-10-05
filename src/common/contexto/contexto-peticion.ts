@@ -10,7 +10,7 @@ export interface ContextoPeticion {
   /** IP del cliente (con `trust proxy` configurado, la de X-Forwarded-For). */
   ip: string | null;
   /**
-   * `sub` del JWT. Hoy siempre es null: el guard de la fase 3 lo llena con `fijarUsuario`.
+   * `sub` del JWT, que JwtAuthGuard llena con `fijarUsuario`; null en una ruta pública.
    * Es el `id_propietario` de retenciones, reservas y webhooks.
    */
   usuario: string | null;
@@ -29,8 +29,9 @@ export function ejecutarEnContexto<T>(contexto: ContextoPeticion, trabajo: () =>
 }
 
 /**
- * Registra el usuario autenticado en el contexto. Lo llamará el guard de JWT (fase 3) con el
- * `sub` del token; desde ahí PrismaService lo escribe en `app.id_usuario` en cada escritura.
+ * Registra el usuario autenticado en el contexto. Lo llama JwtAuthGuard con el `sub` del
+ * token (y el login, al verificar la contraseña); desde ahí PrismaService lo escribe en
+ * `app.id_usuario` en cada escritura.
  */
 export function fijarUsuario(usuario: string): void {
   const contexto = almacen.getStore();

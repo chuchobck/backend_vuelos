@@ -4,7 +4,10 @@ import { CodigoError } from '../src/common/errores/codigo-error';
 import { ErrorNegocio } from '../src/common/errores/error-negocio';
 import { crearApp } from './utils/crear-app';
 import { esperarProblemDetails } from './utils/problem-details';
+import { Publico } from '../src/common/decorators/publico.decorator';
 
+// Las pruebas de transversales no prueban la autenticación
+@Publico()
 @Controller('prueba-errores')
 class ControllerDePrueba {
   @Get('negocio')

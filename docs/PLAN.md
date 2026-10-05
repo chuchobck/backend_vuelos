@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-05 (cierre de la fase 2) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-10-05 (cierre de la fase 3) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1.
 
@@ -11,7 +11,8 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | 0. Base del repo | Hecha (2026-10-05) | `npm ci`, `npm run lint`, `npm run format:check` y `npm run build` pasan en un clon limpio; el hook rechaza mensajes de commit inválidos; `db/reset.sh` carga esquema y semilla en PostgreSQL 18 |
 | 1. Núcleo | Hecha en local (2026-10-05); falta el despliegue en Render | Cada commit pasa `npm ci`, `build`, `lint` y `format:check` por separado. Con el `.env` local: `GET /flights/v1/health` responde 200 y la base registra el `SELECT 1`; `/flights/v2/health` responde 404; `/api/docs` abre y `/api/docs-json` lista la ruta. Con la base caída, `/health` responde 503. La imagen de `docker build` arranca, responde lo mismo contra la base local y su HEALTHCHECK queda `healthy`. La extensión bloquea `delete` y `deleteMany` y la transacción auditada deja usuario e IP en `auditoria` (probado dentro de una transacción revertida) |
 | 2. Transversales | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (137 pruebas contra la base real) pasan en cada commit. Con `curl` contra la API: ruta inexistente → 404 `application/problem+json`; `POST` sobre ruta existente que no lo admite → 405 con `Allow`; cuerpo inválido, campo no permitido, HTML en un texto y UUID mal formado → 400 `VALIDATION_FAILED` con `invalidParams`; errores de base provocados a propósito (unique, FK, `ON DELETE RESTRICT`) → 409/422 sin detalles internos, y la base queda igual (0 filas nuevas en `pais` y en `auditoria`); error no controlado → 500 sin detalle ni stack; 105 peticiones en un minuto → 429 con `Retry-After`; cuerpo de más de 100 kB → 413; cabeceras de helmet presentes; Swagger UI en `/api/docs` carga en un navegador headless sin errores de consola ni peticiones fallidas; `X-Request-Id` generado, respetado si es válido, reemplazado si no, y presente en los errores |
-| 3 a 11 | Pendientes | |
+| 3. Auth | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (184 pruebas, 47 nuevas, contra la base real) pasan. `./db/reset.sh` carga los dos esquemas y las dos semillas; sin `SEED_ADMIN_PASSWORD` no crea el administrador y con una de menos de 12 caracteres falla. Con `curl` contra la API en el puerto 3010: register 201 (correo normalizado) y 409 si se repite; login 200 con `Cache-Control: no-store` y el mismo 401 para contraseña errónea, correo inexistente y cuenta inactiva; `GET /auth/me` 401 sin token (`WWW-Authenticate: Bearer realm=...`) y 200 con token; refresh rota el token; reusar uno rotado da 401 y revoca también el vigente; logout 204 y el refresh siguiente 401; token manipulado 401 `invalid_token`; el sexto login en un minuto 429 aunque la contraseña sea correcta; 403 con `insufficient_scope` y los scopes que faltan (con un controller de sonda, porque ningún endpoint real usa `@Scopes` todavía). Swagger: Authorize con `bearer` probado en un navegador headless (`/auth/me` pasa de 401 a 200). argon2 funciona dentro de la imagen Docker. Ninguna contraseña ni token completo aparece en los logs ni en las respuestas de error |
+| 4 a 11 | Pendientes | |
 
 ## Decisiones
 
@@ -31,6 +32,9 @@ La plantilla manda en lenguaje y framework; lo único que se reemplaza es el ORM
 | Errores | Filtro global que responde `application/problem+json` | El contrato exige `ProblemDetails` con un `code` de lista cerrada. |
 | Documentación viva | Swagger generado del código en `/api/docs` | Una prueba compara el OpenAPI generado con `contracts/vuelos-openapi.yaml`, para que no se separen. |
 | Autenticación | Módulo `auth` propio que emite JWT | El contrato deja la identidad en otro servicio, pero en RDA1 la API tiene que funcionar sola. En RDA2 se cambia por el proveedor real. |
+| Scopes por rol | Constante en `src/modules/auth/scopes.ts`; la base solo guarda qué rol tiene cada usuario | Un scope solo protege algo si un `@Scopes` del código lo exige: cambiar la tabla implica desplegar igual. Son 2 roles y 6 scopes; tablas `alcance` y `rol_alcance` sumarían joins sin flexibilidad real. |
+| Respuesta de tokens | Nombres de OAuth 2.0 (`access_token`, `token_type`, `expires_in`, `refresh_token`, `scope`), en snake_case | El contrato delega la identidad en un servidor OAuth2; un cliente de OAuth2 espera esos campos. Es la única excepción al camelCase del contrato. |
+| JWT | HS256 con `jsonwebtoken`, sin `@nestjs/jwt` | Se fija a mano el único algoritmo aceptado, `iss`, `aud` y que `exp` exista; `@nestjs/jwt` no agrega nada que haga falta. |
 | Eliminación | Lógica: `activo = false` o cambio de estado | Ningún endpoint ejecuta un `DELETE` de SQL sobre datos de negocio. |
 | CRUD de catálogo | Rutas `/flights/v1/admin/...`, fuera del contrato, con una clase base compartida | El contrato no tiene mantenimiento de aeropuertos, vuelos ni tarifas, y el curso pide CRUD. Las 10 entidades repiten listar, ver, crear, editar y dar de baja lógica. |
 | Swagger | `/api/docs`, versión 1.5.0.0, esquema bearer, 7 etiquetas del contrato más las propias | Las etiquetas viven en `src/config/swagger.ts` (`ETIQUETAS`) para que cada controller use la misma. |
@@ -80,9 +84,10 @@ quinde-vuelos-api/
 ├── contracts/                    # contratos de la plantilla, no se tocan
 ├── db/                           # fuente de verdad de la base
 │   ├── esquema_vuelos.sql
-│   ├── esquema_seguridad.sql     # fase 3: usuarios, roles y tokens
+│   ├── esquema_seguridad.sql     # ✓ usuarios, roles y tokens de refresco
 │   ├── semilla_vuelos.sql
-│   ├── semilla_seguridad.sql     # roles, permisos y usuario administrador
+│   ├── semilla_seguridad.sql     # ✓ roles y administrador local (SEED_ADMIN_PASSWORD)
+│   ├── hash-contrasena.js        # ✓ hash argon2id del administrador para la semilla
 │   ├── prueba_esquema.sql
 │   └── reset.sh
 ├── docs/                         # PLAN.md, logo.svg, logo-icono.svg (ícono de Swagger)
@@ -109,9 +114,9 @@ quinde-vuelos-api/
 │   │   ├── serializacion-bigint.ts  # ✓ BigInt → texto en JSON
 │   │   └── extensiones/          # ✓ bloqueo de delete físico, actor de auditoría
 │   ├── common/
-│   │   ├── decorators/           # ✓ @Publico, @LimiteEstricto, @SinLimiteDePeticiones; luego @Scopes, @UsuarioActual
+│   │   ├── decorators/           # ✓ @Publico, @Scopes, @UsuarioActual, @LimiteEstricto, @SinLimiteDePeticiones
 │   │   ├── dto/                  # de la plantilla: respuesta base y paginación
-│   │   ├── guards/               # ✓ limite-peticiones (global) e idempotency-key (plantilla); jwt-auth y scopes en la fase 3
+│   │   ├── guards/               # ✓ limite-peticiones, jwt-auth y scopes (globales) e idempotency-key (plantilla)
 │   │   ├── contexto/             # ✓ request id, IP y usuario de la petición en curso (AsyncLocalStorage)
 │   │   ├── errores/              # ✓ códigos del contrato, ErrorNegocio, traducción de errores de Prisma y de triggers
 │   │   ├── filters/              # ✓ problem-details.filter.ts
@@ -121,7 +126,7 @@ quinde-vuelos-api/
 │   │   └── sanitizacion/         # ✓ @TextoLimpio y piezas sueltas (ver su README)
 │   └── modules/
 │       ├── salud/                # ✓ GET /health
-│       ├── auth/                 # registro, login, refresh, logout, me
+│       ├── auth/                 # ✓ registro, login, refresh, logout, me; scopes.ts y seguridad/
 │       └── vuelos/
 │           ├── vuelos.module.ts  # ✓ junta los submódulos (vacío por ahora)
 │           ├── vuelos.routes.ts  # ✓ cuelga las rutas de catálogo y operaciones
@@ -176,7 +181,7 @@ Las rutas se anidan con `RouterModule`: cada `*.routes.ts` exporta su arreglo, `
 // src/routes/index.routes.ts
 export const rutas: Routes = [
   ...saludRoutes, // health
-  ...authRoutes, // auth (fase 3)
+  ...authRoutes, // auth
   ...vuelosRoutes, // admin/..., search, offers, bookings, flights, webhooks
 ];
 ```
@@ -228,7 +233,8 @@ La API niega por defecto: toda ruta exige un JWT válido salvo las que se marcan
 - Token de acceso JWT de 15 minutos con `sub`, `scope`, `iss`, `aud` y `jti`. El `sub` es el `id_propietario` de retenciones, reservas y webhooks.
 - Token de refresco opaco de 7 días, guardado como hash, con rotación: cada uso lo reemplaza y reusar uno viejo cierra la sesión.
 - Login limitado a 5 intentos por minuto por IP y con el mismo mensaje de error para usuario inexistente y contraseña mala.
-- Las tablas `usuario`, `rol`, `alcance`, `rol_alcance`, `usuario_rol` y `token_refresco` van en `db/esquema_seguridad.sql`, dentro del esquema `vuelos`. Ninguna tabla de vuelos apunta a ellas, así que en RDA2 se quitan sin tocar el resto.
+- Las tablas `usuario`, `rol`, `usuario_rol` y `token_refresco` van en `db/esquema_seguridad.sql`, dentro del esquema `vuelos`. Ninguna tabla de vuelos apunta a ellas, así que en RDA2 se quitan sin tocar el resto. No hay tablas `alcance` ni `rol_alcance`: los scopes de cada rol están en `src/modules/auth/scopes.ts` (ver Decisiones).
+- Hecho en la fase 3: argon2id con 19 MiB, 2 pasadas y 1 hilo (`src/config/parametros-argon2.json`); JWT HS256 con `sub`, `scope`, `iss`, `aud`, `jti`, `iat` y `exp`; refresh opaco de 256 bits guardado como SHA-256, con familia, rotación y detección de reutilización (también cuando dos refresh compiten por el mismo token). Ver [src/common/README.md](../src/common/README.md) para proteger un endpoint.
 
 ### Autorización
 
@@ -236,9 +242,10 @@ Dos controles, en este orden: el permiso del token y la propiedad del recurso.
 
 | Rol | Permisos (`scope`) | Cómo se obtiene |
 | --- | --- | --- |
-| cliente | `flights:read`, `flights:hold`, `flights:book`, `flights:cancel` | Registro público |
-| integrador | Los de cliente más `flights:webhooks` | Lo asigna un administrador |
-| administrador | Todos más `flights:admin` | Semilla de seguridad |
+| cliente | `flights:read`, `flights:hold`, `flights:book`, `flights:cancel`, `flights:webhooks` | Registro público |
+| administrador | Todos más `flights:admin` | Semilla de seguridad (`SEED_ADMIN_PASSWORD`) |
+
+En la fase 3 el rol `integrador` del plan original se quitó: el cliente ya gestiona sus propios webhooks.
 
 - `@Scopes('flights:book')` en cada ruta; si el token no lo trae, responde 403.
 - Toda consulta de retenciones, reservas y webhooks filtra por `id_propietario = sub`. Un recurso ajeno responde 404, para no revelar que existe.
@@ -347,13 +354,19 @@ Variables de entorno nuevas, todas opcionales y en `.env.example`: `CORS_ORIGINS
 
 ### Fase 3 · Auth
 
-1. `feat(db): tablas de seguridad y semilla de roles`
-2. `feat(auth): registro e inicio de sesión con argon2 y JWT`
-3. `feat(auth): refresh con rotación y cierre de sesión`
-4. `feat(auth): guard JWT global y decorador Publico`
-5. `feat(auth): guard de permisos y decorador Scopes`
-6. `feat(auth): decorador UsuarioActual y endpoint me`
-7. `test(auth): e2e de login, token vencido y permiso faltante`
+1. `feat(db): agregar el esquema de seguridad y la semilla de roles`
+2. `feat(prisma): introspeccionar las tablas de seguridad`
+3. `feat(auth): agregar hashing argon2id y tokens de acceso y de refresco`
+4. `feat(auth): definir los scopes de cada rol`
+5. `feat(auth): agregar registro, login y refresh con rotación`
+6. `feat(auth): agregar guard JWT global, scopes, logout y perfil`
+7. `feat(auth): limitar login, registro y refresh por IP`
+8. `docs(swagger): documentar auth con bearer y los scopes del contrato`
+9. `fix(auth): usar los parámetros de argon2id también bajo Jest`
+10. `test(auth): agregar e2e de autenticación, autorización y límites`
+11. `docs: cerrar la fase 3 en el plan, los README y CLAUDE.md`
+
+Cambios frente al pedido: los scopes por rol (commit 4) van antes del módulo porque login y refresh los firman; logout y me entran con el guard (commit 6) porque necesitan al usuario autenticado. El commit 9 corrige un error que encontró la prueba del commit 10.
 
 ### Fase 4 · Catálogo
 
@@ -470,6 +483,20 @@ Lo que se vio al probar Prisma 7 (adaptador de `pg`) contra PostgreSQL 18.6, con
 | `trust proxy` | Sin configurarlo, detrás de Render todas las peticiones tienen la IP del proxy: el límite por IP se aplicaría a todos juntos y la auditoría guardaría la IP del proxy | `TRUST_PROXY=1` en Render. Por defecto `false`: así no se puede falsear la IP con `X-Forwarded-For`. `true` se rechaza |
 | Windows y `\uXXXX` | Al escribir archivos con una herramienta, las secuencias `‮` se convirtieron en el carácter real y rompieron una expresión regular | Los invisibles se arman con `String.fromCodePoint` |
 
+### Fase 3
+
+| Tema | Qué pasó | Qué implica |
+| --- | --- | --- |
+| argon2 en Docker | El paquete `argon2` trae binarios precompilados (glibc y musl, x64 y arm64) y no los genera un script de instalación; `--omit=optional` no lo afecta porque sus dependencias no son opcionales | La imagen funciona sin cambios en el `Dockerfile` (probado con hash y verificación dentro del contenedor). npm 11 deja el script de `argon2` "sin aprobar" y aun así funciona |
+| Formato del hash | `argon2` de Node escribe los parámetros como `m=...,p=...,t=...`, no en el orden `m,t,p` de la documentación | El CHECK `ck_usuario_hash_contrasena` acepta cualquier orden. Lo detectó `reset.sh` al sembrar el administrador |
+| Jest y archivos con el mismo nombre | Jest resuelve `config/argon2` probando `.js` y `.json` antes que `.ts`: con `argon2.ts` y `argon2.json` juntos importaba el JSON y argon2 usaba sus valores por defecto (64 MiB, 3 pasadas, 4 hilos) sin avisar. `tsc` no tiene ese problema | El JSON se llama `parametros-argon2.json` y el módulo falla al cargar si falta un parámetro. Regla: ningún `.json` con el mismo nombre que un `.ts` |
+| Tiempo constante | Verificar contra un hash ficticio cuando el correo no existe tarda lo mismo que con un usuario real (mediana de 30,3 ms frente a 31,7 ms) | El login no revela qué correos existen por el tiempo. El registro sí lo revela (409); lo frena el límite de 10 cada 10 minutos |
+| `db pull` con autorreferencia | La FK `token_refresco.reemplazado_por_id` genera las relaciones `token_refresco` y `other_token_refresco` | Nombres feos pero generados; no se editan a mano |
+| Auditoría de contraseñas | `fn_auditar` copiaba la fila completa a `auditoria`, también el hash argon2 | `fn_auditar` enmascara `hash_contrasena` como ya hacía con `secreto`. `token_refresco` no se audita (dos filas por refresh) |
+| Guards globales | El orden de los `APP_GUARD` es el de registro de los módulos: `CommonModule` (límite) se importa antes que `AuthModule` (JWT y scopes) | Una prueba lo comprueba: con el límite agotado, una ruta protegida sin token responde 429 y no 401 |
+| Controllers de prueba | Con el guard global, los controllers de las pruebas de la fase 2 respondían 401 | Se marcaron `@Publico()` |
+| `type` de los 401 y 403 | Un `ErrorNegocio` con el código de respaldo sale con `type: .../errors/validation-failed`, que no describe un error de autenticación | Se dejó como en la fase 2 para no cambiar el filtro; ver Pendientes |
+
 ## Pendientes
 
 Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corresponde.
@@ -480,7 +507,15 @@ Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corr
 - [x] Fase 1: probar `prisma db pull` contra `?schema=vuelos`. Funciona con `prisma@7.10.0` fijo (ver Hallazgos).
 - [ ] Fase 1: desplegar en Render con Neon (crear el servicio desde el `Dockerfile`, cargar `DATABASE_URL`, `NODE_ENV=production`, health check en `/flights/v1/health`) y cargar `db/esquema_vuelos.sql` y la semilla en Neon. Después, etiqueta `v0.1.0`.
 - [x] Fase 2: el filtro de errores traduce `BorradoFisicoProhibidoError` (500, queda en el log) y la base caída (503).
-- [ ] Fase 3: el guard global de JWT debe respetar `@Publico()`, que ya marca `/health`, y registrar el `sub` con `fijarUsuario()` (`common/contexto`) para que la auditoría lo lleve. Debe ir después de `GuardLimitePeticiones` en los providers de `CommonModule`; el login lleva `@LimiteEstricto(5, 60)`.
+- [x] Fase 3: el guard global de JWT respeta `@Publico()`, registra el `sub` con `fijarUsuario()` y corre después de `GuardLimitePeticiones`; el login lleva `@LimiteEstricto(5, 60)`.
+- [ ] Equipo: el contrato declara `OAuth2Security` con los flujos `authorizationCode` y `clientCredentials` contra `https://auth.booking-hub.com/oauth2/token`, y la API usa un login propio con JSON (`POST /auth/login`). Se copió el esquema en Swagger para documentar los scopes, pero ese botón de Authorize no funciona en RDA1. Si se quiere usar el OAuth2 de Swagger, hace falta un `POST /auth/token` con `grant_type=password|refresh_token` en `application/x-www-form-urlencoded`.
+- [ ] Equipo: el contrato no declara ninguna respuesta 401 y define `ProblemDetails403` sin usarlo en ninguna operación. La API responde 401 y 403 como `ProblemDetails` con el código de respaldo.
+- [ ] Equipo: decidir si un `ErrorNegocio` con el código de respaldo (401, 403, 409 sin código propio) debe salir con `type: about:blank` en lugar de `.../errors/validation-failed` (`traducir-excepcion.ts`).
+- [ ] Fase 1: en Render, poner `JWT_SECRET` (al menos 32 caracteres, generada para ese entorno) y, si hace falta un administrador, cargar `db/semilla_seguridad.sql` con `hash_admin` calculado con `db/hash-contrasena.js`.
+- [ ] Fase 6 y 7: la propiedad del recurso (`id_propietario = usuario.id`, 404 si es ajeno) se hace en los repositories; el `sub` ya llega con `@UsuarioActual()`.
+- [ ] Cuando haga falta: purgar los `token_refresco` vencidos con una tarea programada (y recién entonces agregarlo a `TABLAS_CON_BORRADO_FISICO`).
+- [ ] Límite conocido: un access token sigue sirviendo hasta que vence (15 minutos) aunque se haga logout o se desactive la cuenta; `/auth/me` y `/auth/refresh` sí lo rechazan. Si hace falta cortarlo al instante, una lista de `jti` revocados.
+- [ ] Límite conocido: dos refresh simultáneos con el mismo token (un cliente que reintenta) cuentan como reutilización y cierran la sesión. Si molesta, un margen de gracia de pocos segundos.
 - [x] Fase 2: revisar cómo reporta Prisma el `ON DELETE RESTRICT`: SQLSTATE 23001, P2003 con un modelo y P2010 con SQL crudo (ver Hallazgos de la fase 2).
 - [ ] Equipo: el contrato obliga a un `code` de lista cerrada pero no trae uno para 401, 403, 404, 405, 413, 415 ni 5xx. Hoy se usa `VALIDATION_FAILED` en esos casos; si el equipo acuerda códigos propios, se cambia en `codigo-error.ts`.
 - [ ] Fase 1/2: en Render poner `TRUST_PROXY=1` y `CORS_ORIGINS` con el origen del frontend.

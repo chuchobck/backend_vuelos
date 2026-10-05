@@ -3,7 +3,10 @@ import * as request from 'supertest';
 import { validarEntorno } from '../src/config/entorno';
 import { crearApp } from './utils/crear-app';
 import { esperarProblemDetails } from './utils/problem-details';
+import { Publico } from '../src/common/decorators/publico.decorator';
 
+// Las pruebas de transversales no prueban la autenticación
+@Publico()
 @Controller('prueba-seguridad')
 class ControllerDePrueba {
   @Post()
@@ -155,6 +158,7 @@ describe('Seguridad HTTP', () => {
 describe('CORS_ORIGINS en la validación del entorno', () => {
   const base = {
     DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
+    JWT_SECRET: 'x'.repeat(32),
     PORT: '3000',
     NODE_ENV: 'test',
   };

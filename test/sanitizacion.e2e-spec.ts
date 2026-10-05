@@ -4,6 +4,7 @@ import * as request from 'supertest';
 import { TextoLimpio } from '../src/common/sanitizacion/texto-limpio.decorator';
 import { crearApp } from './utils/crear-app';
 import { esperarProblemDetails } from './utils/problem-details';
+import { Publico } from '../src/common/decorators/publico.decorator';
 
 /** Un carácter por su punto de código: así los invisibles se ven en el código de la prueba. */
 const car = (codigo: number) => String.fromCodePoint(codigo);
@@ -25,6 +26,8 @@ class PasajeroPruebaDto {
   alias?: string[];
 }
 
+// Las pruebas de transversales no prueban la autenticación
+@Publico()
 @Controller('prueba-sanitizacion')
 class ControllerDePrueba {
   @Post()

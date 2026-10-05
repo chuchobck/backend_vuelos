@@ -7,12 +7,15 @@ import { parsearTrustProxy } from '../src/config/proxy';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { crearApp } from './utils/crear-app';
 import { esperarProblemDetails } from './utils/problem-details';
+import { Publico } from '../src/common/decorators/publico.decorator';
 
 /** Secuencias de color ANSI de los logs de Nest (ESC = código 27). */
 const COLORES_ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
+// Las pruebas de transversales no prueban la autenticación
+@Publico()
 @Controller('prueba-contexto')
 class ControllerDePrueba {
   constructor(private readonly prisma: PrismaService) {}
@@ -363,6 +366,7 @@ describe('Validación de X-Request-Id y de TRUST_PROXY', () => {
   it('validarEntorno rechaza TRUST_PROXY=true y explica por qué', () => {
     const base = {
       DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
+      JWT_SECRET: 'x'.repeat(32),
       PORT: '3000',
       NODE_ENV: 'test',
     };
