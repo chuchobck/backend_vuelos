@@ -5,7 +5,12 @@ import { aTokenRespuesta } from './auth.mapper';
 import { AuthRepository, TokenRefrescoGuardado, UsuarioConRoles } from './auth.repository';
 import { LoginDto, RegistroDto } from './dto/credenciales.dto';
 import { TokenRespuestaDto } from './dto/token-respuesta.dto';
-import { credencialesInvalidas, refrescoInvalido } from './errores-auth';
+import {
+  credencialesInvalidas,
+  desafioBearer,
+  noAutenticado,
+  refrescoInvalido,
+} from './errores-auth';
 import { ROL_DEL_REGISTRO, scopesDeRoles } from './scopes';
 import { ContrasenaService } from './seguridad/contrasena.service';
 import { TokenAccesoService } from './seguridad/token-acceso.service';
@@ -106,6 +111,28 @@ export class AuthService {
       throw refrescoInvalido();
     }
     return this.respuesta(guardado.usuario, nuevo.token);
+  }
+
+  /**
+   * Revoca la familia del token de refresco si es del usuario que llama. Siempre termina
+   * bien (204): un token ajeno, vencido o desconocido no se distingue de uno válido. El token
+   * de acceso sigue sirviendo hasta que vence (15 minutos): es un JWT y no se revoca.
+   */
+  async cerrarSesion(usuarioId: string, token: string): Promise<void> {
+    if (!tieneFormatoDeTokenRefresco(token)) return;
+    const guardado = await this.repositorio.buscarTokenRefresco(hashearTokenRefresco(token));
+    if (!guardado || guardado.usuario.id !== usuarioId) return;
+    await this.repositorio.revocarFamilia(guardado.idFamilia, 'CIERRE_SESION');
+  }
+
+  /** Perfil del usuario del token. Una cuenta desactivada después del login responde 401. */
+  async perfil(usuarioId: string): Promise<UsuarioConRoles> {
+    const usuario = await this.repositorio.buscarPorId(usuarioId);
+    if (!usuario || !usuario.activo) {
+      const detalle = 'The account is not active';
+      throw noAutenticado(detalle, desafioBearer('invalid_token', detalle));
+    }
+    return usuario;
   }
 
   private async revocarPorReutilizacion(guardado: TokenRefrescoGuardado): Promise<void> {

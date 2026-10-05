@@ -2,5 +2,8 @@ import { SetMetadata } from '@nestjs/common';
 
 export const ES_PUBLICO = 'esPublico';
 
-/** Marca una ruta que no exige JWT. El guard global que lo lee entra en la fase 3. */
+/**
+ * Marca una ruta (o un controller) que no exige JWT. Todo lo demás lo exige: JwtAuthGuard
+ * es global y niega por defecto. Swagger (/api/docs) no pasa por los guards.
+ */
 export const Publico = () => SetMetadata(ES_PUBLICO, true);

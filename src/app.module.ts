@@ -22,7 +22,8 @@ import { VuelosModule } from './modules/vuelos/vuelos.module';
       validate: validarEntorno,
     }),
 
-    // Módulos Compartidos
+    // Módulos Compartidos. CommonModule va antes que AuthModule: así el límite de peticiones
+    // es el primer guard global y corre antes que el de JWT (ver auth.module.ts).
     PrismaModule,
     CommonModule,
     SaludModule,

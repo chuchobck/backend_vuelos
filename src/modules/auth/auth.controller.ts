@@ -1,6 +1,10 @@
-import { Body, Controller, Header, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Publico } from '../../common/decorators/publico.decorator';
+import {
+  UsuarioActual,
+  UsuarioAutenticado,
+} from '../../common/decorators/usuario-actual.decorator';
 import { ETIQUETAS } from '../../config/swagger';
 import { aUsuarioRespuesta } from './auth.mapper';
 import { AuthService } from './auth.service';
@@ -37,5 +41,19 @@ export class AuthController {
   @Header('Pragma', 'no-cache')
   refrescar(@Body() dto: RefrescoDto): Promise<TokenRespuestaDto> {
     return this.servicio.refrescar(dto.refresh_token);
+  }
+
+  @Post('logout')
+  @HttpCode(204)
+  async cerrarSesion(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Body() dto: RefrescoDto,
+  ): Promise<void> {
+    await this.servicio.cerrarSesion(usuario.id, dto.refresh_token);
+  }
+
+  @Get('me')
+  async perfil(@UsuarioActual() usuario: UsuarioAutenticado): Promise<UsuarioRespuestaDto> {
+    return aUsuarioRespuesta(await this.servicio.perfil(usuario.id));
   }
 }

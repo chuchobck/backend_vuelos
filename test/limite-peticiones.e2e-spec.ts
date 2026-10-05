@@ -4,7 +4,10 @@ import { LimiteEstricto } from '../src/common/decorators/limite-peticiones.decor
 import { validarEntorno } from '../src/config/entorno';
 import { crearApp } from './utils/crear-app';
 import { esperarProblemDetails } from './utils/problem-details';
+import { Publico } from '../src/common/decorators/publico.decorator';
 
+// Las pruebas de transversales no prueban la autenticación
+@Publico()
 @Controller('prueba-limite')
 class ControllerDePrueba {
   @Get('a')
