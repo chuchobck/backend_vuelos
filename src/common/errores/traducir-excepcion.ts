@@ -1,6 +1,7 @@
 import { HttpException } from '@nestjs/common';
 import { CodigoError, codigoPorStatus } from './codigo-error';
 import { ErrorNegocio, ParametroInvalido } from './error-negocio';
+import { traducirErrorBd } from './traducir-error-bd';
 import { ProblemDetails, tipoDeCodigo, tituloDeStatus } from './problem-details';
 
 const LARGO_MAXIMO_DETALLE = 500;
@@ -30,18 +31,20 @@ export interface RespuestaError {
  * Los 5xx nunca llevan detalle interno, salvo el 503 que un controller lanza a propósito.
  */
 export function traducirExcepcion(excepcion: unknown, contexto: ContextoError): RespuestaError {
-  if (excepcion instanceof ErrorNegocio) {
+  // Un error de Prisma o de un trigger pasa a ErrorNegocio; si no es de la base, queda igual.
+  const negocio = excepcion instanceof ErrorNegocio ? excepcion : traducirErrorBd(excepcion);
+  if (negocio) {
     return respuesta(
       {
-        type: tipoDeCodigo(excepcion.code),
-        title: tituloDeStatus(excepcion.status),
-        status: excepcion.status,
-        detail: excepcion.detalle,
-        code: excepcion.code,
-        invalidParams: excepcion.invalidParams,
+        type: tipoDeCodigo(negocio.code),
+        title: tituloDeStatus(negocio.status),
+        status: negocio.status,
+        detail: negocio.detalle,
+        code: negocio.code,
+        invalidParams: negocio.invalidParams,
       },
-      excepcion,
-      excepcion.cabeceras,
+      negocio.causa ?? negocio,
+      negocio.cabeceras,
     );
   }
 

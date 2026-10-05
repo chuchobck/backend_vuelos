@@ -1,6 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Request, Response } from 'express';
+import { ErrorNegocio } from '../errores/error-negocio';
 import { CONTENT_TYPE_PROBLEMA } from '../errores/problem-details';
 import { traducirExcepcion } from '../errores/traducir-excepcion';
 
@@ -39,7 +40,12 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       const detalle = causa instanceof Error ? (causa.stack ?? causa.message) : String(causa);
       this.logger.error(`${peticion.method} ${ruta} → ${problema.status}\n${detalle}`);
     } else {
-      this.logger.debug(`${peticion.method} ${ruta} → ${problema.status} ${problema.code}`);
+      // Si vino de la base, el error original ayuda a ver qué restricción saltó.
+      const origen =
+        causa instanceof Error && !(causa instanceof ErrorNegocio) ? ` (${resumir(causa)})` : '';
+      this.logger.debug(
+        `${peticion.method} ${ruta} → ${problema.status} ${problema.code}${origen}`,
+      );
     }
 
     if (respuesta.headersSent) {
@@ -66,4 +72,9 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     }
     return [...metodos];
   }
+}
+
+/** Los errores de Prisma traen la invocación completa y saltos de línea; al log, una línea. */
+function resumir(error: Error): string {
+  return error.message.replace(/\s+/g, ' ').trim().slice(-300);
 }
