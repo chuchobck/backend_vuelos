@@ -3,6 +3,7 @@ import * as request from 'supertest';
 import { LimiteEstricto } from '../src/common/decorators/limite-peticiones.decorator';
 import { validarEntorno } from '../src/config/entorno';
 import { crearApp } from './utils/crear-app';
+import { RelojDePrueba } from './utils/reloj';
 import { esperarProblemDetails } from './utils/problem-details';
 import { Publico } from '../src/common/decorators/publico.decorator';
 
@@ -30,10 +31,11 @@ class ControllerDePrueba {
 const LIMITE = 5;
 
 /** Levanta una app con el límite de la prueba; cada una trae su contador en blanco. */
-async function appConLimite(): Promise<INestApplication> {
+async function appConLimite(reloj = new RelojDePrueba()): Promise<INestApplication> {
   process.env.RATE_LIMIT_MAX = String(LIMITE);
   process.env.RATE_LIMIT_WINDOW_SECONDS = '60';
-  return crearApp([ControllerDePrueba]);
+  // Un reloj quieto: el límite no depende del reloj de la máquina (el de WSL salta minutos)
+  return crearApp([ControllerDePrueba], { reloj });
 }
 
 describe('Límite de peticiones', () => {
@@ -125,6 +127,66 @@ describe('Límite de peticiones', () => {
       // El global va en 3 de 5 y las demás rutas siguen abiertas
       await http().get('/flights/v1/prueba-limite/a').expect(200);
     });
+  });
+});
+
+describe('Límite de peticiones con saltos del reloj', () => {
+  const reloj = new RelojDePrueba();
+  let app: INestApplication;
+  const http = () => request(app.getHttpServer());
+  const llenar = async () => {
+    for (let i = 0; i < LIMITE; i++) await http().get('/flights/v1/prueba-limite/a').expect(200);
+    return http().get('/flights/v1/prueba-limite/a');
+  };
+
+  beforeEach(async () => {
+    reloj.alPresente();
+    app = await appConLimite(reloj);
+  });
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('usa el reloj de la app: la ventana termina cuando el reloj avanza 60 s, no antes', async () => {
+    expect((await llenar()).status).toBe(429);
+    reloj.adelantar(59 / 60);
+    const todavia = await http().get('/flights/v1/prueba-limite/a');
+    expect(todavia.status).toBe(429);
+    expect(todavia.headers['retry-after']).toBe('1');
+    reloj.adelantar(1 / 60);
+    await http().get('/flights/v1/prueba-limite/a').expect(200);
+  });
+
+  it('si el reloj salta hacia atrás 5 minutos, el bloqueo dura a lo sumo una ventana', async () => {
+    expect((await llenar()).status).toBe(429);
+    reloj.adelantar(-5);
+    const excedida = await http().get('/flights/v1/prueba-limite/a');
+    expect(excedida.status).toBe(429);
+    const reintento = Number(excedida.headers['retry-after']);
+    expect(reintento).toBeGreaterThanOrEqual(1);
+    expect(reintento).toBeLessThanOrEqual(60);
+    // Una ventana después del salto, abierto (no 5 minutos más)
+    reloj.adelantar(1);
+    await http().get('/flights/v1/prueba-limite/a').expect(200);
+  });
+
+  it('si el reloj salta hacia adelante, el contador se libera y nunca da Retry-After negativo', async () => {
+    expect((await llenar()).status).toBe(429);
+    reloj.adelantar(5);
+    const libre = await http().get('/flights/v1/prueba-limite/a').expect(200);
+    expect(libre.headers['x-ratelimit-remaining']).toBe(String(LIMITE - 1));
+    expect(Number(libre.headers['x-ratelimit-reset'])).toBeGreaterThanOrEqual(1);
+  });
+
+  it('saltos de ida y vuelta en medio de la ventana no dejan pasar de más', async () => {
+    const aceptadas: number[] = [];
+    for (const salto of [0, 0.5, -0.4, 0.2, -0.3, 0.1, 0.25, -0.2]) {
+      reloj.adelantar(salto);
+      aceptadas.push((await http().get('/flights/v1/prueba-limite/a')).status);
+    }
+    // En menos de un minuto de reloj neto, nunca más que el límite
+    expect(aceptadas.filter((s) => s === 200)).toHaveLength(LIMITE);
+    expect(aceptadas.filter((s) => s === 429)).toHaveLength(8 - LIMITE);
   });
 });
 

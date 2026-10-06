@@ -1,0 +1,79 @@
+# Integración continua: en cada push y pull request a main, una base PostgreSQL 18 nueva con los
+# esquemas y las semillas de db/, y luego lint, formato, compilación y la suite e2e completa.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: lint, build y pruebas e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: booking_db
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d booking_db"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/booking_db?schema=vuelos
+      NODE_ENV: test
+      PORT: '3000'
+      # Valores falsos, solo para CI: no son los de ningún entorno ni secretos del repositorio
+      JWT_SECRET: ci-solo-pruebas-jwt-0123456789abcdefghijklmnop
+      WEBHOOK_SECRET_KEY: ci-solo-pruebas-webhooks-0123456789abcdefghij
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Dependencias (y cliente de Prisma)
+        run: npm ci
+
+      # Los mismos archivos y el mismo orden que db/reset.sh, con el psql 18 del contenedor.
+      # Sin hash_admin, semilla_seguridad.sql crea los roles y no el administrador.
+      - name: Esquemas y semillas
+        env:
+          CONTENEDOR: ${{ job.services.postgres.id }}
+        run: |
+          for archivo in esquema_vuelos esquema_seguridad semilla_vuelos semilla_seguridad; do
+            echo "Cargando db/${archivo}.sql"
+            docker exec -i "$CONTENEDOR" psql -U postgres -d booking_db -v ON_ERROR_STOP=1 -q < "db/${archivo}.sql"
+          done
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Formato
+        run: npm run format:check
+
+      - name: Compilación
+        run: npm run build
+
+      - name: Pruebas e2e
+        run: npm run test:e2e

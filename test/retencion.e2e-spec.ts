@@ -985,7 +985,7 @@ describe('Límite de POST /offers/hold', () => {
   };
 
   beforeAll(async () => {
-    app = await crearApp();
+    app = await crearApp([], { reloj: new RelojDePrueba() });
     cliente = await tokenDeCliente(app);
   });
   afterAll(async () => {

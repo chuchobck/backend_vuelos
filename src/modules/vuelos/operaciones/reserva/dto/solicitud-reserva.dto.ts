@@ -177,7 +177,9 @@ export class PasajeroReservaDto {
 
   @ApiPropertyOptional({
     type: [AsientoElegidoDto],
-    description: 'Opcional: sin asiento elegido, la API asigna el primero libre de la cabina',
+    example: [],
+    description:
+      'Opcional: sin asiento elegido, la API asigna el primero libre de la cabina. Para elegir: { segmentId, seatNumber } con el segmentId del hold y un asiento libre del seatmap',
   })
   @IsOptional()
   @IsArray()
@@ -188,6 +190,7 @@ export class PasajeroReservaDto {
 
   @ApiPropertyOptional({
     type: [EquipajeExtraDto],
+    example: [],
     description: 'Debe ir vacío: el equipaje adicional se compra con POST /bookings/{id}/baggage',
   })
   @IsOptional()

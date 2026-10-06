@@ -14,6 +14,7 @@ import {
 import { ADMIN, AppCatalogo, crearAppCatalogo } from './utils/catalogo';
 import { erroresContraContrato } from './utils/contrato';
 import { crearApp } from './utils/crear-app';
+import { RelojDePrueba } from './utils/reloj';
 import { esperarProblemDetails } from './utils/problem-details';
 
 type Cuerpo = Record<string, unknown>;
@@ -564,7 +565,7 @@ describe('Búsqueda y mapa de asientos sobre un catálogo propio', () => {
 describe('Límite de peticiones de la búsqueda y del mapa', () => {
   let app: INestApplication;
   beforeAll(async () => {
-    app = await crearApp();
+    app = await crearApp([], { reloj: new RelojDePrueba() });
   });
   afterAll(async () => {
     await app.close();

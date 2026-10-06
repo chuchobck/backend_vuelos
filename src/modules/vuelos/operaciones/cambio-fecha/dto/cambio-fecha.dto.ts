@@ -12,6 +12,7 @@ import {
 } from 'class-validator';
 import { FechaIso } from '../../../compartido/dto/validadores';
 import { SegmentoVueloDto } from '../../busqueda/dto/respuesta-busqueda.dto';
+import { fechaDeEjemplo } from '../../../compartido/dto/ejemplos';
 import { MAXIMO_TRAMOS } from '../../busqueda/dto/solicitud-busqueda.dto';
 import { REGEX_NUMERO_ASIENTO, ReferenciaPagoDto } from '../../reserva/dto/solicitud-reserva.dto';
 
@@ -24,7 +25,7 @@ export class CambioPedidoDto {
   itineraryId: string;
 
   @ApiProperty({
-    example: '2026-10-28',
+    example: fechaDeEjemplo(21),
     format: 'date',
     description: 'Nueva fecha local de salida en el origen del itinerario',
   })
@@ -118,6 +119,7 @@ export class SolicitudCambioDto {
 
   @ApiPropertyOptional({
     type: [AsientoCambioDto],
+    example: [],
     description:
       'Asientos en los vuelos nuevos. En cada vuelo se dan a los pasajeros con asiento en el ' +
       'orden de la reserva; los que no se eligen se asignan como al reservar',

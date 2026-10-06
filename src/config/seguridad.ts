@@ -1,6 +1,9 @@
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { ConfigService } from '@nestjs/config';
+import { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
+import { CODIGO_SIN_EQUIVALENTE } from '../common/errores/codigo-error';
+import { ErrorNegocio } from '../common/errores/error-negocio';
 import { listarOrigenes } from './origenes-cors';
 
 /** Tope del cuerpo de una petición (JSON y formularios). Más grande responde 413. */
@@ -57,4 +60,24 @@ export function configurarSeguridad(app: NestExpressApplication): void {
 
   app.useBodyParser('json', { limit: LIMITE_CUERPO });
   app.useBodyParser('urlencoded', { limit: LIMITE_CUERPO, extended: true });
+  // Después de los parsers: un formulario de más de 100 kB sigue siendo 413
+  app.use(exigirJson);
+}
+
+const METODOS_CON_CUERPO = new Set(['POST', 'PUT', 'PATCH']);
+
+/**
+ * Toda operación con cuerpo recibe JSON: un cuerpo de otro tipo (texto, XML, formulario,
+ * multipart) o sin Content-Type responde 415 en lugar de llegar vacío a la validación (que lo
+ * contestaba con un 400 confuso). Una petición sin cuerpo (POST .../check-in) no se mira.
+ */
+export function exigirJson(req: Request, _res: Response, next: NextFunction): void {
+  const tieneCuerpo =
+    Number(req.headers['content-length'] ?? 0) > 0 ||
+    req.headers['transfer-encoding'] !== undefined;
+  if (!METODOS_CON_CUERPO.has(req.method) || !tieneCuerpo) return next();
+  const tipo = (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  // Solo application/json: es lo único que lee el parser (un +json llegaría vacío)
+  if (tipo === 'application/json') return next();
+  next(new ErrorNegocio(415, CODIGO_SIN_EQUIVALENTE, 'Content-Type must be application/json'));
 }

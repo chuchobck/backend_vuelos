@@ -1,0 +1,210 @@
+# Quinde · API de Vuelos — colección de pruebas manuales (VS Code REST Client o JetBrains HTTP Client)
+#
+# Flujo completo sobre la semilla: cuenta, búsqueda, hold, reserva, boleto, equipaje, check-in,
+# pase de abordar, estado de vuelo, cambio de fecha, cancelación y webhooks. Ejecuta las
+# peticiones en orden ("Send Request"): cada una toma los ids de la respuesta anterior por su
+# nombre (# @name). Requisitos: `./db/reset.sh` y la API arriba.
+#
+# Variables: cambia @baseUrl para otro entorno (Render: https://<servicio>.onrender.com/flights/v1).
+# El correo del registro se genera al azar; el login usa el que devolvió el registro y el token
+# sale del login.
+
+@baseUrl = http://localhost:3000/flights/v1
+@email = manual-{{$randomInt 100000 999999}}@example.com
+@password = una frase de prueba bastante larga
+@token = {{login.response.body.$.access_token}}
+# Vuelo de mañana: el check-in abre 48 h antes de la salida
+@fecha = {{$datetime "YYYY-MM-DD" 1 d}}
+@fechaCambio = {{$datetime "YYYY-MM-DD" 2 d}}
+
+### Salud (pública)
+GET {{baseUrl}}/health
+
+### 1. Registrar una cuenta de cliente
+# @name registro
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{ "email": "{{email}}", "password": "{{password}}" }
+
+### 2. Login con la cuenta recién creada: access_token (15 min) y refresh_token
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{ "email": "{{registro.response.body.$.email}}", "password": "{{password}}" }
+
+### 3. Perfil, roles y scopes
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{token}}
+
+### 4. Buscar UIO → GYE mañana, un adulto (pública)
+# @name busqueda
+POST {{baseUrl}}/search
+Content-Type: application/json
+X-Device-Fingerprint: coleccion-manual-01
+
+{
+  "itineraries": [{ "origin": "UIO", "destination": "GYE", "departureDate": "{{fecha}}" }],
+  "passengers": { "adults": 1 }
+}
+
+### 5. Mapa de asientos del primer segmento de la primera oferta (pública)
+GET {{baseUrl}}/offers/{{busqueda.response.body.$.offers[0].offerId}}/seatmap?segmentId={{busqueda.response.body.$.offers[0].itineraries[0].segments[0].segmentId}}
+
+### 6. Hold de la primera oferta en CLASSIC (cambiable): retiene el cupo 15 minutos
+# @name hold
+POST {{baseUrl}}/offers/hold
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "offerId": "{{busqueda.response.body.$.offers[0].offerId}}",
+  "itinerarySelections": [
+    {
+      "itineraryId": "{{busqueda.response.body.$.offers[0].itineraries[0].itineraryId}}",
+      "cabinClass": "ECONOMY",
+      "fareBrand": "CLASSIC"
+    }
+  ],
+  "passengersBreakdown": { "adults": 1 }
+}
+
+### 7. Estado del hold
+GET {{baseUrl}}/offers/hold/{{hold.response.body.$.holdId}}
+Authorization: Bearer {{token}}
+
+### 8. Reserva con pago aprobado (PAY-OK-): 201 CONFIRMED con boleto
+# @name reserva
+POST {{baseUrl}}/bookings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "holdId": "{{hold.response.body.$.holdId}}",
+  "passengers": [
+    {
+      "passengerId": "ADU1",
+      "passengerType": "ADULT",
+      "firstName": "Ana",
+      "lastName": "Pérez",
+      "documentType": "NATIONAL_ID",
+      "documentNumber": "1710034065",
+      "nationality": "EC",
+      "birthDate": "1990-04-15",
+      "gender": "F",
+      "contact": { "email": "ana.perez@example.com", "phone": "+593991234567" }
+    }
+  ],
+  "payment": { "paymentReference": "PAY-OK-MANUAL{{$randomInt 10000000 99999999}}" }
+}
+
+### 9. Consultar la reserva
+GET {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}
+Authorization: Bearer {{token}}
+
+### 10. Listar mis reservas confirmadas
+GET {{baseUrl}}/bookings?status=CONFIRMED&limit=10
+Authorization: Bearer {{token}}
+
+### 11. Boletos de la reserva
+# @name boletos
+GET {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/tickets
+Authorization: Bearer {{token}}
+
+### 12. Un boleto
+GET {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/tickets/{{boletos.response.body.$.tickets[0].ticketId}}
+Authorization: Bearer {{token}}
+
+### 13. Opciones de equipaje adicional
+GET {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/baggage-options
+Authorization: Bearer {{token}}
+
+### 14. Comprar una maleta adicional (otro PAY-OK-)
+POST {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/baggage
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "passengerId": "ADU1",
+  "itineraryId": "{{reserva.response.body.$.itineraries[0].itineraryId}}",
+  "quantity": 1,
+  "payment": { "paymentReference": "PAY-OK-MALETA{{$randomInt 10000000 99999999}}" }
+}
+
+### 15. Check-in (abre 48 h antes de la salida: el vuelo es de mañana)
+POST {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/check-in
+Authorization: Bearer {{token}}
+
+### 16. Pases de abordar
+GET {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/boarding-passes
+Authorization: Bearer {{token}}
+
+### 17. Estado del vuelo reservado (público)
+GET {{baseUrl}}/flights/{{reserva.response.body.$.itineraries[0].segments[0].flightNumber}}/status?date={{fecha}}
+
+### 18. Buscar un cambio de fecha a pasado mañana
+# @name cambio
+POST {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/date-change/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "changes": [
+    {
+      "itineraryId": "{{reserva.response.body.$.itineraries[0].itineraryId}}",
+      "newDepartureDate": "{{fechaCambio}}"
+    }
+  ]
+}
+
+### 19. Confirmar el cambio con la primera opción (otro PAY-OK-)
+# @name cambiada
+POST {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/date-change
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "changeOfferId": "{{cambio.response.body.$[0].changeOfferId}}",
+  "payment": { "paymentReference": "PAY-OK-CAMBIO{{$randomInt 10000000 99999999}}" }
+}
+
+### 20. Cotizar la cancelación
+# @name cotizacion
+GET {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/cancellation-quote
+Authorization: Bearer {{token}}
+
+### 21. Cancelar con la cotización: 200 CANCELLED y reembolso
+POST {{baseUrl}}/bookings/{{reserva.response.body.$.bookingId}}/cancel
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{ "quoteId": "{{cotizacion.response.body.$.quoteId}}" }
+
+### 22. Registrar un webhook (en local se acepta http://localhost; en producción, solo https)
+# @name webhook
+POST {{baseUrl}}/webhooks
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "url": "http://localhost:4010/hook",
+  "events": ["booking.confirmed", "booking.cancelled"],
+  "secret": "un-secreto-compartido-largo"
+}
+
+### 23. Mis webhooks (el secreto sale enmascarado)
+GET {{baseUrl}}/webhooks
+Authorization: Bearer {{token}}
+
+### 24. Dar de baja el webhook
+DELETE {{baseUrl}}/webhooks/{{webhook.response.body.$.id}}
+Authorization: Bearer {{token}}
+
+### Error de referencia: sin token, 401 ProblemDetails
+GET {{baseUrl}}/bookings

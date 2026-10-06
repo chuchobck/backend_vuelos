@@ -44,10 +44,6 @@ export const SCOPES_POR_ROL: Readonly<Record<CodigoRol, readonly Scope[]>> = {
   administrador: SCOPES,
 };
 
-export function esScope(valor: string): valor is Scope {
-  return (SCOPES as readonly string[]).includes(valor);
-}
-
 /**
  * Unión de los scopes de los roles, en el orden de SCOPES. Un rol que no está en la tabla
  * (uno nuevo en la base sin su entrada aquí) no concede nada: se niega por defecto.

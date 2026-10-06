@@ -298,10 +298,14 @@ los vuelos de los itinerarios vigentes de una reserva `CONFIRMADA`.
 **Estado de vuelo** (`estado-vuelo/`). Solo lectura de `vuelo_programado` por (aerolínea
 comercializadora, número, fecha local de salida): ninguna tabla de reservas ni de pasajeros.
 
-### Cómo se apoya la fase 11
+### Pruebas de contrato (fase 11)
 
-- **Entrega (fase 11).** La prueba de contrato debe incluir las 22 operaciones; el estado de vuelo
-  es la única pública además de la búsqueda y el mapa de asientos.
+`test/contrato.e2e-spec.ts` recorre las 22 operaciones (un caso feliz y uno de error cada una)
+y valida status y cuerpo contra el contrato; lo que el contrato no declara va en su lista de
+`EXCEPCIONES`, con el motivo. Una operación nueva del contrato, o una respuesta nueva que no
+declara, hace fallar la prueba hasta que se implementa o se acepta (y se anota en
+`docs/DISCREPANCIAS-CONTRATO.md`). Las públicas son la búsqueda, el mapa de asientos y el estado
+de vuelo.
 
 ## Webhooks (fase 10)
 

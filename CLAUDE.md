@@ -6,7 +6,8 @@ Reglas permanentes del proyecto. Léelas antes de tocar código.
 
 Quinde · API de Vuelos: backend NestJS 10 + TypeScript + Prisma 7 que implementa el contrato
 GDS Flight Core API v1.5.0.0 (`contracts/vuelos-openapi.yaml`), solo vuelos nacionales de Ecuador.
-Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`.
+Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`; las
+diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.0.0 (`CHANGELOG.md`).
 
 ## Alcance
 
@@ -49,6 +50,8 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   datos de tarjeta, solo la `paymentReference`.
 - Los scopes de cada rol están en `src/modules/auth/scopes.ts`, no en la base.
 - Una operación pública lleva `@Publico()` y, si es costosa, su propio `@LimiteEstricto`.
+- Toda petición con cuerpo es `application/json` (otro tipo: 415). El límite de peticiones
+  cuenta con el `Reloj` (`AlmacenLimites`); una prueba de límites pasa un `RelojDePrueba`.
 - El secreto de un webhook se guarda cifrado (AES-256-GCM, clave `WEBHOOK_SECRET_KEY`) y nunca se
   devuelve ni se registra: las respuestas lo enmascaran (`****` y los últimos 4) y la auditoría
   guarda `***`.
@@ -70,7 +73,7 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   auditada, bloqueando las filas en orden (salida, cabina) para no cruzarse con otro proceso.
 - Un vencimiento nuevo se decide con la hora de `Reloj` (`src/common/reloj.ts`), no con
   `new Date()` ni `now()` de la base: las pruebas lo adelantan. Ya lo usan los holds, las claves
-  de idempotencia y la entrega de webhooks; las ofertas de la búsqueda todavía no (ver Pendientes del plan).
+  de idempotencia, la entrega de webhooks y el límite de peticiones; las ofertas de la búsqueda todavía no (ver Pendientes del plan).
 - Una baja de catálogo es `activo = false` (una salida: estado `CANCELADO`) y responde 409 si otras
   filas activas la usan. Las filas de detalle (asientos, cupos, precios) no se quitan.
 - Las pruebas e2e no borran: crean cuentas `@e2e.quinde.example` y catálogo con códigos libres al
@@ -84,6 +87,10 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   condicionado al intento tomado, y el log de un intento no lleva URL, secreto ni cuerpo.
 - Las respuestas de las operaciones del contrato se validan contra sus esquemas en las pruebas
   (`test/utils/contrato.ts`, Ajv).
+- Una respuesta que el contrato no declara (status nuevo, cuerpo distinto) va a `EXCEPCIONES` de
+  `test/contrato.e2e-spec.ts` con su motivo y a `docs/DISCREPANCIAS-CONTRATO.md`; una diferencia
+  de Swagger con el contrato, a `DIFERENCIAS_ACEPTADAS` de `test/swagger.e2e-spec.ts`. Los
+  ejemplos de Swagger (`example`) tienen que funcionar con la semilla.
 
 ## Git
 
@@ -95,6 +102,10 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 
 ## Verificación
 
-- Verificar con `curl` o pruebas, no solo compilando.
+- Verificar con `curl` o pruebas, no solo compilando. CI (`.github/workflows/ci.yml`) corre lint,
+  formato, build y la suite e2e en cada push y pull request a `main`.
+- Contra un despliegue: `scripts/smoke.sh <BASE_URL>` (guía en `docs/DEPLOY.md`).
+- Una variable de entorno nueva va en `src/config/entorno.ts`, `.env.example`, `docs/DEPLOY.md`
+  y, si es obligatoria, en `render.yaml` (`sync: false`) y en el `env` de CI.
 - Al terminar cada fase: actualizar `docs/PLAN.md` y entregar un resumen con qué se verificó,
   qué no se pudo verificar y qué se decidió sin consultar.

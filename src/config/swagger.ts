@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const RUTA_SWAGGER = 'api/docs';
+/** Versión de la API (la de package.json); el contrato que implementa es el 1.5.0.0. */
+export const VERSION_API = '1.0.0';
 const VERSION_CONTRATO = '1.5.0.0';
 const TITULO = 'Quinde · API de Vuelos';
 
@@ -58,9 +60,9 @@ export function configurarSwagger(app: INestApplication): void {
   const constructor = new DocumentBuilder()
     .setTitle(TITULO)
     .setDescription(
-      'Implementación del contrato GDS Flight Core API v1.5.0.0 para vuelos nacionales de Ecuador.',
+      `Implementación del contrato GDS Flight Core API v${VERSION_CONTRATO} para vuelos nacionales de Ecuador.`,
     )
-    .setVersion(VERSION_CONTRATO)
+    .setVersion(VERSION_API)
     // El que funciona en el botón Authorize: el access_token de POST /flights/v1/auth/login
     .addBearerAuth(
       {
