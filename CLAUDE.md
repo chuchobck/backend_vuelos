@@ -41,6 +41,10 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   `@Scopes(...)` con el scope que declara la operación en el contrato. Ver `src/common/README.md`.
 - El usuario de la petición sale de `@UsuarioActual()`; su `id` es el `id_propietario`.
 - Nunca registrar ni devolver contraseñas, hashes ni tokens, tampoco en mensajes de error.
+- Los datos de un pasajero (nombre, documento, correo, teléfono) no van a logs ni a mensajes de
+  error: el error nombra el campo, no el valor. Solo el dueño de la reserva los ve.
+- Un pago se juzga solo con `ServicioPagos` (`compartido/pagos`); la API nunca recibe ni guarda
+  datos de tarjeta, solo la `paymentReference`.
 - Los scopes de cada rol están en `src/modules/auth/scopes.ts`, no en la base.
 - Una operación pública lleva `@Publico()` y, si es costosa, su propio `@LimiteEstricto`.
 

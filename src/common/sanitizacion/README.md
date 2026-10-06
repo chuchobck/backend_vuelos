@@ -49,6 +49,8 @@ export class PasajeroDto {
   luego valida.
 - Las piezas se pueden usar sueltas: `@RecortarYNormalizar()`, `@SinCaracteresDeControl()` y
   `@SinEtiquetasHtml()`.
+- Un correo lleva `@CorreoNormalizado()` (`correo.decorator.ts`): la misma sanitización, en
+  minúsculas y con formato de correo. Lo usan las cuentas y el contacto de los pasajeros.
 - Un campo que no es texto libre (un `uuid`, una fecha, un código IATA, un enum) no lleva
   `@TextoLimpio`: ya lo restringe su propio formato.
 

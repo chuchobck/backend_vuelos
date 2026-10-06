@@ -21,11 +21,13 @@ está en [docs/PLAN.md](docs/PLAN.md).
 | 4. Catálogo (CRUD de administración)  | Hecha                                  |
 | 5. Búsqueda y mapa de asientos        | Hecha                                  |
 | 6. Retenciones (hold)                 | Hecha                                  |
-| 7 a 11                                | Pendiente                              |
+| 7. Reservas y boletos                 | Hecha                                  |
+| 8 a 11                                | Pendiente                              |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
 administración del catálogo en `/flights/v1/admin` y estas operaciones del contrato:
-`POST /search`, `GET /offers/{offerId}/seatmap` y el bloqueo de cupos en `/offers/hold`.
+`POST /search`, `GET /offers/{offerId}/seatmap`, el bloqueo de cupos en `/offers/hold` y las
+reservas con sus boletos en `/bookings`.
 
 Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
 
@@ -81,6 +83,8 @@ Variables opcionales (todas documentadas en `.env.example`):
 | `HOLD_TTL_MINUTES`          | Minutos que un hold retiene el cupo (de 1 a 60)                                                            | 15                |
 | `HOLD_EXPIRY_JOB_ENABLED`   | Proceso que vence los holds abandonados y borra las claves de idempotencia vencidas (`true` o `false`)    | `true`            |
 | `HOLD_EXPIRY_JOB_INTERVAL_SECONDS` | Cada cuántos segundos corre ese proceso (de 5 a 3600)                                               | 60                |
+| `BOOKING_ISSUE_JOB_ENABLED` | Proceso que emite los boletos de las reservas con pago pendiente cuando se aprueba (`true` o `false`)      | `true`            |
+| `BOOKING_ISSUE_JOB_INTERVAL_SECONDS` | Cada cuántos segundos corre ese proceso (de 5 a 3600)                                             | 30                |
 
 Si los puertos 5432 o 3000 ya están ocupados, cámbialos en `.env`: `DB_PORT` para la base
 (junto con el puerto de `DATABASE_URL`) y `PORT` para la API.
@@ -221,6 +225,39 @@ Las tres operaciones exigen token, como en el contrato:
 curl -X POST localhost:3000/flights/v1/offers/hold -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -H "Idempotency-Key: $(cat /proc/sys/kernel/random/uuid)" \
   -d '{"offerId":"<offerId>","itinerarySelections":[{"itineraryId":"<itineraryId>","cabinClass":"ECONOMY","fareBrand":"BASIC"}],"passengersBreakdown":{"adults":1}}'
+```
+
+## Reservas y boletos
+
+| Endpoint                                     | Scope          | Qué hace                                                                 |
+| -------------------------------------------- | -------------- | ------------------------------------------------------------------------ |
+| `POST /bookings`                             | `flights:book` | Crea la reserva desde un hold y emite los boletos; exige `Idempotency-Key` |
+| `GET /bookings`                              | `flights:read` | Las reservas del usuario, por cursor (`limit`, `pnr`, `status`, fechas)    |
+| `GET /bookings/{bookingId}`                  | `flights:read` | Itinerarios, pasajeros con sus asientos, boletos e historial             |
+| `GET /bookings/{bookingId}/tickets`          | `flights:read` | Un boleto por pasajero, con un cupón por vuelo                           |
+| `GET /bookings/{bookingId}/tickets/{ticketId}` | `flights:read` | Un boleto                                                              |
+
+- El dueño sale del token y es el mismo del hold: una reserva o un hold de otro usuario no existen
+  para nadie más (404 en las consultas, 422 para el `holdId` de POST, que no declara 404).
+- Los pasajeros son los del hold (mismos tipos y cantidades). La edad el día de la primera salida
+  decide el tipo: INFANT menos de 2, CHILD de 2 a 11, YOUTH de 12 a 17, ADULT 18 o más. Cada
+  infante lleva el `passengerId` de un adulto (`associatedAdultId`) y no ocupa asiento. La cédula
+  ecuatoriana se valida con su dígito verificador; el pasaporte exige vencimiento posterior al viaje.
+- Asientos: el elegido en `assignedSeats` (de la cabina del hold y libre) o, si no se elige, el
+  primero libre de esa cabina por fila y letra.
+- El pago lo hace la Payment API (simulada en RDA1): `paymentReference` `PAY-OK-…` aprueba (201,
+  boletos emitidos), `PAY-PEND-…` queda pendiente (202, el proceso periódico emite los boletos al
+  aprobarse) y `PAY-REJ-…` se rechaza (422 `PAYMENT_NOT_AUTHORIZED`, sin reserva y con el hold
+  intacto). Otra referencia: 422 `PAYMENT_REFERENCE_INVALID`. Una referencia acredita una sola operación.
+- Hold vencido o liberado: 410. Ya usado en otra reserva: 409. El precio es el congelado en el hold.
+- PNR de 6 caracteres sin 0, O, 1, I ni L. Número de boleto: el prefijo de 3 dígitos de la
+  aerolínea y 10 dígitos.
+- `POST` tiene un límite propio de 10 por minuto e IP.
+
+```bash
+curl -X POST localhost:3000/flights/v1/bookings -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $(cat /proc/sys/kernel/random/uuid)" \
+  -d '{"holdId":"<holdId>","payment":{"paymentReference":"PAY-OK-7F3A9C21"},"passengers":[{"passengerId":"PAX1","passengerType":"ADULT","firstName":"Ana","lastName":"Pérez","documentType":"NATIONAL_ID","documentNumber":"1710034065","nationality":"EC","birthDate":"1990-04-15","gender":"F","contact":{"email":"ana@example.com","phone":"+593991234567"}}]}'
 ```
 
 ## Catálogo de administración
