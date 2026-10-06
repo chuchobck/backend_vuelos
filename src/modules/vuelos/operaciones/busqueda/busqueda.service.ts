@@ -123,6 +123,7 @@ export class BusquedaService {
     await this.repositorio.guardarOfertas(
       ofertas,
       huella,
+      new Date(ahora),
       new Date(ahora + this.vigenciaMinutos * MINUTO),
     );
     try {

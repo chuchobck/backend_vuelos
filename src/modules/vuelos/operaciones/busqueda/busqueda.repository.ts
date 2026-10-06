@@ -145,8 +145,16 @@ export class BusquedaRepository {
    * que aparece en varias ofertas de la misma búsqueda se guarda una vez. Los ids ya vienen
    * generados, así que todo va en cuatro INSERT de varias filas dentro de una transacción.
    * No toca cupos ni ninguna otra tabla.
+   *
+   * Creación y vencimiento salen del mismo reloj (el de la aplicación) y no de now() de la
+   * base: si los dos relojes difieren, la vigencia guardada seguiría siendo exacta.
    */
-  async guardarOfertas(ofertas: OfertaArmada[], huella: string, vence: Date): Promise<void> {
+  async guardarOfertas(
+    ofertas: OfertaArmada[],
+    huella: string,
+    creada: Date,
+    vence: Date,
+  ): Promise<void> {
     if (ofertas.length === 0) return;
     const itinerarios = new Map(
       ofertas.flatMap((o) => o.itinerarios).map((itinerario) => [itinerario.id, itinerario]),
@@ -154,7 +162,7 @@ export class BusquedaRepository {
 
     await this.prisma.transaccionAuditada(async (tx) => {
       await tx.itinerario_cabecera.createMany({
-        data: [...itinerarios.keys()].map((id) => ({ id })),
+        data: [...itinerarios.keys()].map((id) => ({ id, fecha_creacion: creada })),
       });
       await tx.itinerario_detalle.createMany({
         data: [...itinerarios.values()].flatMap((itinerario) =>
@@ -170,6 +178,7 @@ export class BusquedaRepository {
           id: oferta.id,
           aerolinea_id: oferta.itinerarios[0].segmentos[0].aerolineaId,
           huella_dispositivo: huella,
+          fecha_creacion: creada,
           fecha_expiracion: vence,
         })),
       });
