@@ -76,10 +76,15 @@ export class EntregaWebhooks implements OnApplicationBootstrap, OnModuleDestroy 
   }
 
   onApplicationBootstrap(): void {
-    if (!this.habilitado) return;
+    // Una línea al arrancar: en el log de cada instancia se ve qué procesos corren y cada cuánto
+    if (!this.habilitado) {
+      this.logger.log('Apagado (WEBHOOK_DELIVERY_JOB_ENABLED=false)');
+      return;
+    }
     this.temporizador = setInterval(() => void this.ejecutar(), this.intervaloSegundos * 1000);
     // No mantiene vivo el proceso: al cerrar la API no hay que esperar al siguiente tic.
     this.temporizador.unref();
+    this.logger.log(`Activo: cada ${this.intervaloSegundos} s`);
   }
 
   async onModuleDestroy(): Promise<void> {

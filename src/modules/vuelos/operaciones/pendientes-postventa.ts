@@ -66,9 +66,14 @@ export class PendientesPostventa implements OnApplicationBootstrap, OnModuleDest
   }
 
   onApplicationBootstrap(): void {
-    if (!this.habilitado) return;
+    // Una línea al arrancar: en el log de cada instancia se ve qué procesos corren y cada cuánto
+    if (!this.habilitado) {
+      this.logger.log('Apagado (POSTSALE_JOB_ENABLED=false)');
+      return;
+    }
     this.temporizador = setInterval(() => void this.ejecutar(), this.intervaloSegundos * 1000);
     this.temporizador.unref();
+    this.logger.log(`Activo: cada ${this.intervaloSegundos} s`);
   }
 
   async onModuleDestroy(): Promise<void> {
