@@ -18,6 +18,11 @@ export class RelojDePrueba extends Reloj {
     this.instante = new Date(this.instante.getTime() + minutos * MINUTO);
   }
 
+  /** Lo deja exactamente en `instante` (la ventana de check-in se prueba contra una salida). */
+  fijar(instante: Date): void {
+    this.instante = new Date(instante);
+  }
+
   /** Vuelve a la hora real de la máquina (al empezar cada prueba). */
   alPresente(): void {
     this.instante = new Date();

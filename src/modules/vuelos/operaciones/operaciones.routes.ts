@@ -2,8 +2,11 @@ import { Routes } from '@nestjs/core';
 import { busquedaRoutes } from './busqueda/busqueda.routes';
 import { cambioFechaRoutes } from './cambio-fecha/cambio-fecha.routes';
 import { cancelacionRoutes } from './cancelacion/cancelacion.routes';
+import { checkinRoutes } from './checkin/checkin.routes';
 import { equipajeRoutes } from './equipaje/equipaje.routes';
+import { estadoVueloRoutes } from './estado-vuelo/estado-vuelo.routes';
 import { ofertaRoutes } from './oferta/oferta.routes';
+import { paseAbordarRoutes } from './pase-abordar/pase-abordar.routes';
 import { reservaRoutes } from './reserva/reserva.routes';
 import { retencionRoutes } from './retencion/retencion.routes';
 
@@ -16,4 +19,7 @@ export const operacionesRoutes: Routes = [
   ...equipajeRoutes,
   ...cancelacionRoutes,
   ...cambioFechaRoutes,
+  ...checkinRoutes,
+  ...paseAbordarRoutes,
+  ...estadoVueloRoutes,
 ];

@@ -23,12 +23,14 @@ está en [docs/PLAN.md](docs/PLAN.md).
 | 6. Retenciones (hold)                 | Hecha                                  |
 | 7. Reservas y boletos                 | Hecha                                  |
 | 8. Postventa                          | Hecha                                  |
-| 9 a 11                                | Pendiente                              |
+| 9. Check-in, pases y estado de vuelo  | Hecha                                  |
+| 10 y 11                               | Pendiente                              |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
 administración del catálogo en `/flights/v1/admin` y estas operaciones del contrato:
 `POST /search`, `GET /offers/{offerId}/seatmap`, el bloqueo de cupos en `/offers/hold`, las
-reservas con sus boletos en `/bookings` y su postventa (equipaje, cambio de fecha y cancelación).
+reservas con sus boletos en `/bookings`, su postventa (equipaje, cambio de fecha y cancelación), el
+check-in con sus pases de abordar y el estado público de un vuelo.
 
 Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
 
@@ -90,6 +92,8 @@ Variables opcionales (todas documentadas en `.env.example`):
 | `CHANGE_OFFER_TTL_MINUTES`  | Minutos que vale una oferta de cambio de fecha (de 1 a 60)                                                 | 15                |
 | `POSTSALE_JOB_ENABLED`      | Proceso que completa maletas, cambios y cancelaciones con pago o reembolso pendiente (`true` o `false`)    | `true`            |
 | `POSTSALE_JOB_INTERVAL_SECONDS` | Cada cuántos segundos corre ese proceso (de 5 a 3600)                                                  | 30                |
+| `CHECKIN_OPENS_HOURS_BEFORE` | Horas antes de la salida en que abre el check-in de un vuelo (de 2 a 168)                                | 48                |
+| `CHECKIN_CLOSES_MINUTES_BEFORE` | Minutos antes de la salida en que cierra (de 15 a 90)                                                  | 60                |
 
 Si los puertos 5432 o 3000 ya están ocupados, cámbialos en `.env`: `DB_PORT` para la base
 (junto con el puerto de `DATABASE_URL`) y `PORT` para la API.
@@ -295,6 +299,39 @@ salió, 409):
   aprueba al pedirlo (200); con `PAY-PEND-…`, queda pendiente (202) y el proceso la completa.
 - Límites propios por minuto e IP: 10 compras de maletas, 20 búsquedas de cambio, 10 cambios y
   10 cancelaciones.
+
+## Check-in, pases de abordar y estado de vuelo
+
+| Endpoint                                        | Scope          | Qué hace                                                       |
+| ----------------------------------------------- | -------------- | -------------------------------------------------------------- |
+| `POST /bookings/{bookingId}/check-in`           | `flights:book` | Check-in de todos los pasajeros en cada vuelo con la ventana abierta |
+| `GET /bookings/{bookingId}/boarding-passes`     | `flights:read` | Los pases de abordar de los pasajeros con check-in             |
+| `GET /flights/{flightNumber}/status?date=`      | **público**    | Estado operativo de un vuelo en su fecha local de salida       |
+
+- **Ventana.** Cada vuelo abre 48 horas antes de su salida programada y cierra 60 minutos antes
+  (`CHECKIN_OPENS_HOURS_BEFORE`, `CHECKIN_CLOSES_MINUTES_BEFORE`), y solo mientras el vuelo es
+  `SCHEDULED` o `DELAYED`.
+- **Check-in.** La reserva debe estar `CONFIRMED` con sus boletos emitidos (si no, 409
+  `CHECK_IN_NOT_AVAILABLE`). Sin ningún vuelo en ventana y sin check-in previo, 409 diciendo cuándo
+  abre o que cerró. Si no, 200 con lo registrado: un vuelo que todavía no abre queda
+  `NOT_CHECKED_IN` y uno que ya cerró, `FAILED` (resultado parcial, `IN_PROGRESS`); `COMPLETED` es
+  todos en todos los vuelos. Conserva el asiento ya asignado y un infante lo hace con su adulto y sin
+  asiento (`seat: null`). Es idempotente (no pide `Idempotency-Key`): repetirlo no cambia nada.
+  Un asiento sin asignar o un pasaporte que vence antes del vuelo es 422 `CHECK_IN_FAILED`.
+- **Pases.** Se emiten al hacer el check-in y no cambian. Sin check-in, 200 con la lista vacía; un
+  infante no tiene pase propio. El `barcode` es un texto firmado
+  (`BP1|PNR|boleto|vuelo|fecha|ruta|asiento|orden|firma`), sin datos personales. Grupo de abordaje
+  por cabina (1 ejecutiva, 2 económica premium, 3 económica) y posición por fila; PDF417 en
+  económica y AZTEC en las demás.
+- **Estado de vuelo.** Sin token, 60 consultas por minuto e IP. Las horas van en UTC;
+  `estimatedAt`, `actualAt` y `terminal` son `null` mientras la base no los tenga. `date` es la
+  fecha local de salida en el aeropuerto de origen (Galápagos va una hora detrás del continente).
+- Límite propio de `POST .../check-in`: 20 por minuto e IP.
+
+```bash
+curl "localhost:3000/flights/v1/flights/LA1400/status?date=2026-10-20"
+curl -X POST localhost:3000/flights/v1/bookings/<bookingId>/check-in -H "Authorization: Bearer $TOKEN"
+```
 
 ## Catálogo de administración
 

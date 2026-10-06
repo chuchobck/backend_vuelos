@@ -1,12 +1,14 @@
 import {
   clase_cabina,
   estado_boleto,
+  estado_checkin,
   estado_cupon,
   estado_reserva,
   estado_retencion,
   estado_vuelo,
   genero,
   posicion_asiento,
+  tipo_codigo_barras,
   tipo_documento,
   tipo_pasajero,
 } from '../../../generated/prisma/client';
@@ -165,3 +167,20 @@ export type TipoDocumentoContrato = (typeof TIPO_DOCUMENTO.valores)[number];
 /** Contrato PassengerItem.gender: los mismos valores en la base. */
 export const GENERO = traduccion<genero, 'M' | 'F' | 'X'>({ M: 'M', F: 'F', X: 'X' });
 export type GeneroContrato = (typeof GENERO.valores)[number];
+
+/**
+ * Contrato CheckInResponse (por pasajero y segmento): REGISTRADO es CHECKED_IN y FALLIDO es
+ * FAILED. NOT_CHECKED_IN es la ausencia de fila (ver COMMENT ON TYPE estado_checkin).
+ */
+export const ESTADO_CHECKIN = traduccion<estado_checkin, 'CHECKED_IN' | 'FAILED'>({
+  REGISTRADO: 'CHECKED_IN',
+  FALLIDO: 'FAILED',
+});
+
+/** Contrato BoardingPass.barcodeType: los mismos valores en la base. */
+export const TIPO_CODIGO_BARRAS = traduccion<tipo_codigo_barras, 'AZTEC' | 'PDF417' | 'QR'>({
+  AZTEC: 'AZTEC',
+  PDF417: 'PDF417',
+  QR: 'QR',
+});
+export type TipoCodigoBarrasContrato = (typeof TIPO_CODIGO_BARRAS.valores)[number];

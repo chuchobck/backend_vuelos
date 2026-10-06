@@ -43,6 +43,8 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 - Nunca registrar ni devolver contraseñas, hashes ni tokens, tampoco en mensajes de error.
 - Los datos de un pasajero (nombre, documento, correo, teléfono) no van a logs ni a mensajes de
   error: el error nombra el campo, no el valor. Solo el dueño de la reserva los ve.
+- Lo que sale en una respuesta como identificador legible (el código de barras de un pase, por
+  ejemplo) lleva PNR, número de boleto o ids públicos, nunca nombre ni documento.
 - Un pago se juzga solo con `ServicioPagos` (`compartido/pagos`); la API nunca recibe ni guarda
   datos de tarjeta, solo la `paymentReference`.
 - Los scopes de cada rol están en `src/modules/auth/scopes.ts`, no en la base.
