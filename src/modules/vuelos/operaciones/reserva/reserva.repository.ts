@@ -83,6 +83,8 @@ export interface PasajeroNuevo {
 }
 
 export interface ReservaNueva {
+  /** Lo genera el service: la clave de idempotencia lo guarda antes de insertar la reserva. */
+  id: string;
   retencionId: string;
   ahora: Date;
   itinerarios: Array<{
@@ -355,9 +357,9 @@ export class ReservaRepository {
       const pnr = this.generador.pnr();
       const [fila] = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO vuelos.reserva_cabecera
-               (retencion_id, pnr, estado, fecha_creacion, fecha_actualizacion)
-        VALUES (${nueva.retencionId}::uuid, ${pnr}, 'PENDIENTE', ${nueva.ahora}::timestamptz,
-                ${nueva.ahora}::timestamptz)
+               (id, retencion_id, pnr, estado, fecha_creacion, fecha_actualizacion)
+        VALUES (${nueva.id}::uuid, ${nueva.retencionId}::uuid, ${pnr}, 'PENDIENTE',
+                ${nueva.ahora}::timestamptz, ${nueva.ahora}::timestamptz)
         ON CONFLICT ON CONSTRAINT uq_reserva_cabecera_pnr DO NOTHING
         RETURNING id`;
       if (fila) creada = { id: fila.id, pnr };
