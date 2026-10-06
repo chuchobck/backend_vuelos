@@ -258,15 +258,29 @@ const KINDS_BASE_NO_DISPONIBLE = new Set([
 ]);
 const CODIGOS_PRISMA_BASE_NO_DISPONIBLE = new Set(['P1001', 'P1002', 'P1008', 'P1017', 'P2024']);
 
+/** Códigos de Node/libc de un fallo de red al conectar con la base. */
+const CODIGOS_DE_RED = new Set([
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'ECONNRESET',
+  'EAI_AGAIN',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+]);
+/** Cuánto se baja por `cause`, `errors[]` y `meta.driverAdapterError` (corta ciclos). */
+const PROFUNDIDAD_MAXIMA = 5;
+
 /**
  * Devuelve el ErrorNegocio que corresponde a un error de base de datos, o `undefined` si el
  * error no es de la base o no está previsto (en ese caso el filtro responde 500).
  */
 export function traducirErrorBd(error: unknown): ErrorNegocio | undefined {
   const bd = extraerErrorBd(error);
-  if (bd === undefined) return undefined;
-
-  const traducido = clasificar(bd);
+  // Un fallo de conexión no siempre llega como DatabaseNotReachable: ver hayFalloDeConexion
+  const traducido =
+    (bd === undefined ? undefined : clasificar(bd)) ??
+    (hayFalloDeConexion(error) ? baseNoDisponible() : undefined);
   if (traducido === undefined) return undefined;
 
   const { status, code, detalle } = traducido.regla;
@@ -285,10 +299,7 @@ function clasificar(bd: ErrorBd): { regla: Regla; cabeceras?: Record<string, str
     (prismaCode !== undefined && CODIGOS_PRISMA_BASE_NO_DISPONIBLE.has(prismaCode)) ||
     (sqlstate !== undefined && /^(08|53300|57P0[123])/.test(sqlstate))
   ) {
-    return {
-      regla: regla(503, CodigoError.VALIDATION_FAILED, 'The database is temporarily unavailable'),
-      cabeceras: { 'Retry-After': '5' },
-    };
+    return baseNoDisponible();
   }
 
   // Choque con otra transacción (escritura concurrente o deadlock): reintentar sirve.
@@ -361,6 +372,43 @@ function clasificar(bd: ErrorBd): { regla: Regla; cabeceras?: Record<string, str
   }
 
   return undefined;
+}
+
+function baseNoDisponible(): { regla: Regla; cabeceras: Record<string, string> } {
+  return {
+    regla: regla(503, CodigoError.VALIDATION_FAILED, 'The database is temporarily unavailable'),
+    cabeceras: { 'Retry-After': '5' },
+  };
+}
+
+/**
+ * Si algún eslabón de la cadena de errores es un fallo de red al conectar (ECONNREFUSED,
+ * ETIMEDOUT, ENOTFOUND, ECONNRESET, EAI_AGAIN...). Hace falta porque con un nombre que resuelve a
+ * varias direcciones (`localhost` es ::1 y 127.0.0.1 en ubuntu-latest) Node 20+ prueba todas y,
+ * si ninguna responde, lanza un `AggregateError` con `code` pero sin `syscall` ni `errno`: el
+ * adaptador de pg no lo reconoce como error de socket, no lo convierte en DatabaseNotReachable y
+ * Prisma lo entrega como PrismaClientKnownRequestError con `code: 'ECONNREFUSED'` y sin
+ * `meta.driverAdapterError`. Se mira el `code` del propio error y los de `cause`, `errors[]` y
+ * `meta.driverAdapterError(.cause)`, hasta PROFUNDIDAD_MAXIMA niveles y sin repetir nodos.
+ */
+function hayFalloDeConexion(error: unknown): boolean {
+  const vistos = new Set<unknown>();
+  const visitar = (nodo: unknown, profundidad: number): boolean => {
+    if (typeof nodo !== 'object' || nodo === null || vistos.has(nodo)) return false;
+    if (profundidad > PROFUNDIDAD_MAXIMA) return false;
+    vistos.add(nodo);
+    const e = nodo as {
+      code?: unknown;
+      cause?: unknown;
+      errors?: unknown;
+      meta?: { driverAdapterError?: unknown };
+    };
+    if (typeof e.code === 'string' && CODIGOS_DE_RED.has(e.code)) return true;
+    const hijos: unknown[] = [e.cause, e.meta?.driverAdapterError];
+    if (Array.isArray(e.errors)) hijos.push(...e.errors);
+    return hijos.some((hijo) => visitar(hijo, profundidad + 1));
+  };
+  return visitar(error, 0);
 }
 
 function reglaPorRestriccion(bd: ErrorBd): Regla | undefined {
