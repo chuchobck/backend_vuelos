@@ -7,8 +7,7 @@
 Backend del dominio de **vuelos** del Booking Prototipo: implementa el contrato
 [GDS Flight Core API v1.5.0.0](contracts/vuelos-openapi.yaml) para vuelos nacionales de Ecuador.
 
-Nace de la [plantilla del equipo](https://github.com/semestre5grupal-ops/Plantilla-Integracion-Sistemas)
-(NestJS 10 + TypeScript) y usa PostgreSQL 18. El plan completo, con decisiones, fases y commits,
+Es un backend NestJS 10 + TypeScript con PostgreSQL 18 (ver [Origen](#origen)). El plan completo, con decisiones, fases y commits,
 está en [docs/PLAN.md](docs/PLAN.md).
 
 ## Estado
@@ -238,14 +237,9 @@ curl "localhost:3000/flights/v1/admin/departures?flightNumber=AV1500&limit=5" -H
 - Las reglas permanentes del proyecto están en [CLAUDE.md](CLAUDE.md).
 - `.env` nunca se sube; una variable nueva se agrega a `.env.example` en el mismo commit.
 
-## Relación con la plantilla
+## Origen
 
-La plantilla queda como remoto `upstream`. Para traer cambios del contrato:
-
-```bash
-git fetch upstream
-git merge upstream/main
-```
-
-Los módulos de los otros equipos (`alojamientos`, `atracciones`, `autos`) se conservan sin tocar,
-pero quedan fuera de la compilación, del lint y del formato: aquí solo se activa `VuelosModule`.
+Este repositorio es solo del dominio de vuelos; los demás dominios del Booking Prototipo viven en los
+repos de sus equipos. Nació de la plantilla del equipo
+([Plantilla-Integracion-Sistemas](https://github.com/semestre5grupal-ops/Plantilla-Integracion-Sistemas)),
+que queda como remoto `upstream` solo como referencia histórica: ya no se traen cambios de ahí.

@@ -4,13 +4,6 @@ node_modules
 src/generated
 package-lock.json
 
-# Contratos y módulos de los otros equipos: vienen de la plantilla y no se reformatean,
-# para que traer cambios de upstream no genere conflictos.
-contracts
-src/modules/alojamientos
-src/modules/atracciones
-src/modules/autos
-
 # SQL y documentos se mantienen a mano
 db
 docs

@@ -104,7 +104,7 @@ Todo lo de vuelos queda dentro de `src/modules/vuelos`, como pide la plantilla, 
 
 ```text
 quinde-vuelos-api/
-├── contracts/                    # contratos de la plantilla, no se tocan
+├── contracts/                    # vuelos-openapi.yaml, el contrato que se implementa
 ├── db/                           # fuente de verdad de la base
 │   ├── esquema_vuelos.sql
 │   ├── esquema_seguridad.sql     # ✓ usuarios, roles y tokens de refresco
@@ -322,7 +322,7 @@ Cada fase es una rama, cada rama termina en un pull request a `main` y cada comm
 
 ### Reglas
 
-- Repositorio propio creado desde la plantilla, con la plantilla como remoto `upstream` para traer cambios del contrato.
+- Repositorio propio creado desde la plantilla; el remoto `upstream` queda solo como referencia histórica (ya no se traen cambios).
 - `main` protegida y siempre desplegable; Render despliega desde ahí.
 - Mensajes en formato Conventional Commits y en español: `tipo(ámbito): verbo en infinitivo y qué cambia`. Tipos: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `ci`, `style`, `perf`, `build`, `revert`. Un hook de husky con commitlint rechaza los que no cumplen.
 - El pull request se une con merge commit, no con squash, para que el historial de commits quede visible.
@@ -341,7 +341,7 @@ Cada fase es una rama, cada rama termina en un pull request a `main` y cada comm
 7. `fix(docker): usar postgres 18 y montar el volumen en /var/lib/postgresql`
 8. `docs: agregar README, logo y plan del backend`
 
-Dos commits no estaban en el plan original. La plantilla no compila tal como viene (el módulo de atracciones tiene errores de TypeScript), así que el commit 4 activa solo `VuelosModule` y deja los módulos de los otros equipos fuera de la compilación. El commit 3 separa el cambio de formato del cambio de configuración.
+(Después, en la limpieza `chore/limpiar-otros-dominios`, se borraron los módulos y contratos de los otros dominios y las exclusiones que dejaron en tsconfig, ESLint y Prettier: el repo es solo de vuelos.) Dos commits no estaban en el plan original. La plantilla no compila tal como viene (el módulo de atracciones tiene errores de TypeScript), así que el commit 4 activa solo `VuelosModule` y deja los módulos de los otros equipos fuera de la compilación. El commit 3 separa el cambio de formato del cambio de configuración.
 
 ### Fase 1 · Núcleo
 

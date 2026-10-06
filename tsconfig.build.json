@@ -1,13 +1,4 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": [
-    "node_modules",
-    "dist",
-    "test",
-    "**/*.spec.ts",
-    "prisma.config.ts",
-    "src/modules/alojamientos",
-    "src/modules/atracciones",
-    "src/modules/autos"
-  ]
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "prisma.config.ts"]
 }

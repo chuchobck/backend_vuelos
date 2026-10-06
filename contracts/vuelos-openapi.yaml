@@ -1,7 +1,8 @@
 openapi: 3.0.3
 info:
   title: GDS Flight Core API
-  description: Microservicio centralizado para búsqueda, ofertas, retención, reservas, emisión de tickets y postventa de vuelos.
+  description:
+    Microservicio centralizado para búsqueda, ofertas, retención, reservas, emisión de tickets y postventa de vuelos.
     El dueño de la reserva (ownerId) se infiere del sub del token JWT. La lógica de pagos, autenticación 3DS, reembolsos,
     facturación y gestión de clientes pertenece a otros dominios/APIs. Esta API únicamente recibe referencias de pago cuando
     una operación requiere acreditar un pago.
@@ -10,33 +11,33 @@ info:
     name: Alejandro Sebastián Flores Lugmaña
     email: alejandro.floreslu@outlook.com
 servers:
-- url: https://api.booking-hub.com/flights/v1
-  description: Producción
-- url: https://sandbox.api.booking-hub.com/flights/v1
-  description: Sandbox
+  - url: https://api.booking-hub.com/flights/v1
+    description: Producción
+  - url: https://sandbox.api.booking-hub.com/flights/v1
+    description: Sandbox
 security:
-- OAuth2Security: []
+  - OAuth2Security: []
 tags:
-- name: Búsqueda y Catálogo
-- name: Bloqueo de Cupos (Hold)
-- name: Reservas y Emisión
-- name: Postventa (Maletas, Fechas y Cancelaciones)
-- name: Check-in y Boarding Pass
-- name: Estado de Vuelos
-- name: Webhooks
+  - name: Búsqueda y Catálogo
+  - name: Bloqueo de Cupos (Hold)
+  - name: Reservas y Emisión
+  - name: Postventa (Maletas, Fechas y Cancelaciones)
+  - name: Check-in y Boarding Pass
+  - name: Estado de Vuelos
+  - name: Webhooks
 paths:
   /search:
     post:
       tags:
-      - Búsqueda y Catálogo
+        - Búsqueda y Catálogo
       summary: Búsqueda de vuelos (Multidestino)
       security: []
       parameters:
-      - name: X-Device-Fingerprint
-        in: header
-        required: true
-        schema:
-          type: string
+        - name: X-Device-Fingerprint
+          in: header
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -57,20 +58,20 @@ paths:
   /offers/{offerId}/seatmap:
     get:
       tags:
-      - Búsqueda y Catálogo
+        - Búsqueda y Catálogo
       summary: Obtener mapa de asientos por segmento
       security: []
       parameters:
-      - name: offerId
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: segmentId
-        in: query
-        required: true
-        schema:
-          type: string
+        - name: offerId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: segmentId
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: Mapa de asientos (gratuito al emitir, sin precios)
@@ -85,18 +86,18 @@ paths:
   /offers/hold:
     post:
       tags:
-      - Bloqueo de Cupos (Hold)
+        - Bloqueo de Cupos (Hold)
       summary: Bloquear inventario
       security:
-      - OAuth2Security:
-        - flights:hold
+        - OAuth2Security:
+            - flights:hold
       parameters:
-      - name: Idempotency-Key
-        in: header
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -119,18 +120,18 @@ paths:
   /offers/hold/{holdId}:
     get:
       tags:
-      - Bloqueo de Cupos (Hold)
+        - Bloqueo de Cupos (Hold)
       summary: Consultar estado de un hold
       security:
-      - OAuth2Security:
-        - flights:read
+        - OAuth2Security:
+            - flights:read
       parameters:
-      - name: holdId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: holdId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Estado del hold (HELD, RELEASED, EXPIRED, CONSUMED)
@@ -142,18 +143,18 @@ paths:
           $ref: '#/components/responses/ProblemDetails404'
     delete:
       tags:
-      - Bloqueo de Cupos (Hold)
+        - Bloqueo de Cupos (Hold)
       summary: Liberar hold anticipadamente
       security:
-      - OAuth2Security:
-        - flights:hold
+        - OAuth2Security:
+            - flights:hold
       parameters:
-      - name: holdId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: holdId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '204':
           description: Liberado exitosamente
@@ -162,40 +163,40 @@ paths:
   /bookings:
     get:
       tags:
-      - Reservas y Emisión
+        - Reservas y Emisión
       summary: Listar reservas del usuario actual (Paginado)
       security:
-      - OAuth2Security:
-        - flights:read
+        - OAuth2Security:
+            - flights:read
       parameters:
-      - name: pnr
-        in: query
-        schema:
-          type: string
-      - name: status
-        in: query
-        schema:
-          type: string
-      - name: createdFrom
-        in: query
-        schema:
-          type: string
-          format: date
-      - name: createdTo
-        in: query
-        schema:
-          type: string
-          format: date
-      - name: limit
-        in: query
-        schema:
-          type: integer
-          maximum: 50
-          default: 10
-      - name: cursor
-        in: query
-        schema:
-          type: string
+        - name: pnr
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: createdFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: createdTo
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 50
+            default: 10
+        - name: cursor
+          in: query
+          schema:
+            type: string
       responses:
         '200':
           description: Lista resumida
@@ -205,21 +206,22 @@ paths:
                 $ref: '#/components/schemas/BookingListResponse'
     post:
       tags:
-      - Reservas y Emisión
+        - Reservas y Emisión
       summary: Crear reserva y gestionar emisión de ticket
-      description: El ownerId/customerId se extrae exclusivamente del JWT y no es aceptado como dato controlado por el cliente.
+      description:
+        El ownerId/customerId se extrae exclusivamente del JWT y no es aceptado como dato controlado por el cliente.
         La API utiliza paymentReference como referencia a un pago gestionado por la Payment API. Esta API no procesa tarjetas,
         3DS, autorización ni captura. La emisión del ticket puede ser síncrona o asíncrona.
       security:
-      - OAuth2Security:
-        - flights:book
+        - OAuth2Security:
+            - flights:book
       parameters:
-      - name: Idempotency-Key
-        in: header
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -250,18 +252,18 @@ paths:
   /bookings/{bookingId}:
     get:
       tags:
-      - Reservas y Emisión
+        - Reservas y Emisión
       summary: Detalle completo de reserva
       security:
-      - OAuth2Security:
-        - flights:read
+        - OAuth2Security:
+            - flights:read
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Detalle de reserva (itinerarios, pasajeros, historial)
@@ -274,18 +276,18 @@ paths:
   /bookings/{bookingId}/baggage-options:
     get:
       tags:
-      - Postventa (Maletas, Fechas y Cancelaciones)
+        - Postventa (Maletas, Fechas y Cancelaciones)
       summary: Opciones de equipaje post-emisión
       security:
-      - OAuth2Security:
-        - flights:read
+        - OAuth2Security:
+            - flights:read
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Tarifas y límites de maletas
@@ -296,24 +298,24 @@ paths:
   /bookings/{bookingId}/baggage:
     post:
       tags:
-      - Postventa (Maletas, Fechas y Cancelaciones)
+        - Postventa (Maletas, Fechas y Cancelaciones)
       summary: Agregar maleta extra post-emisión
       security:
-      - OAuth2Security:
-        - flights:book
+        - OAuth2Security:
+            - flights:book
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      - name: Idempotency-Key
-        in: header
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -334,18 +336,18 @@ paths:
   /bookings/{bookingId}/date-change/search:
     post:
       tags:
-      - Postventa (Maletas, Fechas y Cancelaciones)
+        - Postventa (Maletas, Fechas y Cancelaciones)
       summary: Buscar disponibilidad para cambio de fecha
       security:
-      - OAuth2Security:
-        - flights:read
+        - OAuth2Security:
+            - flights:read
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -364,24 +366,24 @@ paths:
   /bookings/{bookingId}/date-change:
     post:
       tags:
-      - Postventa (Maletas, Fechas y Cancelaciones)
+        - Postventa (Maletas, Fechas y Cancelaciones)
       summary: Confirmar cambio de fecha
       security:
-      - OAuth2Security:
-        - flights:book
+        - OAuth2Security:
+            - flights:book
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      - name: Idempotency-Key
-        in: header
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -404,18 +406,18 @@ paths:
   /bookings/{bookingId}/cancellation-quote:
     get:
       tags:
-      - Postventa (Maletas, Fechas y Cancelaciones)
+        - Postventa (Maletas, Fechas y Cancelaciones)
       summary: Cotizar reembolso por cancelación
       security:
-      - OAuth2Security:
-        - flights:read
+        - OAuth2Security:
+            - flights:read
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Cotización de cancelación
@@ -426,24 +428,24 @@ paths:
   /bookings/{bookingId}/cancel:
     post:
       tags:
-      - Postventa (Maletas, Fechas y Cancelaciones)
+        - Postventa (Maletas, Fechas y Cancelaciones)
       summary: Cancelar reserva
       security:
-      - OAuth2Security:
-        - flights:cancel
+        - OAuth2Security:
+            - flights:cancel
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      - name: Idempotency-Key
-        in: header
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
       requestBody:
         required: true
         content:
@@ -460,11 +462,11 @@ paths:
   /webhooks:
     get:
       tags:
-      - Webhooks
+        - Webhooks
       summary: Listar suscripciones
       security:
-      - OAuth2Security:
-        - flights:webhooks
+        - OAuth2Security:
+            - flights:webhooks
       responses:
         '200':
           description: Suscripciones activas
@@ -476,11 +478,11 @@ paths:
                   $ref: '#/components/schemas/WebhookSubscription'
     post:
       tags:
-      - Webhooks
+        - Webhooks
       summary: Registrar webhook
       security:
-      - OAuth2Security:
-        - flights:webhooks
+        - OAuth2Security:
+            - flights:webhooks
       requestBody:
         required: true
         content:
@@ -509,36 +511,36 @@ paths:
   /webhooks/{id}:
     delete:
       tags:
-      - Webhooks
+        - Webhooks
       summary: Eliminar suscripción
       security:
-      - OAuth2Security:
-        - flights:webhooks
+        - OAuth2Security:
+            - flights:webhooks
       parameters:
-      - name: id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '204':
           description: Eliminado
   /bookings/{bookingId}/tickets:
     get:
       tags:
-      - Reservas y Emisión
+        - Reservas y Emisión
       summary: Consultar tickets de una reserva
       security:
-      - OAuth2Security:
-        - flights:read
+        - OAuth2Security:
+            - flights:read
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Tickets asociados a la reserva
@@ -551,23 +553,23 @@ paths:
   /bookings/{bookingId}/tickets/{ticketId}:
     get:
       tags:
-      - Reservas y Emisión
+        - Reservas y Emisión
       summary: Consultar un ticket
       security:
-      - OAuth2Security:
-        - flights:read
+        - OAuth2Security:
+            - flights:read
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      - name: ticketId
-        in: path
-        required: true
-        schema:
-          type: string
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         '200':
           description: Detalle del ticket
@@ -580,18 +582,18 @@ paths:
   /bookings/{bookingId}/check-in:
     post:
       tags:
-      - Check-in y Boarding Pass
+        - Check-in y Boarding Pass
       summary: Realizar check-in de la reserva
       security:
-      - OAuth2Security:
-        - flights:book
+        - OAuth2Security:
+            - flights:book
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Check-in realizado
@@ -606,18 +608,18 @@ paths:
   /bookings/{bookingId}/boarding-passes:
     get:
       tags:
-      - Check-in y Boarding Pass
+        - Check-in y Boarding Pass
       summary: Consultar pases de abordar
       security:
-      - OAuth2Security:
-        - flights:read
+        - OAuth2Security:
+            - flights:read
       parameters:
-      - name: bookingId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
+        - name: bookingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Pases de abordar disponibles
@@ -630,21 +632,21 @@ paths:
   /flights/{flightNumber}/status:
     get:
       tags:
-      - Estado de Vuelos
+        - Estado de Vuelos
       summary: Consultar estado de un vuelo
       security: []
       parameters:
-      - name: flightNumber
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: date
-        in: query
-        required: true
-        schema:
-          type: string
-          format: date
+        - name: flightNumber
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
       responses:
         '200':
           description: Estado operativo del vuelo
@@ -732,10 +734,10 @@ components:
       type: object
       additionalProperties: false
       required:
-      - type
-      - title
-      - status
-      - code
+        - type
+        - title
+        - status
+        - code
       properties:
         type:
           type: string
@@ -748,30 +750,30 @@ components:
         code:
           type: string
           enum:
-          - VALIDATION_FAILED
-          - SEAT_TAKEN
-          - AMOUNT_MISMATCH
-          - BOOKING_NOT_CONFIRMED
-          - BAGGAGE_LIMIT_EXCEEDED
-          - CUTOFF_PASSED
-          - FARE_NOT_CHANGEABLE
-          - FLIGHT_ALREADY_DEPARTED
-          - CHANGE_OFFER_EXPIRED
-          - OFFER_NO_LONGER_AVAILABLE
-          - QUOTE_EXPIRED
-          - ALREADY_CANCELLED
-          - RATE_LIMIT_EXCEEDED
-          - INFANT_SEAT_NOT_ALLOWED
-          - PAYMENT_REFERENCE_INVALID
-          - PAYMENT_NOT_AUTHORIZED
-          - PNR_CREATION_FAILED
-          - TICKET_ISSUANCE_FAILED
-          - TICKET_ALREADY_ISSUED
-          - CHECK_IN_NOT_AVAILABLE
-          - CHECK_IN_FAILED
-          - BOARDING_PASS_NOT_AVAILABLE
-          - SEAT_CABIN_MISMATCH
-          - FLIGHT_STATUS_NOT_AVAILABLE
+            - VALIDATION_FAILED
+            - SEAT_TAKEN
+            - AMOUNT_MISMATCH
+            - BOOKING_NOT_CONFIRMED
+            - BAGGAGE_LIMIT_EXCEEDED
+            - CUTOFF_PASSED
+            - FARE_NOT_CHANGEABLE
+            - FLIGHT_ALREADY_DEPARTED
+            - CHANGE_OFFER_EXPIRED
+            - OFFER_NO_LONGER_AVAILABLE
+            - QUOTE_EXPIRED
+            - ALREADY_CANCELLED
+            - RATE_LIMIT_EXCEEDED
+            - INFANT_SEAT_NOT_ALLOWED
+            - PAYMENT_REFERENCE_INVALID
+            - PAYMENT_NOT_AUTHORIZED
+            - PNR_CREATION_FAILED
+            - TICKET_ISSUANCE_FAILED
+            - TICKET_ALREADY_ISSUED
+            - CHECK_IN_NOT_AVAILABLE
+            - CHECK_IN_FAILED
+            - BOARDING_PASS_NOT_AVAILABLE
+            - SEAT_CABIN_MISMATCH
+            - FLIGHT_STATUS_NOT_AVAILABLE
         invalidParams:
           type: array
           items:
@@ -785,8 +787,8 @@ components:
       type: object
       additionalProperties: false
       required:
-      - itineraries
-      - passengers
+        - itineraries
+        - passengers
       properties:
         itineraries:
           type: array
@@ -795,9 +797,9 @@ components:
           items:
             type: object
             required:
-            - origin
-            - destination
-            - departureDate
+              - origin
+              - destination
+              - departureDate
             properties:
               origin:
                 type: string
@@ -832,8 +834,8 @@ components:
     SearchResponse:
       type: object
       required:
-      - totalOffers
-      - offers
+        - totalOffers
+        - offers
       properties:
         totalOffers:
           type: integer
@@ -844,10 +846,10 @@ components:
     FlightOffer:
       type: object
       required:
-      - offerId
-      - airline
-      - itineraries
-      - grandTotal
+        - offerId
+        - airline
+        - itineraries
+        - grandTotal
       properties:
         offerId:
           type: string
@@ -867,11 +869,11 @@ components:
     ItineraryOption:
       type: object
       required:
-      - itineraryId
-      - totalDurationMinutes
-      - stopsCount
-      - segments
-      - pricingOptions
+        - itineraryId
+        - totalDurationMinutes
+        - stopsCount
+        - segments
+        - pricingOptions
       properties:
         itineraryId:
           type: string
@@ -890,12 +892,12 @@ components:
     FlightSegment:
       type: object
       required:
-      - segmentId
-      - flightNumber
-      - departure
-      - arrival
-      - marketingCarrier
-      - operatingCarrier
+        - segmentId
+        - flightNumber
+        - departure
+        - arrival
+        - marketingCarrier
+        - operatingCarrier
       properties:
         segmentId:
           type: string
@@ -925,18 +927,18 @@ components:
           type: string
           nullable: true
           enum:
-          - SCHEDULED
-          - BOARDING
-          - DEPARTED
-          - DELAYED
-          - ARRIVED
-          - CANCELLED
-          - DIVERTED
+            - SCHEDULED
+            - BOARDING
+            - DEPARTED
+            - DELAYED
+            - ARRIVED
+            - CANCELLED
+            - DIVERTED
     FlightEndpoint:
       type: object
       required:
-      - iataCode
-      - at
+        - iataCode
+        - at
       properties:
         iataCode:
           type: string
@@ -950,20 +952,20 @@ components:
     CabinPricing:
       type: object
       required:
-      - cabinClass
-      - fareBrand
-      - availableSeats
-      - fareRules
-      - baggageAllowance
-      - pricePerPassengerType
+        - cabinClass
+        - fareBrand
+        - availableSeats
+        - fareRules
+        - baggageAllowance
+        - pricePerPassengerType
       properties:
         cabinClass:
           type: string
           enum:
-          - ECONOMY
-          - PREMIUM_ECONOMY
-          - BUSINESS
-          - FIRST
+            - ECONOMY
+            - PREMIUM_ECONOMY
+            - BUSINESS
+            - FIRST
         fareBrand:
           type: string
         availableSeats:
@@ -971,8 +973,8 @@ components:
         fareRules:
           type: object
           required:
-          - isRefundable
-          - isChangeable
+            - isRefundable
+            - isChangeable
           properties:
             isRefundable:
               type: boolean
@@ -1001,8 +1003,8 @@ components:
     MoneyAmount:
       type: object
       required:
-      - currency
-      - total
+        - currency
+        - total
       properties:
         currency:
           type: string
@@ -1046,18 +1048,19 @@ components:
                             items:
                               type: string
                               enum:
-                              - WINDOW
-                              - AISLE
-                              - EXTRA_LEGROOM
-                              - EMERGENCY_EXIT
-      description: Mapa básico de asientos sin precios. Los asientos seleccionables deben corresponder a la cabina adquirida
+                                - WINDOW
+                                - AISLE
+                                - EXTRA_LEGROOM
+                                - EMERGENCY_EXIT
+      description:
+        Mapa básico de asientos sin precios. Los asientos seleccionables deben corresponder a la cabina adquirida
         por el pasajero.
     HoldRequest:
       type: object
       required:
-      - offerId
-      - itinerarySelections
-      - passengersBreakdown
+        - offerId
+        - itinerarySelections
+        - passengersBreakdown
       properties:
         offerId:
           type: string
@@ -1066,9 +1069,9 @@ components:
           items:
             type: object
             required:
-            - itineraryId
-            - cabinClass
-            - fareBrand
+              - itineraryId
+              - cabinClass
+              - fareBrand
             properties:
               itineraryId:
                 type: string
@@ -1081,11 +1084,11 @@ components:
     HoldResponse:
       type: object
       required:
-      - holdId
-      - status
-      - expiresAt
-      - ttlMinutes
-      - lockedPrice
+        - holdId
+        - status
+        - expiresAt
+        - ttlMinutes
+        - lockedPrice
       properties:
         holdId:
           type: string
@@ -1093,7 +1096,7 @@ components:
         status:
           type: string
           enum:
-          - HELD
+            - HELD
         expiresAt:
           type: string
           format: date-time
@@ -1104,17 +1107,17 @@ components:
     HoldStatusResponse:
       type: object
       required:
-      - status
-      - remainingSeconds
-      - lockedPrice
+        - status
+        - remainingSeconds
+        - lockedPrice
       properties:
         status:
           type: string
           enum:
-          - HELD
-          - RELEASED
-          - EXPIRED
-          - CONSUMED
+            - HELD
+            - RELEASED
+            - EXPIRED
+            - CONSUMED
         expiresAt:
           type: string
           format: date-time
@@ -1126,9 +1129,9 @@ components:
       type: object
       additionalProperties: false
       required:
-      - holdId
-      - passengers
-      - payment
+        - holdId
+        - passengers
+        - payment
       properties:
         holdId:
           type: string
@@ -1142,26 +1145,26 @@ components:
     PassengerItem:
       type: object
       required:
-      - passengerId
-      - passengerType
-      - firstName
-      - lastName
-      - documentType
-      - documentNumber
-      - nationality
-      - birthDate
-      - gender
-      - contact
+        - passengerId
+        - passengerType
+        - firstName
+        - lastName
+        - documentType
+        - documentNumber
+        - nationality
+        - birthDate
+        - gender
+        - contact
       properties:
         passengerId:
           type: string
         passengerType:
           type: string
           enum:
-          - ADULT
-          - YOUTH
-          - CHILD
-          - INFANT
+            - ADULT
+            - YOUTH
+            - CHILD
+            - INFANT
         associatedAdultId:
           type: string
         firstName:
@@ -1171,8 +1174,8 @@ components:
         documentType:
           type: string
           enum:
-          - PASSPORT
-          - NATIONAL_ID
+            - PASSPORT
+            - NATIONAL_ID
         documentNumber:
           type: string
         nationality:
@@ -1186,14 +1189,14 @@ components:
         gender:
           type: string
           enum:
-          - M
-          - F
-          - X
+            - M
+            - F
+            - X
         contact:
           type: object
           required:
-          - email
-          - phone
+            - email
+            - phone
           properties:
             email:
               type: string
@@ -1204,8 +1207,8 @@ components:
           items:
             type: object
             required:
-            - segmentId
-            - seatNumber
+              - segmentId
+              - seatNumber
             properties:
               segmentId:
                 type: string
@@ -1216,8 +1219,8 @@ components:
           items:
             type: object
             required:
-            - itineraryId
-            - quantity
+              - itineraryId
+              - quantity
             properties:
               itineraryId:
                 type: string
@@ -1251,11 +1254,11 @@ components:
     BookingDetail:
       type: object
       required:
-      - bookingId
-      - pnr
-      - status
-      - grandTotal
-      - createdAt
+        - bookingId
+        - pnr
+        - status
+        - grandTotal
+        - createdAt
       properties:
         bookingId:
           type: string
@@ -1265,14 +1268,14 @@ components:
         status:
           type: string
           enum:
-          - PENDING
-          - PENDING_PAYMENT
-          - TICKET_ISSUING
-          - CONFIRMED
-          - FAILED
-          - CHANGE_PENDING
-          - CANCELLATION_PENDING
-          - CANCELLED
+            - PENDING
+            - PENDING_PAYMENT
+            - TICKET_ISSUING
+            - CONFIRMED
+            - FAILED
+            - CHANGE_PENDING
+            - CANCELLATION_PENDING
+            - CANCELLED
         grandTotal:
           $ref: '#/components/schemas/MoneyAmount'
         createdAt:
@@ -1321,10 +1324,10 @@ components:
     AddBaggageRequest:
       type: object
       required:
-      - passengerId
-      - itineraryId
-      - quantity
-      - payment
+        - passengerId
+        - itineraryId
+        - quantity
+        - payment
       properties:
         passengerId:
           type: string
@@ -1347,15 +1350,15 @@ components:
     DateChangeSearchRequest:
       type: object
       required:
-      - changes
+        - changes
       properties:
         changes:
           type: array
           items:
             type: object
             required:
-            - itineraryId
-            - newDepartureDate
+              - itineraryId
+              - newDepartureDate
             properties:
               itineraryId:
                 type: string
@@ -1390,7 +1393,7 @@ components:
     DateChangeRequest:
       type: object
       required:
-      - changeOfferId
+        - changeOfferId
       properties:
         changeOfferId:
           type: string
@@ -1408,12 +1411,12 @@ components:
     CancellationQuoteResponse:
       type: object
       required:
-      - quoteId
-      - isRefundable
-      - refundAmount
-      - penaltyAmount
-      - currency
-      - expiresAt
+        - quoteId
+        - isRefundable
+        - refundAmount
+        - penaltyAmount
+        - currency
+        - expiresAt
       properties:
         quoteId:
           type: string
@@ -1431,7 +1434,7 @@ components:
     CancelBookingRequest:
       type: object
       required:
-      - quoteId
+        - quoteId
       properties:
         quoteId:
           type: string
@@ -1440,9 +1443,9 @@ components:
     WebhookSubscription:
       type: object
       required:
-      - url
-      - events
-      - secret
+        - url
+        - events
+        - secret
       properties:
         id:
           type: string
@@ -1456,18 +1459,18 @@ components:
           items:
             type: string
             enum:
-            - booking.confirmed
-            - booking.failed
-            - booking.changed
-            - booking.cancelled
-            - booking.baggage_added
-            - hold.expired
-            - flight.schedule_changed
-            - flight.cancelled
-            - booking.ticket_issuing
-            - booking.ticket_issued
-            - booking.ticket_failed
-            - booking.checked_in
+              - booking.confirmed
+              - booking.failed
+              - booking.changed
+              - booking.cancelled
+              - booking.baggage_added
+              - hold.expired
+              - flight.schedule_changed
+              - flight.cancelled
+              - booking.ticket_issuing
+              - booking.ticket_issued
+              - booking.ticket_failed
+              - booking.checked_in
         secret:
           type: string
     WebhookPayload:
@@ -1495,11 +1498,12 @@ components:
               type: string
     PaymentReference:
       type: object
-      description: Referencia a un pago gestionado por la Payment API. Esta API no procesa tarjetas, 3DS, autorización ni
+      description:
+        Referencia a un pago gestionado por la Payment API. Esta API no procesa tarjetas, 3DS, autorización ni
         captura.
       additionalProperties: false
       required:
-      - paymentReference
+        - paymentReference
       properties:
         paymentReference:
           type: string
@@ -1507,23 +1511,23 @@ components:
     TicketStatus:
       type: string
       enum:
-      - PENDING
-      - ISSUING
-      - ISSUED
-      - FAILED
-      - VOIDED
-      - REFUNDED
+        - PENDING
+        - ISSUING
+        - ISSUED
+        - FAILED
+        - VOIDED
+        - REFUNDED
     TicketSegmentStatus:
       type: string
       enum:
-      - PENDING
-      - ISSUED
-      - FAILED
+        - PENDING
+        - ISSUED
+        - FAILED
     TicketSegment:
       type: object
       required:
-      - segmentId
-      - status
+        - segmentId
+        - status
       properties:
         segmentId:
           type: string
@@ -1535,10 +1539,10 @@ components:
     Ticket:
       type: object
       required:
-      - ticketId
-      - bookingId
-      - passengerId
-      - status
+        - ticketId
+        - bookingId
+        - passengerId
+        - status
       properties:
         ticketId:
           type: string
@@ -1571,8 +1575,8 @@ components:
     TicketListResponse:
       type: object
       required:
-      - bookingId
-      - tickets
+        - bookingId
+        - tickets
       properties:
         bookingId:
           type: string
@@ -1584,17 +1588,17 @@ components:
     CheckInStatus:
       type: string
       enum:
-      - NOT_ELIGIBLE
-      - AVAILABLE
-      - IN_PROGRESS
-      - COMPLETED
-      - FAILED
+        - NOT_ELIGIBLE
+        - AVAILABLE
+        - IN_PROGRESS
+        - COMPLETED
+        - FAILED
     CheckInResponse:
       type: object
       required:
-      - bookingId
-      - status
-      - checkedInPassengers
+        - bookingId
+        - status
+        - checkedInPassengers
       properties:
         bookingId:
           type: string
@@ -1606,24 +1610,24 @@ components:
           items:
             type: object
             required:
-            - passengerId
-            - status
+              - passengerId
+              - status
             properties:
               passengerId:
                 type: string
               status:
                 type: string
                 enum:
-                - CHECKED_IN
-                - NOT_CHECKED_IN
-                - FAILED
+                  - CHECKED_IN
+                  - NOT_CHECKED_IN
+                  - FAILED
               segments:
                 type: array
                 items:
                   type: object
                   required:
-                  - segmentId
-                  - status
+                    - segmentId
+                    - status
                   properties:
                     segmentId:
                       type: string
@@ -1633,17 +1637,17 @@ components:
                     status:
                       type: string
                       enum:
-                      - CHECKED_IN
-                      - NOT_CHECKED_IN
-                      - FAILED
+                        - CHECKED_IN
+                        - NOT_CHECKED_IN
+                        - FAILED
     BoardingPass:
       type: object
       required:
-      - passengerId
-      - segmentId
-      - seat
-      - barcode
-      - barcodeType
+        - passengerId
+        - segmentId
+        - seat
+        - barcode
+        - barcodeType
       properties:
         passengerId:
           type: string
@@ -1662,14 +1666,14 @@ components:
         barcodeType:
           type: string
           enum:
-          - AZTEC
-          - PDF417
-          - QR
+            - AZTEC
+            - PDF417
+            - QR
     BoardingPassListResponse:
       type: object
       required:
-      - bookingId
-      - boardingPasses
+        - bookingId
+        - boardingPasses
       properties:
         bookingId:
           type: string
@@ -1681,13 +1685,13 @@ components:
     FlightStatus:
       type: object
       required:
-      - flightNumber
-      - date
-      - marketingCarrier
-      - operatingCarrier
-      - departure
-      - arrival
-      - status
+        - flightNumber
+        - date
+        - marketingCarrier
+        - operatingCarrier
+        - departure
+        - arrival
+        - status
       properties:
         flightNumber:
           type: string
@@ -1701,8 +1705,8 @@ components:
         departure:
           type: object
           required:
-          - iataCode
-          - scheduledAt
+            - iataCode
+            - scheduledAt
           properties:
             iataCode:
               type: string
@@ -1724,8 +1728,8 @@ components:
         arrival:
           type: object
           required:
-          - iataCode
-          - scheduledAt
+            - iataCode
+            - scheduledAt
           properties:
             iataCode:
               type: string
@@ -1750,10 +1754,10 @@ components:
         status:
           type: string
           enum:
-          - SCHEDULED
-          - BOARDING
-          - DEPARTED
-          - DELAYED
-          - ARRIVED
-          - CANCELLED
-          - DIVERTED
+            - SCHEDULED
+            - BOARDING
+            - DEPARTED
+            - DELAYED
+            - ARRIVED
+            - CANCELLED
+            - DIVERTED
