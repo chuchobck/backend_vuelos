@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { clase_cabina } from '../../../../generated/prisma/client';
 import { CABINA, ESTADO_VUELO } from '../../compartido/enums';
+import { fechaLocal } from '../../compartido/fechas';
 import { conflicto, cuerpoInvalido, referenciaInvalida, usos } from '../base/errores-catalogo';
 import { Ejecutor } from '../base/repositorio-catalogo';
 import { ServicioCatalogo } from '../base/servicio-catalogo';
@@ -21,20 +22,6 @@ import {
   numeroVueloDeSalida,
   VueloProgramadoRepository,
 } from './vuelo-programado.repository';
-
-/**
- * Fecha local de un instante en una zona horaria IANA, a medianoche UTC como un `date` de la
- * base. Es vuelo_programado.fecha_salida: la fecha en el aeropuerto de origen.
- */
-export function fechaLocal(instante: Date, zonaHoraria: string): Date {
-  const texto = new Intl.DateTimeFormat('en-CA', {
-    timeZone: zonaHoraria,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(instante);
-  return new Date(`${texto}T00:00:00.000Z`);
-}
 
 /** undefined: no cambia; null: se borra; texto: el instante. */
 function instanteONulo(valor: string | null | undefined): Date | null | undefined {

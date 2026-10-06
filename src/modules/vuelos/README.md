@@ -64,7 +64,8 @@ ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
 [docs/PLAN.md](../../../docs/PLAN.md)):
 
 - `catalogo/<entidad>/`: CRUD de administrador en `/admin/...` con una clase base. Hecho en la fase 4.
-- `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10).
+- `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10). Hechos: `busqueda/` (`POST /search`)
+  y `oferta/` (`GET /offers/{offerId}/seatmap`).
 - `compartido/`: traducción de los ENUM al contrato (`enums.ts`) y formatos de salida (`formatos-salida.ts`).
 - Cada entidad lleva `<entidad>.routes.ts`, controller, service, repository (el único que usa Prisma),
   mapper y `dto/`; las rutas se cuelgan en `vuelos.routes.ts`.
@@ -82,6 +83,29 @@ Lo transversal ya lo da la API a cualquier controller nuevo, sin código extra:
 | Escritura con auditoría               | `prisma.transaccionAuditada(tx => ...)` toma usuario e IP del contexto de la petición                                   |
 | Permisos y usuario                    | `@Scopes('flights:book')` (el scope del contrato) y `@UsuarioActual()`; toda ruta exige JWT salvo `@Publico()`           |
 | Request id, IP y usuario              | `obtenerContexto()` en `common/contexto`; el guard de JWT llama a `fijarUsuario(sub)` con cada token válido              |
+
+## Operaciones del contrato
+
+Cada operación es una entidad de `operaciones/` con la misma forma (module, routes, controller,
+service, repository, mapper y `dto/`) y se cuelga en `operaciones/operaciones.routes.ts`:
+
+- Los DTO copian el esquema del contrato con sus nombres en inglés; el modelo interno (por ejemplo
+  `busqueda/busqueda.modelo.ts`) va en español y con los montos en `Prisma.Decimal`.
+- El mapper traduce con `compartido/enums.ts` y `compartido/formatos-salida.ts`, y nunca saca un
+  `bigint` ni un ENUM en español. `compartido/dto/monto.dto.ts` es el `MoneyAmount` del contrato.
+- Una prueba e2e valida la respuesta contra el esquema del contrato con
+  `erroresContraContrato('SearchResponse', cuerpo)` (`test/utils/contrato.ts`).
+
+Cómo arma las ofertas `busqueda/busqueda.service.ts` (todo en `REGLAS_BUSQUEDA`):
+
+| Regla             | Valor                                                                                         |
+| ----------------- | --------------------------------------------------------------------------------------------- |
+| Lo que se vende   | Salida `PROGRAMADO` o `DEMORADO` y futura; vuelo, aerolíneas, aeropuertos, tarifa, familia y moneda activos; cupo de la cabina ≥ pasajeros con asiento |
+| Itinerarios       | Directos, o una escala de la misma aerolínea con conexión de 45 minutos a 6 horas              |
+| Familias          | Las que tienen tarifa y cupo en todos los segmentos; el precio suma los segmentos             |
+| Ofertas           | Un itinerario por tramo, misma aerolínea, cada tramo 45 minutos después del anterior          |
+| Orden y tope      | Precio total, hora de salida e id de la salida; 10 itinerarios por tramo y aerolínea, 20 ofertas |
+| Vigencia          | `SEARCH_OFFER_TTL_MINUTES` (30); cada búsqueda purga las vencidas sin retención              |
 
 ## Cómo se agrega una entidad al catálogo
 

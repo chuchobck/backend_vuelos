@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-05 (cierre de la fase 4) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-10-05 (cierre de la fase 5) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1.
 
@@ -13,7 +13,8 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | 2. Transversales | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (137 pruebas contra la base real) pasan en cada commit. Con `curl` contra la API: ruta inexistente → 404 `application/problem+json`; `POST` sobre ruta existente que no lo admite → 405 con `Allow`; cuerpo inválido, campo no permitido, HTML en un texto y UUID mal formado → 400 `VALIDATION_FAILED` con `invalidParams`; errores de base provocados a propósito (unique, FK, `ON DELETE RESTRICT`) → 409/422 sin detalles internos, y la base queda igual (0 filas nuevas en `pais` y en `auditoria`); error no controlado → 500 sin detalle ni stack; 105 peticiones en un minuto → 429 con `Retry-After`; cuerpo de más de 100 kB → 413; cabeceras de helmet presentes; Swagger UI en `/api/docs` carga en un navegador headless sin errores de consola ni peticiones fallidas; `X-Request-Id` generado, respetado si es válido, reemplazado si no, y presente en los errores |
 | 3. Auth | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (184 pruebas, 47 nuevas, contra la base real) pasan. `./db/reset.sh` carga los dos esquemas y las dos semillas; sin `SEED_ADMIN_PASSWORD` no crea el administrador y con una de menos de 12 caracteres falla. Con `curl` contra la API en el puerto 3010: register 201 (correo normalizado) y 409 si se repite; login 200 con `Cache-Control: no-store` y el mismo 401 para contraseña errónea, correo inexistente y cuenta inactiva; `GET /auth/me` 401 sin token (`WWW-Authenticate: Bearer realm=...`) y 200 con token; refresh rota el token; reusar uno rotado da 401 y revoca también el vigente; logout 204 y el refresh siguiente 401; token manipulado 401 `invalid_token`; el sexto login en un minuto 429 aunque la contraseña sea correcta; 403 con `insufficient_scope` y los scopes que faltan (con un controller de sonda, porque ningún endpoint real usa `@Scopes` todavía). Swagger: Authorize con `bearer` probado en un navegador headless (`/auth/me` pasa de 401 a 200). argon2 funciona dentro de la imagen Docker. Ninguna contraseña ni token completo aparece en los logs ni en las respuestas de error |
 | 4. Catálogo | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (277 pruebas, 93 nuevas, contra la base real) pasan; la prueba del catálogo se repitió dos veces seguidas sin chocar con sus propios datos. Con la base recién cargada (`./db/reset.sh`) y la API en el puerto 3010, entrando como el administrador de desarrollo, `curl` recorre el ciclo completo de una aerolínea y de una salida programada: crear 201, leer 200, PATCH 200, DELETE 204 (la salida queda `CANCELLED`), la lista la oculta y con `includeInactive=true` la muestra, reactivate 200; la auditoría guarda cada cambio con el `sub` del administrador. Un cliente recién registrado recibe 403 (`Missing required scopes: flights:admin`) y sin token, 401: el 403 pendiente de la fase 3 queda verificado contra endpoints reales. Swagger lista las 10 etiquetas `Admin · …` aparte de las 7 del contrato, y en un navegador headless Authorize con `bearer` lleva `GET /admin/airlines` de 401 a 200. Ningún DELETE físico: el código del catálogo no los tiene (prueba de escaneo, que falla si se inyecta uno), la extensión los corta en sus 14 tablas y la auditoría no tiene ninguna `ELIMINACION` |
-| 5 a 11 | Pendientes | |
+| 5. Búsqueda | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (313 pruebas, 36 nuevas, contra la base real) pasan. Con la base recién cargada y la API en el puerto 3010, sin token: `curl` de UIO-GYE solo ida (8 ofertas), ida y vuelta con 2 adultos y 1 niño (20, el tope), multidestino UIO-GPS-GYE-CUE con un infante (9, con escala por GYE en el primer tramo), una búsqueda sin resultados (200 con la lista vacía) y una inválida (400 por fecha pasada), y el mapa de asientos de una de las ofertas (200). Las seis respuestas cumplen `SearchResponse`, `SeatMapResponse` y `ProblemDetails` del contrato según Ajv 8.20 con ajv-formats 3, y ninguna trae un campo que el contrato no declare. Con las 4012 salidas de la semilla: una búsqueda de un tramo hace 11 sentencias SQL (2 lecturas, la transacción de guardado y 2 DELETE de purga) y tarda una mediana de 35 ms; ida y vuelta, 51 ms. El mapa de asientos hace 6 lecturas. Repetir la misma búsqueda no acumula ofertas sin límite: cada búsqueda igual suma sus 8 ofertas (de 187 a 227 tras 5 repeticiones), y con todas vencidas la siguiente búsqueda las purga junto con sus itinerarios huérfanos y deja solo sus 8 ofertas nuevas: lo vivo queda acotado a las ofertas de los últimos 30 minutos |
+| 6 a 11 | Pendientes | |
 
 ## Decisiones
 
@@ -44,7 +45,23 @@ La plantilla manda en lenguaje y framework; lo único que se reemplaza es el ORM
 | Nombres de las rutas admin | En inglés: `/reactivate`, `?includeInactive=true` | CLAUDE.md fija rutas y JSON en inglés; el pedido de la fase 4 los nombraba en español. Decidido con el dueño del repo. |
 | Cursor de las listas admin | La clave pública de la última fila en base64url; respuesta `{ nextCursor, items }` como `GET /bookings` del contrato | El contrato no define el formato del cursor. Así es opaco y no contiene el `bigint`; el orden es el id interno (o salida y uuid en las salidas). |
 | Detalle del catálogo | Asientos, cupos y precios por pasajero se crean con su cabecera y no se quitan | Quitarlos sería un borrado físico. La distribución de un mapa no cambia (las reservas apuntan a sus asientos): se crea otro mapa. Un cupo se baja a 0, no se borra. |
+| Ofertas de la búsqueda | Una oferta es de una sola aerolínea y trae un itinerario por tramo pedido; cada itinerario lleva sus `pricingOptions` (las familias con cupo en todos sus segmentos). `grandTotal` es el de la familia más barata de cada itinerario, para todos los pasajeros | `oferta_cabecera` guarda una aerolínea por oferta y `oferta_detalle` un itinerario por tramo. El contrato pone las familias en el itinerario y el total en la oferta: el total "desde" es el único que no depende de una elección que todavía no se hizo |
+| Itinerarios | Directos o con una escala de la misma aerolínea comercializadora, con conexión de 45 minutos a 6 horas; entre tramos, al menos 45 minutos | La semilla no tiene UIO-GPS directo (el PLAN pide UIO→GPS con escala). Sin código compartido entre aerolíneas: `oferta_cabecera` admite una sola |
+| Orden y tope de la búsqueda | Precio total, luego hora de salida de cada segmento y el id de la salida; a lo sumo 10 itinerarios por tramo y aerolínea y 20 ofertas | Determinista (la misma búsqueda da el mismo orden) y acotado aunque un multidestino tenga 6 tramos |
+| Vigencia de una oferta | 30 minutos, configurable con `SEARCH_OFFER_TTL_MINUTES` (de 5 a 240) | Alcanza para mirar el mapa y retener (el hold dura 15 minutos más), y deja pocas filas vivas |
+| Limpieza de ofertas vencidas | Cada búsqueda, después de guardar, borra las ofertas vencidas sin retención y los itinerarios que ya nadie referencia | Son las únicas tablas con borrado físico permitido (`TABLAS_CON_BORRADO_FISICO`); así la basura queda acotada a las ofertas de los últimos 30 minutos sin esperar una tarea programada |
+| Límites de las operaciones públicas | `/search`: 20 por minuto e IP; `/seatmap`: 60 por minuto e IP; aparte del global de 100 | La búsqueda hace varias consultas y guarda ofertas; el mapa es una lectura liviana pero pública |
+| `X-Device-Fingerprint` | De 8 a 128 letras, dígitos o `. _ : + / = -`; se guarda en `oferta_cabecera.huella_dispositivo` y no se registra | El esquema ya tiene la columna. El valor identifica un dispositivo: no va en el log ni en los errores |
 | Pagos y GDS | Simulados | El pago llega como `paymentReference` y se da por bueno; la emisión de boletos es local. |
+
+### Ajuste de estructura
+
+Lo que cambió del plan original y es la regla desde la fase 1:
+
+- **Un módulo por entidad**, cada uno con su `<entidad>.controller.ts` y su `<entidad>.routes.ts`, más module, service, repository (el único que usa Prisma), mapper y `dto/`.
+- **Dos grupos** dentro de `src/modules/vuelos`: `catalogo/` (CRUD de administrador en `/admin/...`, sobre la base común de `catalogo/base/`) y `operaciones/` (los endpoints del contrato). `compartido/` tiene lo de los dos: ENUM del contrato, formatos de salida, fechas, errores y `MoneyAmount`. Fuera de vuelos quedan `salud` y `auth`.
+- **Las tablas de detalle no tienen controller**: asientos, cupos por cabina, precios por pasajero, itinerarios y segmentos de una oferta los maneja el service de su cabecera.
+- **Rutas anidadas con `RouterModule`**: cada `<entidad>.routes.ts` exporta su arreglo, `catalogo.routes.ts` los cuelga bajo `admin`, `operaciones.routes.ts` los deja en la raíz (por ejemplo `search` y `offers`), `vuelos.routes.ts` junta los dos grupos y `src/routes/index.routes.ts` es la única tabla de la API. Los controllers no llevan prefijo y todo queda en `/flights/v1`.
 
 El diseño de rutas está probado sobre la plantilla: `GET /flights/v1/bookings/{bookingId}/tickets` respondió 200 y `/flights/v2/...` respondió 404.
 
@@ -136,7 +153,7 @@ quinde-vuelos-api/
 │       └── vuelos/
 │           ├── vuelos.module.ts  # ✓ junta los submódulos
 │           ├── vuelos.routes.ts  # ✓ cuelga las rutas de catálogo y operaciones
-│           ├── compartido/       # ✓ enums.ts (español ↔ contrato) y formatos-salida.ts; precios en la fase 5
+│           ├── compartido/       # ✓ enums.ts, formatos-salida.ts, fechas.ts, errores.ts, dto/monto.dto.ts
 │           ├── catalogo/         # ✓ CRUD de administrador en /admin/... (fase 4)
 │           │   ├── base/         # ✓ RepositorioCatalogo, ServicioCatalogo, paginación, errores, Swagger
 │           │   ├── pais/
@@ -149,9 +166,9 @@ quinde-vuelos-api/
 │           │   ├── vuelo/
 │           │   ├── vuelo-programado/
 │           │   └── tarifa/
-│           └── operaciones/      # endpoints del contrato
-│               ├── busqueda/
-│               ├── oferta/
+│           └── operaciones/      # ✓ endpoints del contrato (operaciones.module.ts y .routes.ts)
+│               ├── busqueda/     # ✓ POST /search (fase 5)
+│               ├── oferta/       # ✓ GET /offers/{offerId}/seatmap (fase 5)
 │               ├── retencion/
 │               ├── reserva/
 │               ├── boleto/
@@ -200,8 +217,8 @@ Los 22 endpoints del contrato se reparten en 12 entidades de `operaciones/`. Tod
 
 | Endpoint | Entidad | Permiso | Idempotency-Key | Tablas principales |
 | --- | --- | --- | --- | --- |
-| `POST /search` | busqueda | Público, exige `X-Device-Fingerprint` | No | `vuelo_programado`, `inventario_cabina`, `tarifa_*`, `itinerario_*`, `oferta_*` |
-| `GET /offers/{offerId}/seatmap` | oferta | Público | No | `mapa_asientos_*`, `asiento`, `reserva_detalle_asiento` |
+| `POST /search` (hecho en la fase 5) | busqueda | Público, exige `X-Device-Fingerprint`; 20 por minuto e IP | No | `vuelo_programado`, `inventario_cabina`, `tarifa_*`, `itinerario_*`, `oferta_*` |
+| `GET /offers/{offerId}/seatmap` (hecho en la fase 5) | oferta | Público; 60 por minuto e IP | No | `mapa_asientos_*`, `asiento`, `reserva_detalle_asiento` |
 | `POST /offers/hold` | retencion | `flights:hold` | Sí | `retencion_*`, `inventario_cabina` |
 | `GET /offers/hold/{holdId}` | retencion | `flights:read` | No | `retencion_*` |
 | `DELETE /offers/hold/{holdId}` | retencion | `flights:hold` | No | `retencion_cabecera` cambia de estado y devuelve el cupo |
@@ -390,11 +407,19 @@ Los commits 2, 5 y 7 incluyen el cambio de esquema que usan (`id_publico uuid`) 
 
 ### Fase 5 · Búsqueda
 
-1. `feat(busqueda): DTO de búsqueda según el contrato`
-2. `feat(busqueda): armar itinerarios directos y con escala`
-3. `feat(busqueda): calcular precios por tipo de pasajero y crear ofertas`
-4. `feat(busqueda): mapa de asientos por segmento`
-5. `test(busqueda): e2e de ruta directa, con escala y sin vuelos`
+1. `feat(busqueda): agregar los DTO, el modelo y el mapper de la búsqueda`
+2. `feat(busqueda): agregar las consultas de salidas, cupos y precios vigentes`
+3. `feat(busqueda): armar y guardar las ofertas de la búsqueda con su vigencia`
+4. `feat(busqueda): exponer POST /search`
+5. `feat(oferta): exponer el mapa de asientos de un segmento de la oferta`
+6. `test(busqueda): agregar e2e de la búsqueda y el mapa de asientos`
+7. `fix(busqueda): fijar creación y vencimiento de la oferta con el mismo reloj`
+8. `test(catalogo): comparar la auditoría por id y no por hora`
+9. `docs: cerrar la fase 5 en el plan, los README y CLAUDE.md`
+
+Los commits 7 y 8 salieron de la verificación: el reloj de WSL salta respecto del de la base (ver Hallazgos).
+
+No hubo commit de índices: `EXPLAIN ANALYZE` mostró que las dos consultas de la búsqueda ya usan índices existentes (ver Hallazgos).
 
 ### Fase 6 · Retenciones
 
@@ -519,7 +544,19 @@ Lo que se vio al probar Prisma 7 (adaptador de `pg`) contra PostgreSQL 18.6, con
 | `strictNullChecks` apagado | En un ternario, TypeScript no estrecha `string \| null \| undefined` y aceptaba devolver un `string` como `Date` | En los helpers que manejan `null` se escribe el `if` explícito |
 | Límite de login en las pruebas manuales | Una ráfaga de `curl` que inicia sesión varias veces agota los 5 logins por minuto y los tokens salen vacíos (todo da 401) | Es el límite de la fase 3 funcionando. En las pruebas manuales se guarda el token (vale 15 minutos) en vez de volver a iniciar sesión |
 | Pruebas que no borran | Lo que crean las pruebas queda dado de baja y los códigos naturales (ISO, IATA) son finitos | `test/utils/catalogo.ts` elige códigos libres al azar y los nombres únicos llevan un sufijo; la prueba se repite sin chocar. El país (676 códigos) es el primero que se agotaría: `./db/reset.sh` los libera |
-| Una corrida lenta | Una vez, `test:e2e` tardó 318 s en `errores-bd.e2e-spec.ts`; no se pudo repetir (las siguientes, 10 a 30 s) | Probablemente un bloqueo con una conexión de una API de prueba todavía abierta. Si vuelve a pasar, revisar `pg_stat_activity` |
+| Una corrida lenta | Una vez, `test:e2e` marcó 318 s en `errores-bd.e2e-spec.ts` | Resuelto en la fase 5: no fue lentitud sino un salto del reloj de WSL (ver Hallazgos de la fase 5) |
+
+### Fase 5
+
+| Tema | Qué pasó | Qué implica |
+| --- | --- | --- |
+| Lo que guarda una oferta | `oferta_cabecera` tiene aerolínea, huella, creación y vencimiento; `oferta_detalle`, los itinerarios en orden; `itinerario_detalle`, los segmentos. No guarda precios ni pasajeros | El precio de la respuesta es el del momento. El hold (fase 6) recibe `passengersBreakdown` y la familia de cada itinerario, y congela el precio en `retencion_detalle` leyéndolo de nuevo de la tarifa: si la tarifa cambió entre la búsqueda y el hold, vale la nueva |
+| Asientos y retenciones | Una retención toma cupo de cabina (`inventario_cabina`), no asientos: ninguna tabla de retención apunta a `asiento`. Los asientos se asignan en la reserva (`assignedSeats`, `reserva_detalle_asiento`) | El mapa no tiene un estado "retenido" y el contrato solo expone `isAvailable`. No disponible = asignado en una reserva vigente o cabina sin cupo en la salida ("bloqueado"). La prueba de "asiento retenido" se reemplazó por la de un asiento reservado |
+| Planes de las consultas | `EXPLAIN ANALYZE` con la semilla: las salidas del tramo usan `ix_vuelo_programado_fecha_salida` (2 días, unas 90 salidas) y 0,8 ms; los precios usan `uq_tarifa_cabecera_vuelo_familia`, `uq_inventario_cabina_vuelo_cabina` y `uq_tarifa_detalle_tarifa_tipo`, 3,8 ms | No hizo falta ningún índice. Con 100 veces más salidas por día convendría un índice por (aeropuerto, fecha), que hoy no es un caso claro |
+| SQL crudo | `findMany` con `include` resuelve cada relación con una consulta aparte | La búsqueda usa dos `$queryRaw` parametrizados con joins (tablas calificadas `vuelos.`). Los ENUM se piden como `::text` para compararlos con `ANY` |
+| Hoy en Ecuador | Galápagos va una hora detrás del continente | Una fecha es "pasada" solo si ya terminó en `Pacific/Galapagos`; la salida concreta se filtra después por su instante |
+| Reloj de WSL | Jest marcó una prueba en +318 238 ms y la siguiente en −318 094 ms, con 7,7 s de tiempo real para todo el archivo; `pg_stat_activity` no mostró ninguna consulta esperando. Comparando `date` de WSL con el del contenedor, una de seis muestras dio +317,9 s: WSL resincroniza su reloj de vez en cuando | No es una espera de la base y explica los 318 s de la fase 4. Lo que mezclaba los dos relojes se corrigió: la oferta guarda creación y vencimiento con la hora de la aplicación, y la prueba de auditoría del catálogo compara por id. Las tres pruebas de límites (login, búsqueda y mapa) siguen dependiendo de `Date.now()`, porque `@nestjs/throttler` cuenta con él: si el reloj salta en medio, la ventana se vence antes y la prueba falla. Pasa sola al repetirla; en Render o en un CI con Linux el reloj no salta. Arreglo de fondo en la máquina: `wsl --shutdown` o sincronizar la hora de Windows |
+| UIO-GYE también con escala | Entre UIO y GYE hay itinerarios con escala válidos (UIO-CUE-GYE con AV) | Salen después de los directos porque son más caros; la prueba de solo ida exige que haya directos, no que todos lo sean |
 
 ## Pendientes
 
@@ -546,7 +583,11 @@ Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corr
 - [ ] Fase 2: las rutas que no existen (404) no cuentan en el límite de peticiones porque no pasan por ningún guard; si hace falta limitarlas, hay que pasar a un middleware.
 - [ ] Fase 1: el servicio gratuito de Render se duerme tras 15 minutos sin uso; la primera petición después tarda.
 - [ ] Fase 7: la tabla `pais` solo tiene Ecuador, así que un pasajero con otra nacionalidad se rechaza hasta agregar su país (desde la fase 4, con `POST /admin/countries`).
-- [ ] Fase 5: la búsqueda debe vender solo lo activo del catálogo: salidas no `CANCELADO` y futuras, tarifas, familias, vuelos y aeropuertos con `activo = true`. Las bajas de la fase 4 no tocan esas filas: solo las marcan.
+- [x] Fase 5: la búsqueda vende solo lo activo del catálogo: salidas `PROGRAMADO` o `DEMORADO` y futuras, con vuelo, aerolíneas, aeropuertos, tarifa, familia y moneda activos y cupo para los pasajeros.
+- [ ] Fase 6: el hold debe exigir una oferta vigente, que cada `itineraryId` sea de esa oferta y que `cabinClass` y `fareBrand` sean una de sus `pricingOptions`; el precio se congela desde la tarifa actual (la oferta no guarda precios) y el cupo se descuenta con un UPDATE condicionado.
+- [ ] Equipo: `PassengerBreakdown` no tiene máximo en el contrato; la API aplica el de la base (9 pasajeros con asiento y no más infantes que adultos) y responde 400.
+- [ ] Equipo: el contrato acepta campos de más dentro de cada tramo y de `passengers` (solo `SearchRequest` tiene `additionalProperties: false`); la API los rechaza con 400, como en todo el resto.
+- [ ] Límite conocido: sin código compartido entre aerolíneas (una oferta, una aerolínea) y a lo sumo una escala por itinerario.
 - [ ] Fase 5 o después: no hay CRUD de `moneda` (la tarifa la referencia por código ISO y la semilla solo trae USD) ni de `tipo_evento` (lo fija el contrato).
 - [ ] Límite conocido del catálogo: el chequeo "en uso" y la escritura que lo sigue corren en la misma transacción, pero sin bloquear las filas hijas; un alta simultánea de una ciudad mientras se da de baja su país podría colarse. Para el uso de un administrador alcanza; si hiciera falta, `SELECT ... FOR UPDATE` sobre la fila padre.
 - [ ] Límite conocido: una salida no cambia de mapa de asientos (cambio de aeronave). Hacerlo exige revalidar cupos y asientos ya asignados; queda para cuando haya reservas (fase 7).

@@ -31,11 +31,8 @@ export const referenciaInvalida = (campo: string, detalle: string) =>
     invalidParams: [{ name: campo, reason: detalle }],
   });
 
-/** 400: el cuerpo es válido campo por campo pero se contradice (una fila repetida, por ejemplo). */
-export const cuerpoInvalido = (campo: string, detalle: string) =>
-  new ErrorNegocio(400, CODIGO_SIN_EQUIVALENTE, `${campo}: ${detalle}`, {
-    invalidParams: [{ name: campo, reason: detalle }],
-  });
+/** 400 de un cuerpo que se contradice: común con las operaciones (compartido/errores.ts). */
+export { cuerpoInvalido } from '../../compartido/errores';
 
 /** 400: el cursor no salió de esta lista. */
 export const cursorInvalido = () =>

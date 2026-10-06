@@ -14,7 +14,11 @@ type Cuerpo = Record<string, unknown>;
  */
 describe('Catálogo de administración', () => {
   let c: AppCatalogo;
-  const inicio = new Date();
+  /**
+   * La última fila de auditoría antes de las pruebas. Se compara por id y no por hora: el reloj
+   * de la máquina de pruebas (WSL) puede saltar respecto del de PostgreSQL.
+   */
+  let auditoriaInicial = 0n;
 
   /** Claves de lo que crean las pruebas. */
   const k = {
@@ -35,6 +39,9 @@ describe('Catálogo de administración', () => {
 
   beforeAll(async () => {
     c = await crearAppCatalogo();
+    const [{ ultima }] = await c.prisma.db.$queryRaw<Array<{ ultima: bigint }>>`
+      SELECT coalesce(max(id), 0) AS ultima FROM vuelos.auditoria`;
+    auditoriaInicial = ultima;
     k.pais = await codigos.pais(c.prisma);
     k.iso3 = await codigos.paisIso3(c.prisma);
     k.aeropuerto1 = await codigos.aeropuerto(c.prisma);
@@ -820,7 +827,7 @@ describe('Catálogo de administración', () => {
       const [{ cantidad }] = await c.prisma.db.$queryRaw<Array<{ cantidad: number }>>`
         SELECT count(*)::int AS cantidad FROM vuelos.auditoria
          WHERE nombre_tabla = ${opciones.tabla} AND operacion = 'ACTUALIZACION'
-           AND id_usuario = ${c.idAdmin} AND fecha_evento >= ${inicio}
+           AND id_usuario = ${c.idAdmin} AND id > ${auditoriaInicial}
            AND datos_nuevos::text = ${opciones.cambioAuditado}`;
       expect(cantidad).toBeGreaterThanOrEqual(1);
 

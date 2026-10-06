@@ -37,6 +37,7 @@ Los pagos y el GDS son simulados. El plan y el estado de las fases están en `do
 - El usuario de la petición sale de `@UsuarioActual()`; su `id` es el `id_propietario`.
 - Nunca registrar ni devolver contraseñas, hashes ni tokens, tampoco en mensajes de error.
 - Los scopes de cada rol están en `src/modules/auth/scopes.ts`, no en la base.
+- Una operación pública lleva `@Publico()` y, si es costosa, su propio `@LimiteEstricto`.
 
 ## Datos
 
@@ -52,6 +53,11 @@ Los pagos y el GDS son simulados. El plan y el estado de las fases están en `do
 - Las pruebas e2e no borran: crean cuentas `@e2e.quinde.example` y catálogo con códigos libres al
   azar, y al final lo dan de baja.
 - Ningún `.json` con el mismo nombre base que un `.ts`: Jest importaría el JSON.
+- SQL crudo solo con plantillas etiquetadas (`$queryRaw\`...\``), tablas calificadas `vuelos.` y los ENUM
+  comparados como `::text`. Solo ofertas, itinerarios y claves de idempotencia se borran físicamente
+  (las vencidas), con `deleteMany` para que pase por la extensión de bloqueo.
+- Las respuestas de las operaciones del contrato se validan contra sus esquemas en las pruebas
+  (`test/utils/contrato.ts`, Ajv).
 
 ## Git
 
