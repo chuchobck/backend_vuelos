@@ -14,6 +14,6 @@ import { EquipajeService } from './equipaje.service';
   imports: [ReservaModule, PagosModule],
   controllers: [EquipajeController],
   providers: [EquipajeService, EquipajeRepository, IdempotenciaRepository],
-  exports: [EquipajeService],
+  exports: [EquipajeService, EquipajeRepository],
 })
 export class EquipajeModule {}

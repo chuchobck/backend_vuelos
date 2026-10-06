@@ -4,6 +4,7 @@ import { CambioFechaModule } from './cambio-fecha/cambio-fecha.module';
 import { CancelacionModule } from './cancelacion/cancelacion.module';
 import { EquipajeModule } from './equipaje/equipaje.module';
 import { OfertaModule } from './oferta/oferta.module';
+import { PendientesPostventa } from './pendientes-postventa';
 import { ReservaModule } from './reserva/reserva.module';
 import { RetencionModule } from './retencion/retencion.module';
 
@@ -19,5 +20,7 @@ import { RetencionModule } from './retencion/retencion.module';
     CancelacionModule,
     CambioFechaModule,
   ],
+  // El proceso periódico de postventa usa los tres módulos de postventa a la vez
+  providers: [PendientesPostventa],
 })
 export class OperacionesModule {}

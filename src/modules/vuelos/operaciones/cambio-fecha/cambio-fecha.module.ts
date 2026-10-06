@@ -22,6 +22,6 @@ import { CambioFechaService } from './cambio-fecha.service';
     InventarioRepository,
     IdempotenciaRepository,
   ],
-  exports: [CambioFechaService],
+  exports: [CambioFechaService, CambioFechaRepository],
 })
 export class CambioFechaModule {}

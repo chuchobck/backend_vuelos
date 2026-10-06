@@ -16,6 +16,6 @@ import { CancelacionService } from './cancelacion.service';
   imports: [ReservaModule, BoletoModule, PagosModule],
   controllers: [CancelacionController],
   providers: [CancelacionService, CancelacionRepository, IdempotenciaRepository],
-  exports: [CancelacionService],
+  exports: [CancelacionService, CancelacionRepository],
 })
 export class CancelacionModule {}

@@ -182,6 +182,22 @@ export class VariablesEntorno {
   @IsOptional()
   BOOKING_ISSUE_JOB_INTERVAL_SECONDS?: number;
 
+  /**
+   * Proceso periódico que completa la postventa en 202 (maletas, cambios de fecha y
+   * cancelaciones con el pago o el reembolso pendientes) y purga las ofertas de cambio y las
+   * cotizaciones vencidas. Sin valor: true.
+   */
+  @IsIn(['true', 'false'], { message: 'POSTSALE_JOB_ENABLED debe ser true o false' })
+  @IsOptional()
+  POSTSALE_JOB_ENABLED?: string;
+
+  /** Cada cuántos segundos corre ese proceso. Sin valor: 30. */
+  @Max(3600, { message: 'POSTSALE_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @Min(5, { message: 'POSTSALE_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @IsInt({ message: 'POSTSALE_JOB_INTERVAL_SECONDS debe ser un número entero' })
+  @IsOptional()
+  POSTSALE_JOB_INTERVAL_SECONDS?: number;
+
   /** Duración de la ventana del límite, en segundos. Sin valor: 60. */
   @Max(86_400, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
   @Min(1, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
