@@ -10,7 +10,7 @@ import { cuerpoInvalido } from '../../compartido/errores';
 import { asientosOcupados, ConteoPasajeros, validarPasajeros } from '../../compartido/pasajeros';
 import { RetencionCreadaDto } from './dto/respuesta-retencion.dto';
 import { SolicitudRetencionDto } from './dto/solicitud-retencion.dto';
-import { aRetencionCreada } from './retencion.mapper';
+import { aRetencionCreada, aRetencionRepetida } from './retencion.mapper';
 import {
   ClaveGuardada,
   CupoDeCabina,
@@ -270,7 +270,8 @@ function repetir(previa: ClaveGuardada, huella: string): ResultadoCreacion {
     );
   }
   if (previa.codigoHttp !== 201 || previa.respuesta === null) throw claveEnCurso();
-  return { cuerpo: previa.respuesta as unknown as RetencionCreadaDto, repetida: true };
+  const guardada = previa.respuesta as unknown as RetencionCreadaDto;
+  return { cuerpo: aRetencionRepetida(guardada), repetida: true };
 }
 
 /** No debería pasar: la clave se guarda con su respuesta en la misma transacción. */

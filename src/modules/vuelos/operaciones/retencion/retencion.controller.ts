@@ -1,0 +1,79 @@
+import { Body, Controller, Header, HttpCode, Post, Res } from '@nestjs/common';
+import { ApiCreatedResponse, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Response } from 'express';
+import {
+  CABECERA_IDEMPOTENCIA,
+  ClaveIdempotencia,
+} from '../../../../common/decorators/clave-idempotencia.decorator';
+import { ApiProblema } from '../../../../common/decorators/documentacion.decorator';
+import { LimiteEstricto } from '../../../../common/decorators/limite-peticiones.decorator';
+import { Scopes } from '../../../../common/decorators/scopes.decorator';
+import {
+  UsuarioActual,
+  UsuarioAutenticado,
+} from '../../../../common/decorators/usuario-actual.decorator';
+import { ETIQUETAS } from '../../../../config/swagger';
+import { RetencionCreadaDto } from './dto/respuesta-retencion.dto';
+import { SolicitudRetencionDto } from './dto/solicitud-retencion.dto';
+import { REGLAS_RETENCION, RetencionService } from './retencion.service';
+
+/**
+ * Límite propio de POST /offers/hold, aparte del global (100 por minuto e IP): cada hold toma
+ * cupo real. 30 por minuto e IP alcanza para reintentos y varios pasajeros detrás de una misma
+ * salida a internet, y frena a quien quiera vaciar un vuelo reteniéndolo.
+ */
+export const LIMITE_RETENCION = { limite: 30, ventanaSegundos: 60 };
+
+/** Cabecera que marca una respuesta repetida por Idempotency-Key (no la pide el contrato). */
+export const CABECERA_REPETIDA = 'Idempotent-Replayed';
+
+@ApiTags(ETIQUETAS.retencion)
+@Controller()
+export class RetencionController {
+  constructor(private readonly servicio: RetencionService) {}
+
+  @Scopes('flights:hold')
+  @LimiteEstricto(LIMITE_RETENCION.limite, LIMITE_RETENCION.ventanaSegundos)
+  @Post()
+  @HttpCode(201)
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary: 'Bloquear inventario',
+    description:
+      'Toma el cupo de los pasajeros con asiento (los infantes viajan en brazos) en la cabina ' +
+      'elegida de cada segmento y congela el precio de hoy para todos los pasajeros. Hace falta ' +
+      'una selección por cada itinerario de la oferta. El hold vence a los ' +
+      `${REGLAS_RETENCION.vigenciaPorDefectoMinutos} minutos (HOLD_TTL_MINUTES) y entonces el cupo ` +
+      'vuelve. La misma Idempotency-Key con el mismo cuerpo devuelve la misma respuesta (201, ' +
+      `con ${CABECERA_REPETIDA}: true) durante ${REGLAS_RETENCION.vigenciaClaveHoras} horas.`,
+  })
+  @ApiHeader({
+    name: CABECERA_IDEMPOTENCIA,
+    required: true,
+    schema: { type: 'string', format: 'uuid' },
+    description: 'Una por intento lógico de hold; se reusa solo al reintentar el mismo cuerpo',
+  })
+  @ApiCreatedResponse({ type: RetencionCreadaDto, description: 'Inventario retenido' })
+  @ApiProblema(400, 'Cuerpo inválido, itinerario repetido o Idempotency-Key ausente o no uuid')
+  @ApiProblema(
+    409,
+    'OFFER_NO_LONGER_AVAILABLE: la oferta no existe o venció, la tarifa ya no se vende o no ' +
+      'queda cupo para todos los pasajeros',
+  )
+  @ApiProblema(
+    422,
+    'El itinerario no es de la oferta, faltan itinerarios, la familia no existe para la ' +
+      'aerolínea, o la Idempotency-Key ya se usó con otro cuerpo',
+  )
+  @ApiProblema(429, `Más de ${LIMITE_RETENCION.limite} holds por IP en un minuto (con Retry-After)`)
+  async crear(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @ClaveIdempotencia() clave: string,
+    @Body() solicitud: SolicitudRetencionDto,
+    @Res({ passthrough: true }) respuesta: Response,
+  ): Promise<RetencionCreadaDto> {
+    const { cuerpo, repetida } = await this.servicio.crear(solicitud, usuario.id, clave);
+    if (repetida) respuesta.setHeader(CABECERA_REPETIDA, 'true');
+    return cuerpo;
+  }
+}

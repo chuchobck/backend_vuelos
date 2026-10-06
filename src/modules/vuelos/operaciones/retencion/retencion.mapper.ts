@@ -23,6 +23,26 @@ export function aRetencionCreada(retencion: RetencionCreada): RetencionCreadaDto
   };
 }
 
+/**
+ * La respuesta guardada en clave_idempotencia, con las claves en el orden del contrato (jsonb
+ * no conserva el orden en que se escribieron).
+ */
+export function aRetencionRepetida(guardada: RetencionCreadaDto): RetencionCreadaDto {
+  const precio = guardada.lockedPrice;
+  return {
+    holdId: guardada.holdId,
+    status: guardada.status,
+    expiresAt: guardada.expiresAt,
+    ttlMinutes: guardada.ttlMinutes,
+    lockedPrice: {
+      currency: precio.currency,
+      baseFare: precio.baseFare,
+      taxes: precio.taxes,
+      total: precio.total,
+    },
+  };
+}
+
 /** remainingSeconds: los segundos enteros que le quedan si sigue HELD; si no, 0. */
 export function aEstadoRetencion(retencion: Retencion, ahora: Date): EstadoRetencionDto {
   const restantes =
