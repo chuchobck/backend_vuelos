@@ -49,6 +49,13 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   datos de tarjeta, solo la `paymentReference`.
 - Los scopes de cada rol están en `src/modules/auth/scopes.ts`, no en la base.
 - Una operación pública lleva `@Publico()` y, si es costosa, su propio `@LimiteEstricto`.
+- El secreto de un webhook se guarda cifrado (AES-256-GCM, clave `WEBHOOK_SECRET_KEY`) y nunca se
+  devuelve ni se registra: las respuestas lo enmascaran (`****` y los últimos 4) y la auditoría
+  guarda `***`.
+- Un webhook solo se envía desde `EntregaWebhooks` y por `ClienteWebhook`; nunca una llamada HTTP
+  dentro de una transacción de negocio. Un evento nuevo se encola con `PublicadorEventos` en la
+  misma transacción del hecho. Su URL se valida (https, sin redes internas) al registrar y otra vez
+  al conectar (SSRF), y no se siguen redirecciones.
 
 ## Datos
 
@@ -62,8 +69,8 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 - El cupo (`inventario_cabina`) solo se mueve con UPDATE condicionado dentro de una transacción
   auditada, bloqueando las filas en orden (salida, cabina) para no cruzarse con otro proceso.
 - Un vencimiento nuevo se decide con la hora de `Reloj` (`src/common/reloj.ts`), no con
-  `new Date()` ni `now()` de la base: las pruebas lo adelantan. Ya lo usan los holds y las claves
-  de idempotencia; las ofertas de la búsqueda todavía no (ver Pendientes del plan).
+  `new Date()` ni `now()` de la base: las pruebas lo adelantan. Ya lo usan los holds, las claves
+  de idempotencia y la entrega de webhooks; las ofertas de la búsqueda todavía no (ver Pendientes del plan).
 - Una baja de catálogo es `activo = false` (una salida: estado `CANCELADO`) y responde 409 si otras
   filas activas la usan. Las filas de detalle (asientos, cupos, precios) no se quitan.
 - Las pruebas e2e no borran: crean cuentas `@e2e.quinde.example` y catálogo con códigos libres al
@@ -73,6 +80,8 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   comparados como `::text`. Solo ofertas, itinerarios, claves de idempotencia, ofertas de cambio sin
   confirmar y cotizaciones sin aceptar se borran físicamente (las vencidas), con `deleteMany` para
   que pase por la extensión de bloqueo (`TABLAS_CON_BORRADO_FISICO`).
+- `webhook_entrega` es la bandeja de salida: no se borra. Cada intento se anota con un UPDATE
+  condicionado al intento tomado, y el log de un intento no lleva URL, secreto ni cuerpo.
 - Las respuestas de las operaciones del contrato se validan contra sus esquemas en las pruebas
   (`test/utils/contrato.ts`, Ajv).
 

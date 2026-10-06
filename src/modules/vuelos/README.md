@@ -69,7 +69,8 @@ ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
   y `boleto/` (`/bookings` y `/bookings/{bookingId}/tickets`, fase 7), y `equipaje/`, `cambio-fecha/`
   y `cancelacion/` (postventa, fase 8, colgadas de `bookings/:bookingId`), y `checkin/`,
   `pase-abordar/` y `estado-vuelo/` (fase 9: las dos primeras cuelgan de `bookings/:bookingId` y la
-  tercera, pública, de `flights/:flightNumber/status`).
+  tercera, pública, de `flights/:flightNumber/status`)), y `webhook/` (fase 10: las suscripciones de `/webhooks`,
+  la bandeja de salida y su entrega).
 - `compartido/`: traducción de los ENUM al contrato (`enums.ts`, con `ORDEN_CABINAS`), formatos de
   salida (`formatos-salida.ts`), los pasajeros de la búsqueda y el hold (`dto/pasajeros.dto.ts` y
   `pasajeros.ts`), `FechaIso` (`dto/validadores.ts`), las claves de idempotencia
@@ -208,8 +209,9 @@ por proceso; entre instancias, `SKIP LOCKED` y el UPDATE condicionado.
 
 **Eventos.** Todo cambio pasa por `EventosReserva.registrar(tx, reservaId, evento)` con el tipo
 (`booking.created`, `booking.payment_pending`, `booking.ticket_issuing`, `booking.ticket_issued`,
-`booking.ticket_failed`, `booking.confirmed`, `booking.failed`). Hoy solo escribe el historial; la
-fase 10 agrega ahí la bandeja de webhooks (tabla `evento`) sin tocar a quien los emite.
+`booking.ticket_failed`, `booking.confirmed`, `booking.failed`). Escribe el historial y, si el tipo
+es de los 12 que el contrato deja suscribir, encola la entrega a los webhooks del dueño
+(`PublicadorEventos`, ver Webhooks), todo en la transacción del cambio.
 
 **Consultas.** Solo el dueño (el `sub` del hold); para cualquier otro, 404. `GET /bookings` ordena
 por creación e id (descendente) y pagina con un cursor opaco (`creación|id` en base64url).
@@ -296,17 +298,86 @@ los vuelos de los itinerarios vigentes de una reserva `CONFIRMADA`.
 **Estado de vuelo** (`estado-vuelo/`). Solo lectura de `vuelo_programado` por (aerolínea
 comercializadora, número, fecha local de salida): ninguna tabla de reservas ni de pasajeros.
 
-### Cómo se apoyan las fases 10 y 11
+### Cómo se apoya la fase 11
 
-- **Webhooks (fase 10).** Todo pasa por `EventosReserva.registrar`: `booking.checked_in`,
-  `booking.baggage_added`, `booking.changed` y `booking.cancelled` están en `tipo_evento`; los
-  pendientes y rechazados (`booking.*_pending`, `booking.baggage_rejected`, `booking.change_failed`)
-  y `booking.created` no, y la fase 10 decide si se agregan. Ahí se inserta la bandeja de salida
-  (`evento`) sin tocar a quien los emite. `flight.schedule_changed` y `flight.cancelled` también
-  existen en `tipo_evento` y aún no los emite nadie: el estado del vuelo cambia desde el
-  catálogo (`PATCH /admin/departures/{id}`), que es donde la fase 10 puede enganchar esos dos.
 - **Entrega (fase 11).** La prueba de contrato debe incluir las 22 operaciones; el estado de vuelo
   es la única pública además de la búsqueda y el mapa de asientos.
+
+## Webhooks (fase 10)
+
+`webhook/` tiene las suscripciones (`GET` y `POST /webhooks`, `DELETE /webhooks/{id}`, scope
+`flights:webhooks`) y, aparte, la bandeja de salida y su envío. Las tablas son `webhook_cabecera`
+(la suscripción: dueño = `sub`, url, secreto cifrado, `activo`), `webhook_detalle` (sus eventos) y
+`webhook_entrega` (una fila por suscripción y evento). `evento` y `evento_entrega` del esquema
+original no se usan.
+
+**Suscripciones.**
+
+| Regla       | Valor                                                                                                                  |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| URL         | `https`; con `NODE_ENV` distinto de `production` también `http` hacia loopback. Sin usuario ni clave en la URL. Se resuelve el nombre y **todas** sus direcciones deben estar permitidas: se rechazan 10/8, 172.16/12, 192.168/16, fc00::/7, 169.254/16 (metadata de la nube), fe80::/10, 100.64/10, 0/8, multicast y reservadas; el loopback solo fuera de producción. El error dice `url` y no la repite |
+| Eventos     | Lista no vacía, sin repetidos, solo los 12 de `WebhookSubscription.events`                                             |
+| Secreto     | 16 a 256 caracteres sin espacios. Se guarda cifrado (AES-256-GCM; clave derivada con HKDF de `WEBHOOK_SECRET_KEY`, formato `v1.<base64url(nonce\|etiqueta\|cifrado)>`) porque hace falta en claro para firmar. Las respuestas lo devuelven enmascarado (`****` y los últimos 4) y la auditoría guarda `***` |
+| Máximo      | 10 activas por usuario (409; las altas simultáneas se serializan con `pg_advisory_xact_lock` por usuario) y una URL activa no se repite por usuario (409) |
+| Baja        | Lógica (`activo = false`), con auditoría; ajena, inexistente o ya dada de baja es 404                                  |
+| Límite      | `POST /webhooks`: 10 por minuto e IP (cada alta resuelve DNS)                                                          |
+
+`WEBHOOK_SECRET_KEY` es obligatoria (32 caracteres o más; la API no arranca sin ella). Cambiarla deja
+ilegibles los secretos guardados: las suscripciones hay que registrarlas de nuevo.
+
+**Cómo llega un evento a la entrega.** `PublicadorEventos` se llama **dentro de la transacción del
+hecho** y hace un solo `INSERT ... SELECT ... ON CONFLICT DO NOTHING` que deja una fila `PENDIENTE`
+en `webhook_entrega` por cada suscripción activa del dueño que escucha ese evento (si no hay
+ninguna, no inserta nada). Si el hecho se deshace, la entrega también. Nunca hay HTTP en la
+transacción. Los puntos de enganche:
+
+| Evento                                  | Dónde                                                                                       | A quién                                          |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `booking.*` (los 10 suscribibles)       | `EventosReserva.registrar`                                                                  | Dueño de la reserva                              |
+| `hold.expired`                          | `RetencionRepository` (vencimiento perezoso y proceso de vencimiento)                       | Dueño del hold                                   |
+| `flight.schedule_changed`               | `VueloProgramadoRepository.modificar`: cambia un horario programado o estimado, o la salida pasa a `DELAYED` | Dueños de las reservas vivas de esa salida (un evento por reserva) |
+| `flight.cancelled`                      | `VueloProgramadoRepository.fijarActivo(false)`                                              | Ídem                                             |
+
+El payload se arma al encolar y queda congelado (un reintento envía el mismo cuerpo). Es el
+`WebhookPayload` del contrato: `eventId`, `eventType`, `occurredAt` (UTC), `apiVersion` (`1.5.0`) y
+`data` con `bookingId`, `pnr` y `status` (el de la reserva en ese momento, ya traducido al contrato)
+y `refundAmount` (texto decimal) en `booking.cancelled`. `hold.expired` lleva `holdId` y `status`;
+los de vuelo, además, `flightNumber` y `segmentId`. Nada de datos personales.
+
+**El envío.** `EntregaWebhooks` corre cada `WEBHOOK_DELIVERY_JOB_INTERVAL_SECONDS` (10), apagable con
+`WEBHOOK_DELIVERY_JOB_ENABLED=false`, con el patrón de los otros procesos: una corrida a la vez por
+proceso y, entre instancias, cada entrega se toma con `FOR UPDATE SKIP LOCKED` y un arrendamiento
+de 2 minutos (`proximo_intento` pasa al fin del arrendamiento y el intento ya cuenta). El POST se
+hace **fuera** de toda transacción y el resultado se anota con un UPDATE condicionado al intento
+tomado: un resultado atrasado no pisa al de otro proceso, y si el proceso muere a mitad de un envío
+la entrega vuelve sola. La entrega es "al menos una vez": el receptor deduplica por `X-Webhook-Id`.
+
+| Cabecera               | Valor                                                                    |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `Content-Type`         | `application/json`                                                       |
+| `X-Webhook-Event`      | El tipo del evento (`booking.confirmed`...)                              |
+| `X-Webhook-Id`         | El `eventId`, igual en cada reintento                                    |
+| `X-Webhook-Timestamp`  | Segundos desde 1970 del envío                                            |
+| `X-Webhook-Signature`  | `sha256=` + HMAC-SHA256 en hexadecimal de `<timestamp>.<cuerpo>` con el secreto |
+
+Un 2xx cierra la entrega (`ENTREGADO`). Cualquier otra cosa (otro código, una redirección, un error
+de red o 5 s sin respuesta) es un fallo: se reintenta a 1 minuto, 5 minutos, 30 minutos y 2 horas, y
+el quinto intento fallido la deja `FALLIDO`. Si las últimas 10 entregas resueltas de una suscripción
+son `FALLIDO`, la suscripción se da de baja (lógica, auditada sin usuario); una `ENTREGADO` corta la
+racha. Una suscripción dada de baja con entregas pendientes las cierra como `FALLIDO` sin enviar.
+Cada intento deja una línea de log con el número de entrega, el tipo y el resultado: nunca la URL, el
+secreto, el cuerpo ni la firma. El error guardado (`ultimo_error`) es un código (`HTTP_500`,
+`ECONNREFUSED`, `TIMEOUT`...), no el mensaje de la librería.
+
+**SSRF al enviar.** `ClienteWebhookHttp` vuelve a comprobar el destino sobre la dirección a la que
+de verdad se conecta (su `lookup` rechaza antes de abrir el socket y una IP literal se juzga aparte),
+así un nombre que cambia de dueño después de registrarse no llega a la red interna. No sigue
+redirecciones y en producción solo usa `https`.
+
+**Cómo se prueba.** El HTTP está detrás de `ClienteWebhook` (clase abstracta, token de inyección):
+las pruebas lo reemplazan por un doble que contesta lo que cada caso necesita, o usan el real contra
+un receptor local (`test/utils/receptor-webhook.ts`). El reloj de prueba adelanta los reintentos sin
+esperar, y las pruebas llaman a `EntregaWebhooks.ejecutar()` con el proceso apagado.
 
 ## Cómo se agrega una entidad al catálogo
 
