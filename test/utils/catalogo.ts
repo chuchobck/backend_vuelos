@@ -2,7 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { crearUsuario, iniciarSesion } from './auth';
-import { crearApp } from './crear-app';
+import { crearApp, OpcionesCrearApp } from './crear-app';
 
 export const ADMIN = '/flights/v1/admin';
 
@@ -26,10 +26,10 @@ type Metodo = 'get' | 'post' | 'patch' | 'delete';
  * La API con un administrador y un cliente de prueba. Las pruebas del catálogo hacen cientos
  * de peticiones: el límite global se sube solo en esta app.
  */
-export async function crearAppCatalogo(): Promise<AppCatalogo> {
+export async function crearAppCatalogo(opciones: OpcionesCrearApp = {}): Promise<AppCatalogo> {
   const limiteAnterior = process.env.RATE_LIMIT_MAX;
   process.env.RATE_LIMIT_MAX = '100000';
-  const app = await crearApp();
+  const app = await crearApp([], opciones);
   if (limiteAnterior === undefined) delete process.env.RATE_LIMIT_MAX;
   else process.env.RATE_LIMIT_MAX = limiteAnterior;
 
