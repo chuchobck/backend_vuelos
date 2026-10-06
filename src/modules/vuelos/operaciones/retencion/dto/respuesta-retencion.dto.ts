@@ -4,11 +4,12 @@ import { ESTADO_RETENCION, EstadoRetencionContrato } from '../../../compartido/e
 
 /** Los DTO de esta respuesta copian components.schemas del contrato, con sus mismos nombres. */
 
+/** BASIC de UIO-GYE para un adulto en la semilla (el precio cambia con la fecha). */
 const PRECIO_EJEMPLO: MontoDto = {
   currency: 'USD',
-  baseFare: '150.80',
-  taxes: '30.16',
-  total: '180.96',
+  baseFare: '61.60',
+  taxes: '12.32',
+  total: '73.92',
 };
 
 /** components.schemas.HoldResponse (201 de POST /offers/hold). */

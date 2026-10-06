@@ -21,6 +21,7 @@ import {
   UsuarioAutenticado,
 } from '../../../../common/decorators/usuario-actual.decorator';
 import { UuidPipe } from '../../../../common/pipes/uuid.pipe';
+import { LIMITE_POR_DEFECTO } from '../../../../config/limite-peticiones';
 import { ETIQUETAS } from '../../../../config/swagger';
 import { EstadoRetencionDto, RetencionCreadaDto } from './dto/respuesta-retencion.dto';
 import { aEstadoRetencion } from './retencion.mapper';
@@ -36,6 +37,9 @@ export const LIMITE_RETENCION = { limite: 30, ventanaSegundos: 60 };
 
 /** Cabecera que marca una respuesta repetida por Idempotency-Key (no la pide el contrato). */
 export const CABECERA_REPETIDA = 'Idempotent-Replayed';
+
+/** GET y DELETE solo tienen el límite global (RATE_LIMIT_MAX). */
+const LIMITE_GLOBAL = `Más de ${LIMITE_POR_DEFECTO} peticiones por IP en un minuto (límite global, RATE_LIMIT_MAX; con Retry-After)`;
 
 @ApiTags(ETIQUETAS.retencion)
 @Controller()
@@ -100,6 +104,7 @@ export class RetencionController {
   @ApiOkResponse({ type: EstadoRetencionDto, description: 'HELD, RELEASED, EXPIRED o CONSUMED' })
   @ApiProblema(400, 'holdId no es un uuid')
   @ApiProblema(404, 'El hold no existe o es de otro usuario')
+  @ApiProblema(429, LIMITE_GLOBAL)
   async consultar(
     @UsuarioActual() usuario: UsuarioAutenticado,
     @Param('holdId', UuidPipe) holdId: string,
@@ -122,6 +127,7 @@ export class RetencionController {
   @ApiProblema(400, 'holdId no es un uuid')
   @ApiProblema(404, 'El hold no existe o es de otro usuario')
   @ApiProblema(409, 'El hold ya se usó en una reserva (fuera del contrato: se cancela la reserva)')
+  @ApiProblema(429, LIMITE_GLOBAL)
   async liberar(
     @UsuarioActual() usuario: UsuarioAutenticado,
     @Param('holdId', UuidPipe) holdId: string,

@@ -31,7 +31,7 @@ export class SeleccionItinerarioDto {
   @IsIn(CABINA.valores, { message: `$property must be one of: ${CABINA.valores.join(', ')}` })
   cabinClass: CabinaContrato;
 
-  @ApiProperty({ example: 'CLASSIC', pattern: REGEX_FAMILIA.source })
+  @ApiProperty({ example: 'BASIC', pattern: REGEX_FAMILIA.source })
   @Matches(REGEX_FAMILIA, { message: '$property must be 2 to 20 uppercase letters, digits or _' })
   fareBrand: string;
 }
