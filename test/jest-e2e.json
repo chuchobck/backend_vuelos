@@ -2,6 +2,7 @@
   "rootDir": "..",
   "testEnvironment": "node",
   "testRegex": "test/.*\\.e2e-spec\\.ts$",
+  "setupFiles": ["<rootDir>/test/utils/entorno-pruebas.ts"],
   "moduleFileExtensions": ["js", "json", "ts"],
   "transform": { "^.+\\.ts$": ["ts-jest", { "tsconfig": "tsconfig.json", "diagnostics": false }] },
   "testTimeout": 20000

@@ -132,6 +132,21 @@ export class VariablesEntorno {
   @IsOptional()
   HOLD_TTL_MINUTES?: number;
 
+  /**
+   * Proceso periódico que vence los holds y borra las claves de idempotencia vencidas. Sin
+   * valor: true. Con false solo quedan los vencimientos perezosos (las pruebas lo apagan).
+   */
+  @IsIn(['true', 'false'], { message: 'HOLD_EXPIRY_JOB_ENABLED debe ser true o false' })
+  @IsOptional()
+  HOLD_EXPIRY_JOB_ENABLED?: string;
+
+  /** Cada cuántos segundos corre ese proceso. Sin valor: 60. */
+  @Max(3600, { message: 'HOLD_EXPIRY_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @Min(5, { message: 'HOLD_EXPIRY_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @IsInt({ message: 'HOLD_EXPIRY_JOB_INTERVAL_SECONDS debe ser un número entero' })
+  @IsOptional()
+  HOLD_EXPIRY_JOB_INTERVAL_SECONDS?: number;
+
   /** Duración de la ventana del límite, en segundos. Sin valor: 60. */
   @Max(86_400, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
   @Min(1, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
