@@ -167,7 +167,10 @@ export const cuerpoReserva = (
   payment: { paymentReference: referencia },
 });
 
-/** Cupo de una cabina y lo que retienen o consumieron los holds que pasan por ella. */
+/**
+ * Cupo de una cabina y lo que lo ocupa: los holds RETENIDA (y los consumidos sin reserva) y los
+ * asientos asignados de las reservas. disponibles + tomados = totales cuando todo cuadra.
+ */
 export async function cupoDe(
   prisma: PrismaService,
   salida: string,
@@ -184,10 +187,16 @@ export async function cupoDe(
                        JOIN vuelos.familia_tarifa f     ON f.id = d.familia_tarifa_id
                       WHERE (r.estado = 'RETENIDA'
                              OR (r.estado = 'CONSUMIDA' AND NOT EXISTS (
-                                   SELECT 1 FROM vuelos.reserva_cabecera rc
-                                    WHERE rc.retencion_id = r.id AND rc.estado = 'FALLIDA')))
+                                   SELECT 1 FROM vuelos.reserva_cabecera rc WHERE rc.retencion_id = r.id)))
                         AND i.vuelo_programado_id = ic.vuelo_programado_id
-                        AND f.clase_cabina = ic.clase_cabina), 0)::int AS tomados
+                        AND f.clase_cabina = ic.clase_cabina), 0)::int
+           + (SELECT count(*)::int
+                FROM vuelos.reserva_detalle_asiento a
+                JOIN vuelos.asiento s               ON s.id = a.asiento_id
+                JOIN vuelos.mapa_asientos_detalle m ON m.id = s.mapa_asientos_detalle_id
+               WHERE a.vuelo_programado_id = ic.vuelo_programado_id
+                 AND a.fecha_liberacion IS NULL
+                 AND m.clase_cabina = ic.clase_cabina) AS tomados
       FROM vuelos.inventario_cabina ic
      WHERE ic.vuelo_programado_id = ${salida}::uuid AND ic.clase_cabina::text = ${cabina}`;
   return fila;
