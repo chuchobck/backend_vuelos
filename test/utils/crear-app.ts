@@ -7,13 +7,17 @@ import { Reloj } from '../../src/common/reloj';
 import { configurarApp } from '../../src/configurar-app';
 import { habilitarBigIntEnJson } from '../../src/prisma/serializacion-bigint';
 import { LimitesReiniciables } from './limites';
+import { RelojDePrueba } from './reloj';
 
 export interface OpcionesCrearApp {
   /** Deja los logs de Nest encendidos. Por defecto se apagan para no llenar la salida de Jest. */
   logs?: boolean;
   /** Reemplaza el Reloj de la aplicación (por ejemplo, un RelojDePrueba que se adelanta). */
   reloj?: Reloj;
-  /** Contadores del límite de peticiones que la prueba puede reiniciar. */
+  /**
+   * Contadores del límite de peticiones que la prueba puede reiniciar. Sin esto, el límite usa
+   * el Reloj de la app (el de `reloj` si se pasa): una prueba de límites pasa un RelojDePrueba.
+   */
   limites?: LimitesReiniciables;
   /** Otros providers reemplazados (por ejemplo SERVICIO_PAGOS por un pago de prueba). */
   reemplazos?: Array<{ proveedor: unknown; valor: unknown }>;
@@ -38,6 +42,8 @@ export async function crearApp(
   });
   if (opciones.reloj) constructor = constructor.overrideProvider(Reloj).useValue(opciones.reloj);
   if (opciones.limites) {
+    // Con el reloj de la prueba, o con uno quieto: el límite nunca depende del reloj de la máquina
+    opciones.limites.usarReloj(opciones.reloj ?? new RelojDePrueba());
     constructor = constructor.overrideProvider(getStorageToken()).useValue(opciones.limites);
   }
   for (const { proveedor, valor } of opciones.reemplazos ?? []) {

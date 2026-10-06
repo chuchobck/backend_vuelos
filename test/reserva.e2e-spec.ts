@@ -1145,7 +1145,7 @@ describe('Límite de POST /bookings', () => {
   let cliente: Cliente;
 
   beforeAll(async () => {
-    app = await crearApp();
+    app = await crearApp([], { reloj: new RelojDePrueba() });
     cliente = await nuevoCliente(app);
   });
   afterAll(async () => {

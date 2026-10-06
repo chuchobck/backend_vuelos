@@ -18,6 +18,7 @@ import {
   iniciarSesion,
 } from './utils/auth';
 import { crearApp } from './utils/crear-app';
+import { RelojDePrueba } from './utils/reloj';
 import { esperarProblemDetails } from './utils/problem-details';
 
 /** Rutas que solo existen en la prueba, una por cada caso del guard. */
@@ -329,7 +330,7 @@ describe('Límites de auth', () => {
   });
 
   it('el login admite 5 intentos por minuto: los 401 cuentan y el sexto es 429', async () => {
-    const app = await crearApp();
+    const app = await crearApp([], { reloj: new RelojDePrueba() });
     try {
       const usuario = await crearUsuario(app);
       const http = () => request(app.getHttpServer());
@@ -363,7 +364,7 @@ describe('Límites de auth', () => {
 
   it('el 401 de una ruta protegida cuenta para el límite global; un 404 no', async () => {
     process.env.RATE_LIMIT_MAX = '3';
-    const app = await crearApp([ControllerDePrueba]);
+    const app = await crearApp([ControllerDePrueba], { reloj: new RelojDePrueba() });
     try {
       const http = () => request(app.getHttpServer());
       for (let i = 0; i < 3; i++) await http().get(`${PRUEBA}/protegida`).expect(401);
