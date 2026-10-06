@@ -88,6 +88,9 @@ COMMENT ON TYPE estado_reserva IS 'Contrato BookingDetail.status: PENDIENTE=PEND
 CREATE TYPE concepto_pago AS ENUM ('EMISION', 'EQUIPAJE_ADICIONAL', 'CAMBIO_FECHA');
 COMMENT ON TYPE concepto_pago IS 'Operación que acredita una referencia de pago: POST /bookings, POST /bookings/{id}/baggage o POST /bookings/{id}/date-change.';
 
+CREATE TYPE estado_pago AS ENUM ('PENDIENTE', 'APROBADO', 'RECHAZADO');
+COMMENT ON TYPE estado_pago IS 'Lo que dijo la Payment API del pago. PENDIENTE corresponde a una respuesta 202; RECHAZADO deja la operación sin efecto (sus filas quedan, nada se borra).';
+
 CREATE TYPE estado_boleto AS ENUM ('PENDIENTE', 'EMITIENDO', 'EMITIDO', 'FALLIDO', 'ANULADO', 'REEMBOLSADO');
 COMMENT ON TYPE estado_boleto IS 'Contrato TicketStatus: PENDIENTE=PENDING, EMITIENDO=ISSUING, EMITIDO=ISSUED, FALLIDO=FAILED, ANULADO=VOIDED, REEMBOLSADO=REFUNDED.';
 
@@ -556,6 +559,7 @@ CREATE TABLE reserva_detalle_pago (
     reserva_id       uuid           NOT NULL,
     referencia_pago  text           NOT NULL,
     concepto         concepto_pago  NOT NULL,
+    estado           estado_pago    NOT NULL DEFAULT 'APROBADO',
     fecha_registro   timestamptz    NOT NULL DEFAULT now(),
     CONSTRAINT pk_reserva_detalle_pago PRIMARY KEY (id),
     CONSTRAINT uq_reserva_detalle_pago_referencia UNIQUE (referencia_pago),
@@ -1222,6 +1226,8 @@ LEFT JOIN (
     SELECT p.reserva_id, SUM(q.cantidad * q.precio_unitario) AS equipaje
     FROM reserva_detalle_equipaje q
     JOIN reserva_detalle_pasajero p ON p.id = q.pasajero_id
+    JOIN reserva_detalle_pago g     ON g.id = q.pago_id
+    WHERE g.estado = 'APROBADO'
     GROUP BY p.reserva_id
 ) e ON e.reserva_id = rc.id
 LEFT JOIN (
@@ -1319,6 +1325,7 @@ COMMENT ON COLUMN reserva_detalle_pasajero.numero_documento IS 'Sin espacios ni 
 COMMENT ON COLUMN reserva_detalle_pasajero.telefono IS 'Solo dígitos con + opcional. Formato recomendado E.164 (+593...).';
 COMMENT ON COLUMN reserva_detalle_asiento.fecha_liberacion IS 'NULL mientras el asiento está ocupado. Se llena al cancelar o al cambiar de asiento o de fecha.';
 COMMENT ON COLUMN reserva_detalle_pago.referencia_pago IS 'paymentReference. Es única en todo el sistema: un mismo pago no acredita dos operaciones.';
+COMMENT ON COLUMN reserva_detalle_pago.estado IS 'Estado del pago en la Payment API. Una maleta con pago PENDIENTE ya cuenta para el máximo; una con pago RECHAZADO no cuenta para nada.';
 COMMENT ON COLUMN reserva_detalle_equipaje.precio_unitario IS 'Precio por maleta congelado al momento de la compra.';
 COMMENT ON COLUMN boleto_cabecera.numero_boleto IS 'eTicketNumber de 13 dígitos. NULL hasta que se emite.';
 COMMENT ON COLUMN boleto_detalle.numero_cupon IS 'couponNumber del contrato. NULL hasta que el cupón se emite.';
@@ -1340,7 +1347,7 @@ COMMENT ON COLUMN auditoria.datos_nuevos IS 'En ACTUALIZACION, las mismas column
 
 COMMENT ON VIEW vista_vuelo_programado IS 'Vuelo programado con sus códigos IATA y la duración calculada.';
 COMMENT ON VIEW vista_retencion_precio IS 'lockedPrice de una retención.';
-COMMENT ON VIEW vista_reserva_total    IS 'grandTotal de una reserva: itinerarios vigentes, equipaje adicional y cargos por cambios confirmados.';
+COMMENT ON VIEW vista_reserva_total    IS 'grandTotal de una reserva: itinerarios vigentes, equipaje adicional con pago aprobado y cargos por cambios confirmados.';
 
 
 -- =============================================================================

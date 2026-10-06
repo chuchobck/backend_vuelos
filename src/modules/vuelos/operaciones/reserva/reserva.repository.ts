@@ -96,7 +96,6 @@ export interface ReservaNueva {
   }>;
   pasajeros: PasajeroNuevo[];
   asientos: Array<{ codigoPasajero: string; salidaId: string; asientoId: bigint }>;
-  referenciaPago: string;
 }
 
 export interface CambioDeEstado {
@@ -155,6 +154,7 @@ interface FilaItinerario {
   incluye_articulo_personal: boolean;
   equipaje_mano_incluido: number;
   equipaje_bodega_incluido: number;
+  maximo_equipaje_adicional: number;
   equipaje_adicional: Prisma.Decimal | null;
   asientos_disponibles: number | null;
 }
@@ -281,15 +281,6 @@ export class ReservaRepository {
     return new Map(filas.map((f) => [f.codigo_iso2, f.id]));
   }
 
-  /** Si la referencia de pago ya acreditó otra operación (es única en todo el sistema). */
-  async referenciaUsada(referencia: string): Promise<boolean> {
-    return (
-      (await this.prisma.db.reserva_detalle_pago.count({
-        where: { referencia_pago: referencia },
-      })) > 0
-    );
-  }
-
   /**
    * Bloquea las filas de inventario de esas cabinas, en orden (salida, cabina), hasta el fin
    * de la transacción. Dos reservas que eligen asientos en la misma cabina de la misma salida
@@ -347,7 +338,7 @@ export class ReservaRepository {
 
   /**
    * Inserta la reserva PENDIENTE con un PNR nuevo, sus itinerarios con el precio del hold, los
-   * pasajeros (primero los que llevan a un infante), sus asientos y la referencia de pago. El
+   * pasajeros (primero los que llevan a un infante) y sus asientos. El
    * PNR se reclama con `ON CONFLICT DO NOTHING`: si ya existía, se prueba otro sin abortar la
    * transacción.
    */
@@ -418,14 +409,6 @@ export class ReservaRepository {
       });
     }
 
-    await tx.reserva_detalle_pago.create({
-      data: {
-        reserva_id: reservaId,
-        referencia_pago: nueva.referenciaPago,
-        concepto: 'EMISION',
-        fecha_registro: nueva.ahora,
-      },
-    });
     return creada;
   }
 
@@ -485,6 +468,15 @@ export class ReservaRepository {
        LIMIT ${limite}`;
   }
 
+  /** Bloquea la reserva hasta el fin de la transacción y devuelve su estado. */
+  async bloquear(tx: TransaccionVuelos, reservaId: string): Promise<estado_reserva> {
+    const [fila] = await tx.$queryRaw<Array<{ estado: estado_reserva }>>`
+      SELECT estado::text AS estado FROM vuelos.reserva_cabecera
+       WHERE id = ${reservaId}::uuid
+         FOR UPDATE`;
+    return fila.estado;
+  }
+
   /**
    * Bloquea la reserva si sigue en ese estado; `SKIP LOCKED` hace que dos procesos que la
    * buscan a la vez no la procesen los dos. Devuelve si la tomó.
@@ -502,14 +494,44 @@ export class ReservaRepository {
   }
 
   /** Libera los asientos asignados de la reserva (no los borra: fecha_liberacion). */
-  async liberarAsientos(tx: TransaccionVuelos, reservaId: string, ahora: Date): Promise<void> {
+  async liberarAsientos(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    ahora: Date,
+    soloSalidas?: readonly string[],
+  ): Promise<void> {
     await tx.$executeRaw`
       UPDATE vuelos.reserva_detalle_asiento a
          SET fecha_liberacion = ${ahora}::timestamptz
         FROM vuelos.reserva_detalle_pasajero p
        WHERE p.id = a.pasajero_id
          AND p.reserva_id = ${reservaId}::uuid
-         AND a.fecha_liberacion IS NULL`;
+         AND a.fecha_liberacion IS NULL
+         AND (${soloSalidas === undefined}
+              OR a.vuelo_programado_id = ANY(${soloSalidas ?? []}::uuid[]))`;
+  }
+
+  /** Asienta asientos nuevos de pasajeros de la reserva (por su passengerId). */
+  async asignarAsientos(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    asientos: ReadonlyArray<{ codigoPasajero: string; salidaId: string; asientoId: bigint }>,
+    ahora: Date,
+  ): Promise<void> {
+    if (asientos.length === 0) return;
+    const pasajeros = await tx.reserva_detalle_pasajero.findMany({
+      where: { reserva_id: reservaId },
+      select: { id: true, codigo_pasajero: true },
+    });
+    const ids = new Map(pasajeros.map((p) => [p.codigo_pasajero, p.id]));
+    await tx.reserva_detalle_asiento.createMany({
+      data: asientos.map((a) => ({
+        pasajero_id: ids.get(a.codigoPasajero)!,
+        vuelo_programado_id: a.salidaId,
+        asiento_id: a.asientoId,
+        fecha_asignacion: ahora,
+      })),
+    });
   }
 
   /**
@@ -566,7 +588,8 @@ export class ReservaRepository {
       this.pasajeros(reservaId),
       this.prisma.db.reserva_detalle_historial.findMany({
         where: { reserva_id: reservaId },
-        orderBy: [{ fecha_evento: 'asc' }, { id: 'asc' }],
+        // En el orden en que se escribió: la hora puede saltar (el reloj de WSL lo hace), el id no
+        orderBy: { id: 'asc' },
         select: { fecha_evento: true, descripcion: true },
       }),
     ]);
@@ -585,7 +608,9 @@ export class ReservaRepository {
           total: cabecera.total,
         },
         itinerarios,
-        pasajeros,
+        // Solo los asientos de los vuelos vigentes: un cambio de fecha con pago pendiente ya
+        // tomó asientos en los vuelos nuevos, pero todavía no los vuela
+        pasajeros: soloVuelosVigentes(pasajeros, itinerarios),
         historial: historial.map((h) => ({ fecha: h.fecha_evento, descripcion: h.descripcion })),
       },
     };
@@ -665,7 +690,7 @@ export class ReservaRepository {
         SELECT r.itinerario_id AS id, r.orden, r.tarifa_base, r.impuestos, f.codigo,
                f.clase_cabina::text AS clase_cabina, f.es_cambiable,
                f.porcentaje_penalidad_cancelacion, f.incluye_articulo_personal,
-               f.equipaje_mano_incluido, f.equipaje_bodega_incluido,
+               f.equipaje_mano_incluido, f.equipaje_bodega_incluido, f.maximo_equipaje_adicional,
                (SELECT SUM(t.precio_equipaje_adicional)
                   FROM vuelos.itinerario_detalle i
                   JOIN vuelos.tarifa_cabecera t ON t.vuelo_programado_id = i.vuelo_programado_id
@@ -714,6 +739,7 @@ export class ReservaRepository {
         equipajeMano: c.equipaje_mano_incluido,
         equipajeBodega: c.equipaje_bodega_incluido,
         equipajeAdicional: c.equipaje_adicional ?? new Prisma.Decimal(0),
+        maximoEquipaje: c.maximo_equipaje_adicional,
         asientosDisponibles: c.asientos_disponibles ?? 0,
       },
       salidas: segmentos.filter((s) => s.itinerario_id === c.id).map(aSalida),
@@ -741,7 +767,9 @@ export class ReservaRepository {
             vuelo_programado: { select: { salida_programada: true } },
           },
         },
+        // Las maletas con pago rechazado no cuentan; las de pago pendiente, sí (ya ocupan cupo)
         reserva_detalle_equipaje: {
+          where: { reserva_detalle_pago: { estado: { not: 'RECHAZADO' } } },
           select: {
             cantidad: true,
             reserva_detalle_itinerario: { select: { itinerario_id: true } },
@@ -801,6 +829,17 @@ function aSalida(f: FilaSegmento): SalidaVendible {
     estado: f.estado,
     modelo: f.modelo,
   };
+}
+
+function soloVuelosVigentes(
+  pasajeros: PasajeroDeReserva[],
+  itinerarios: ItinerarioDeReserva[],
+): PasajeroDeReserva[] {
+  const vigentes = new Set(itinerarios.flatMap((it) => it.salidas.map((s) => s.id)));
+  return pasajeros.map((p) => ({
+    ...p,
+    asientos: p.asientos.filter((a) => vigentes.has(a.salidaId)),
+  }));
 }
 
 /** Las maletas compradas en varias veces para el mismo itinerario se suman. */

@@ -20,6 +20,8 @@ import {
   IdClave,
   IdempotenciaRepository,
 } from '../../compartido/idempotencia.repository';
+import { Cobros } from '../../compartido/pagos/cobros';
+import { PagosRepository } from '../../compartido/pagos/pagos.repository';
 import { EstadoPago, SERVICIO_PAGOS, ServicioPagos } from '../../compartido/pagos/servicio-pagos';
 import { BoletoService } from '../boleto/boleto.service';
 import { RetencionService } from '../retencion/retencion.service';
@@ -29,7 +31,12 @@ import { SolicitudReservaDto } from './dto/solicitud-reserva.dto';
 import { EventosReserva, TipoEventoReserva } from './eventos-reserva';
 import { validarPasajeros } from './pasajeros-reserva';
 import { Reserva, ResumenReserva } from './reserva.modelo';
-import { HoldParaReservar, PnrAgotado, ReservaRepository } from './reserva.repository';
+import {
+  AsientoDeSalida,
+  HoldParaReservar,
+  PnrAgotado,
+  ReservaRepository,
+} from './reserva.repository';
 
 /** Reglas de POST /bookings. */
 export const REGLAS_RESERVA = {
@@ -97,6 +104,8 @@ export class ReservaService {
     private readonly boletos: BoletoService,
     private readonly eventos: EventosReserva,
     @Inject(SERVICIO_PAGOS) private readonly pagos: ServicioPagos,
+    private readonly pagosRegistrados: PagosRepository,
+    private readonly cobros: Cobros,
     private readonly reloj: Reloj,
   ) {}
 
@@ -210,7 +219,13 @@ export class ReservaService {
           })),
           pasajeros,
           asientos,
-          referenciaPago: referencia,
+        });
+        await this.pagosRegistrados.registrar(tx, {
+          reservaId: id,
+          referencia,
+          concepto: 'EMISION',
+          estado: pago === 'APROBADO' ? 'APROBADO' : 'PENDIENTE',
+          fecha: ahora,
         });
         await this.evento(tx, id, 'booking.created', 'Booking created from hold', ahora, [
           null,
@@ -303,6 +318,11 @@ export class ReservaService {
     return this.prisma.transaccionAuditada(
       async (tx) => {
         if (!(await this.repositorio.tomarSiSigue(tx, reservaId, 'PENDIENTE_PAGO'))) return null;
+        await this.pagosRegistrados.resolver(
+          tx,
+          await this.pagosRegistrados.deEmision(tx, reservaId),
+          pago,
+        );
         if (pago === 'RECHAZADO') {
           await this.fallar(
             tx,
@@ -372,8 +392,7 @@ export class ReservaService {
     ahora: Date,
   ): Promise<void> {
     await this.boletos.fallar(tx, reservaId, motivo);
-    await this.repositorio.liberarAsientos(tx, reservaId, ahora);
-    await this.repositorio.devolverCupo(tx, reservaId);
+    await this.liberarAsientosYCupo(tx, reservaId, ahora);
     await this.evento(
       tx,
       reservaId,
@@ -387,8 +406,71 @@ export class ReservaService {
     });
   }
 
+  /**
+   * Bloquea la reserva hasta el fin de la transacción y devuelve su estado. Las operaciones de
+   * postventa (cancelación, cambio de fecha) la bloquean primero: dos sobre la misma reserva se
+   * esperan, y la segunda ve el estado que dejó la primera.
+   */
+  bloquear(tx: TransaccionVuelos, reservaId: string): Promise<estado_reserva> {
+    return this.repositorio.bloquear(tx, reservaId);
+  }
+
+  /** La bloquea si sigue en ese estado; SKIP LOCKED si otro proceso la tiene (procesos periódicos). */
+  tomarSiSigue(tx: TransaccionVuelos, reservaId: string, estado: estado_reserva): Promise<boolean> {
+    return this.repositorio.tomarSiSigue(tx, reservaId, estado);
+  }
+
+  /** Libera los asientos asignados y devuelve al inventario el cupo de sus itinerarios vigentes. */
+  async liberarAsientosYCupo(tx: TransaccionVuelos, reservaId: string, ahora: Date): Promise<void> {
+    await this.repositorio.liberarAsientos(tx, reservaId, ahora);
+    await this.repositorio.devolverCupo(tx, reservaId);
+  }
+
+  /** Los asientos físicos de esas salidas y si están ocupados (con el inventario ya bloqueado). */
+  asientosDeSalidas(tx: TransaccionVuelos, salidas: readonly string[]): Promise<AsientoDeSalida[]> {
+    return this.repositorio.asientosDeSalidas(tx, salidas);
+  }
+
+  asignarAsientos(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    asientos: ReadonlyArray<{ codigoPasajero: string; salidaId: string; asientoId: bigint }>,
+    ahora: Date,
+  ): Promise<void> {
+    return this.repositorio.asignarAsientos(tx, reservaId, asientos, ahora);
+  }
+
+  /** Libera los asientos de la reserva en esos vuelos (fecha_liberacion; nada se borra). */
+  liberarAsientos(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    salidas: readonly string[],
+    ahora: Date,
+  ): Promise<void> {
+    return this.repositorio.liberarAsientos(tx, reservaId, ahora, salidas);
+  }
+
+  /**
+   * Vuelve a emitir los boletos (cambio de fecha): los EMITIDO pasan a ANULADO y cada pasajero
+   * recibe uno nuevo, con un cupón por cada vuelo de los itinerarios vigentes. Sin prefijo de
+   * boleto, 409 TICKET_ISSUANCE_FAILED (y la transacción se deshace).
+   */
+  async reemitirBoletos(tx: TransaccionVuelos, reservaId: string, ahora: Date): Promise<number> {
+    const prefijo = await this.repositorio.prefijoBoleto(tx, reservaId);
+    if (prefijo === null) {
+      throw new ErrorNegocio(
+        409,
+        CodigoError.TICKET_ISSUANCE_FAILED,
+        'The airline cannot issue tickets (it has no ticket prefix)',
+      );
+    }
+    await this.boletos.anular(tx, reservaId);
+    await this.boletos.crearPendientes(tx, reservaId, ahora);
+    return this.boletos.emitir(tx, reservaId, prefijo, ahora);
+  }
+
   /** Cambia el estado (UPDATE condicionado) y lo deja en el historial con su evento. */
-  private async transicion(
+  async transicion(
     tx: TransaccionVuelos,
     reservaId: string,
     desde: estado_reserva,
@@ -403,7 +485,8 @@ export class ReservaService {
     await this.evento(tx, reservaId, evento.tipo, evento.descripcion, ahora, [desde, hacia]);
   }
 
-  private evento(
+  /** Un evento sin cambio de estado (o con él), en el historial de la reserva. */
+  evento(
     tx: TransaccionVuelos,
     reservaId: string,
     tipo: TipoEventoReserva,
@@ -419,45 +502,18 @@ export class ReservaService {
     });
   }
 
-  /**
-   * La referencia de pago, antes de tocar nada: una ya usada por otra operación es 409; una
-   * que la Payment API no reconoce o que rechazó es 422 y no deja reserva (el hold sigue
-   * RETENIDA). Aprobada o pendiente, la reserva sigue.
-   */
-  private async autorizarPago(referencia: string, hold: HoldParaReservar): Promise<EstadoPago> {
-    if (await this.repositorio.referenciaUsada(referencia)) {
-      throw new ErrorNegocio(
-        409,
-        CodigoError.PAYMENT_REFERENCE_INVALID,
-        'payment.paymentReference: was already used for another operation',
-      );
-    }
+  /** El cobro del total congelado del hold (ver Cobros: 409 o 422 si no sigue). */
+  private autorizarPago(referencia: string, hold: HoldParaReservar): Promise<EstadoPago> {
     const total = hold.itinerarios.reduce(
       (suma, it) => suma.plus(it.base).plus(it.impuestos),
       new Prisma.Decimal(0),
     );
-    const estado = await this.pagos.autorizar({
+    return this.cobros.autorizar({
       referencia,
       concepto: 'EMISION',
       moneda: hold.moneda,
       monto: total,
     });
-    if (estado === 'INVALIDO') {
-      throw new ErrorNegocio(
-        422,
-        CodigoError.PAYMENT_REFERENCE_INVALID,
-        'payment.paymentReference: is not a payment of the Payment API',
-        { invalidParams: [{ name: 'payment.paymentReference', reason: 'unknown payment' }] },
-      );
-    }
-    if (estado === 'RECHAZADO') {
-      throw new ErrorNegocio(
-        422,
-        CodigoError.PAYMENT_NOT_AUTHORIZED,
-        'The payment was not authorized by the Payment API',
-      );
-    }
-    return estado;
   }
 
   /** La respuesta de una clave ya usada: la misma reserva, como está hoy, con el status original. */

@@ -46,6 +46,19 @@ export class BoletoService {
     return this.repositorio.fallar(tx, reservaId, motivo);
   }
 
+  /** EMITIDO → ANULADO: la reserva se canceló y los boletos ya no sirven para volar. */
+  anular(tx: TransaccionVuelos, reservaId: string): Promise<number> {
+    return this.repositorio.cambiarEstado(tx, reservaId, 'EMITIDO', 'ANULADO');
+  }
+
+  /**
+   * ANULADO → REEMBOLSADO: el reembolso de la cancelación se aprobó. Solo los boletos de los
+   * itinerarios vigentes; los anulados antes por un cambio de fecha siguen ANULADO.
+   */
+  marcarReembolsados(tx: TransaccionVuelos, reservaId: string): Promise<number> {
+    return this.repositorio.reembolsarVigentes(tx, reservaId);
+  }
+
   deReserva(reservaId: string): Promise<Boleto[]> {
     return this.repositorio.deReserva(reservaId);
   }

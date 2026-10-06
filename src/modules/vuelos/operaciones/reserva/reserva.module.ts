@@ -25,6 +25,6 @@ import { ReservaService } from './reserva.service';
     EventosReserva,
     EmisionPendiente,
   ],
-  exports: [ReservaService],
+  exports: [ReservaService, EventosReserva],
 })
 export class ReservaModule {}

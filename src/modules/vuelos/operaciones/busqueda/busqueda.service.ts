@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
+import { TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { fechaIsoAUtc } from '../../../../common/pipes/formatos';
 import { ORDEN_CABINAS } from '../../compartido/enums';
 import { cuerpoInvalido } from '../../compartido/errores';
@@ -49,7 +50,8 @@ const ORDEN_TIPOS: tipo_pasajero[] = ['ADULTO', 'JOVEN', 'NINO', 'INFANTE'];
 const CERO = new Prisma.Decimal(0);
 const MINUTO = 60_000;
 
-interface Tramo {
+/** Un tramo pedido: origen, destino y fecha local de salida (un `date`). */
+export interface Tramo {
   origen: string;
   destino: string;
   fecha: Date;
@@ -83,8 +85,25 @@ export class BusquedaService {
   async buscar(solicitud: SolicitudBusquedaDto, huella: string): Promise<OfertaArmada[]> {
     const pasajeros = validarPasajeros(solicitud.passengers, 'passengers');
     const tramos = validarTramos(solicitud);
-    const asientos = asientosOcupados(pasajeros);
 
+    const itinerariosPorTramo = await this.itinerariosConPrecio(tramos, pasajeros);
+    const ofertas = combinar(
+      itinerariosPorTramo.map((its) => its.filter((it) => it.opciones.length > 0)),
+    );
+    await this.guardar(ofertas, huella);
+    return ofertas;
+  }
+
+  /**
+   * Para cada tramo, los itinerarios (directos y con una escala) con las familias vendibles en
+   * todos sus segmentos y su precio para esos pasajeros; un itinerario sin familias vendibles
+   * llega con `opciones` vacío. Dos consultas para todos los tramos juntos. Lo usan la búsqueda
+   * y el cambio de fecha.
+   */
+  async itinerariosConPrecio(
+    tramos: Tramo[],
+    pasajeros: ConteoPasajeros,
+  ): Promise<ItinerarioArmado[][]> {
     const salidasPorTramo = await Promise.all(
       tramos.map((t) => this.repositorio.salidasDelTramo(t.origen, t.destino, t.fecha)),
     );
@@ -98,7 +117,7 @@ export class BusquedaService {
     const precios = agruparPrecios(
       await this.repositorio.tarifasVendibles(
         ids,
-        asientos,
+        asientosOcupados(pasajeros),
         pasajeros.map((p) => p.tipo),
       ),
     );
@@ -107,12 +126,16 @@ export class BusquedaService {
         itinerario.opciones = opcionesDe(itinerario, precios, pasajeros);
       }
     }
+    return itinerariosPorTramo;
+  }
 
-    const ofertas = combinar(
-      itinerariosPorTramo.map((its) => its.filter((it) => it.opciones.length > 0)),
-    );
-    await this.guardar(ofertas, huella);
-    return ofertas;
+  /** Guarda itinerarios (cabecera y segmentos) en una transacción ajena (el cambio de fecha). */
+  guardarItinerarios(
+    tx: TransaccionVuelos,
+    itinerarios: ItinerarioArmado[],
+    creados: Date,
+  ): Promise<void> {
+    return this.repositorio.guardarItinerarios(tx, itinerarios, creados);
   }
 
   /** Guarda las ofertas y, aprovechando la escritura, purga las vencidas (no falla la búsqueda). */
@@ -132,23 +155,28 @@ export class BusquedaService {
   }
 }
 
+/**
+ * Una fecha de salida (YYYY-MM-DD ya validada) desde hoy y dentro del horizonte. "Hoy" es el de
+ * Galápagos, la zona más atrasada de Ecuador. 400 en `campo` si no.
+ */
+export function validarFechaDeSalida(texto: string, campo: string): Date {
+  const hoy = fechaLocal(new Date(), ZONA_HOY);
+  const fecha = fechaIsoAUtc(texto) as Date;
+  if (fecha < hoy) throw cuerpoInvalido(campo, 'must not be in the past');
+  if (fecha > sumarDias(hoy, REGLAS_BUSQUEDA.horizonteDias)) {
+    throw cuerpoInvalido(campo, `must be within ${REGLAS_BUSQUEDA.horizonteDias} days from today`);
+  }
+  return fecha;
+}
+
 /** Tramos con origen distinto del destino, fechas desde hoy, dentro del horizonte y en orden. */
 function validarTramos(solicitud: SolicitudBusquedaDto): Tramo[] {
-  const hoy = fechaLocal(new Date(), ZONA_HOY);
-  const limite = sumarDias(hoy, REGLAS_BUSQUEDA.horizonteDias);
   return solicitud.itineraries.map((tramo, i) => {
     const campo = `itineraries[${i}]`;
     if (tramo.origin === tramo.destination) {
       throw cuerpoInvalido(`${campo}.destination`, 'must be different from origin');
     }
-    const fecha = fechaIsoAUtc(tramo.departureDate) as Date;
-    if (fecha < hoy) throw cuerpoInvalido(`${campo}.departureDate`, 'must not be in the past');
-    if (fecha > limite) {
-      throw cuerpoInvalido(
-        `${campo}.departureDate`,
-        `must be within ${REGLAS_BUSQUEDA.horizonteDias} days from today`,
-      );
-    }
+    const fecha = validarFechaDeSalida(tramo.departureDate, `${campo}.departureDate`);
     const anterior = i > 0 ? fechaIsoAUtc(solicitud.itineraries[i - 1].departureDate) : undefined;
     if (anterior && fecha < anterior) {
       throw cuerpoInvalido(`${campo}.departureDate`, 'must not be before the previous itinerary');

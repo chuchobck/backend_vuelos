@@ -104,7 +104,7 @@ export async function buscarYRetener(
   token: string,
   tramos: Array<[string, string, string]>,
   pasajeros: { adults?: number; youths?: number; children?: number; infants?: number },
-  opciones: { directa?: boolean } = {},
+  opciones: { directa?: boolean; fareBrand?: string } = {},
 ): Promise<Retenido> {
   const busqueda = await request(app.getHttpServer())
     .post('/flights/v1/search')
@@ -119,19 +119,27 @@ export async function buscarYRetener(
     })
     .expect(200);
   const ofertas: OfertaDePrueba[] = busqueda.body.offers;
-  const oferta = opciones.directa
-    ? ofertas.find((o) => o.itineraries.every((it) => it.segments.length === 1))
-    : ofertas[0];
+  const conFamilia = (o: OfertaDePrueba) =>
+    !opciones.fareBrand ||
+    o.itineraries.every((it) => it.pricingOptions.some((p) => p.fareBrand === opciones.fareBrand));
+  const oferta = ofertas.find(
+    (o) =>
+      conFamilia(o) && (!opciones.directa || o.itineraries.every((it) => it.segments.length === 1)),
+  );
   if (!oferta) throw new Error('La búsqueda no devolvió una oferta para retener');
   const hold = await con(app, token)('post', HOLD)
     .set('Idempotency-Key', randomUUID())
     .send({
       offerId: oferta.offerId,
-      itinerarySelections: oferta.itineraries.map((it) => ({
-        itineraryId: it.itineraryId,
-        cabinClass: it.pricingOptions[0].cabinClass,
-        fareBrand: it.pricingOptions[0].fareBrand,
-      })),
+      itinerarySelections: oferta.itineraries.map((it) => {
+        const opcion =
+          it.pricingOptions.find((p) => p.fareBrand === opciones.fareBrand) ?? it.pricingOptions[0];
+        return {
+          itineraryId: it.itineraryId,
+          cabinClass: opcion.cabinClass,
+          fareBrand: opcion.fareBrand,
+        };
+      }),
       passengersBreakdown: pasajeros,
     })
     .expect(201);
@@ -159,7 +167,10 @@ export const cuerpoReserva = (
   payment: { paymentReference: referencia },
 });
 
-/** Cupo de una cabina y lo que retienen o consumieron los holds que pasan por ella. */
+/**
+ * Cupo de una cabina y lo que lo ocupa: los holds RETENIDA (y los consumidos sin reserva) y los
+ * asientos asignados de las reservas. disponibles + tomados = totales cuando todo cuadra.
+ */
 export async function cupoDe(
   prisma: PrismaService,
   salida: string,
@@ -176,10 +187,16 @@ export async function cupoDe(
                        JOIN vuelos.familia_tarifa f     ON f.id = d.familia_tarifa_id
                       WHERE (r.estado = 'RETENIDA'
                              OR (r.estado = 'CONSUMIDA' AND NOT EXISTS (
-                                   SELECT 1 FROM vuelos.reserva_cabecera rc
-                                    WHERE rc.retencion_id = r.id AND rc.estado = 'FALLIDA')))
+                                   SELECT 1 FROM vuelos.reserva_cabecera rc WHERE rc.retencion_id = r.id)))
                         AND i.vuelo_programado_id = ic.vuelo_programado_id
-                        AND f.clase_cabina = ic.clase_cabina), 0)::int AS tomados
+                        AND f.clase_cabina = ic.clase_cabina), 0)::int
+           + (SELECT count(*)::int
+                FROM vuelos.reserva_detalle_asiento a
+                JOIN vuelos.asiento s               ON s.id = a.asiento_id
+                JOIN vuelos.mapa_asientos_detalle m ON m.id = s.mapa_asientos_detalle_id
+               WHERE a.vuelo_programado_id = ic.vuelo_programado_id
+                 AND a.fecha_liberacion IS NULL
+                 AND m.clase_cabina = ic.clase_cabina) AS tomados
       FROM vuelos.inventario_cabina ic
      WHERE ic.vuelo_programado_id = ${salida}::uuid AND ic.clase_cabina::text = ${cabina}`;
   return fila;

@@ -76,6 +76,21 @@ export class IdempotenciaRepository {
   }
 
   /**
+   * Cambia el status guardado de una clave ya reclamada (una cancelación que se reclama como
+   * 202 y termina en 200 en la misma petición, cuando el reembolso se aprueba al pedirlo).
+   */
+  async cambiarCodigo(tx: TransaccionVuelos, clave: IdClave, codigoHttp: number): Promise<void> {
+    await tx.clave_idempotencia.updateMany({
+      where: {
+        id_propietario: clave.idPropietario,
+        operacion: clave.operacion,
+        clave: clave.clave,
+      },
+      data: { codigo_http: codigoHttp },
+    });
+  }
+
+  /**
    * Borra (físicamente: clave_idempotencia está en TABLAS_CON_BORRADO_FISICO) las claves ya
    * vencidas; con `clave`, solo esa. Devuelve cuántas borró.
    */

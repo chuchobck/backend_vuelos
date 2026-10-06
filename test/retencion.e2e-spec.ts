@@ -131,7 +131,11 @@ function precioEsperado(oferta: Oferta, pasajeros: Pasajeros) {
 interface Cupo {
   totales: number;
   disponibles: number;
-  /** Pasajeros con asiento de las retenciones RETENIDA o CONSUMIDA que pasan por esa cabina. */
+  /**
+   * Lo que ocupa cupo en esa cabina: los pasajeros con asiento de los holds RETENIDA (y de los
+   * consumidos sin reserva), más los asientos asignados de las reservas. Desde la fase 8 una
+   * reserva puede cancelarse o cambiar de vuelo: su hold CONSUMIDA ya no dice dónde está el cupo.
+   */
   retenidos: number;
 }
 
@@ -143,9 +147,18 @@ async function cupo(prisma: PrismaService, salida: string, cabina = 'ECONOMICA')
                        JOIN vuelos.retencion_detalle d  ON d.retencion_id = r.id
                        JOIN vuelos.itinerario_detalle i ON i.itinerario_id = d.itinerario_id
                        JOIN vuelos.familia_tarifa f     ON f.id = d.familia_tarifa_id
-                      WHERE r.estado IN ('RETENIDA', 'CONSUMIDA')
+                      WHERE (r.estado = 'RETENIDA'
+                             OR (r.estado = 'CONSUMIDA' AND NOT EXISTS (
+                                   SELECT 1 FROM vuelos.reserva_cabecera rc WHERE rc.retencion_id = r.id)))
                         AND i.vuelo_programado_id = ic.vuelo_programado_id
-                        AND f.clase_cabina = ic.clase_cabina), 0)::int AS retenidos
+                        AND f.clase_cabina = ic.clase_cabina), 0)::int
+           + (SELECT count(*)::int
+                FROM vuelos.reserva_detalle_asiento a
+                JOIN vuelos.asiento s               ON s.id = a.asiento_id
+                JOIN vuelos.mapa_asientos_detalle m ON m.id = s.mapa_asientos_detalle_id
+               WHERE a.vuelo_programado_id = ic.vuelo_programado_id
+                 AND a.fecha_liberacion IS NULL
+                 AND m.clase_cabina = ic.clase_cabina) AS retenidos
       FROM vuelos.inventario_cabina ic
      WHERE ic.vuelo_programado_id = ${salida}::uuid AND ic.clase_cabina::text = ${cabina}`;
   return fila;
@@ -296,8 +309,10 @@ describe('POST /offers/hold sobre la semilla', () => {
     esperarContrato('HoldStatusResponse', respuesta.body);
     expect(respuesta.body.status).toBe('HELD');
     const restantes = respuesta.body.remainingSeconds;
-    expect(restantes).toBeGreaterThan(0);
-    expect(restantes).toBeLessThanOrEqual(900);
+    // Exacto contra la hora del reloj de prueba: no depende del tiempo real entre pruebas (el
+    // reloj de WSL salta)
+    const vence = new Date(respuesta.body.expiresAt).getTime();
+    expect(restantes).toBe(Math.floor((vence - reloj.ahora().getTime()) / 1000));
     reloj.adelantar(1);
     const despues = await con(app, cliente.token)('get', `${HOLD}/${id}`).expect(200);
     expect(despues.body.remainingSeconds).toBe(restantes - 60);

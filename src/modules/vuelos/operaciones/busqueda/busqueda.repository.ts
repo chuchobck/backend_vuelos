@@ -5,8 +5,8 @@ import {
   Prisma,
   tipo_pasajero,
 } from '../../../../generated/prisma/client';
-import { PrismaService } from '../../../../prisma/prisma.service';
-import { OfertaArmada, SalidaVendible } from './busqueda.modelo';
+import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
+import { ItinerarioArmado, OfertaArmada, SalidaVendible } from './busqueda.modelo';
 
 /** Estados en los que una salida se vende: ni cancelada, ni embarcando, ni ya en el aire. */
 const ESTADOS_VENDIBLES: estado_vuelo[] = ['PROGRAMADO', 'DEMORADO'];
@@ -161,18 +161,7 @@ export class BusquedaRepository {
     );
 
     await this.prisma.transaccionAuditada(async (tx) => {
-      await tx.itinerario_cabecera.createMany({
-        data: [...itinerarios.keys()].map((id) => ({ id, fecha_creacion: creada })),
-      });
-      await tx.itinerario_detalle.createMany({
-        data: [...itinerarios.values()].flatMap((itinerario) =>
-          itinerario.segmentos.map((segmento, i) => ({
-            itinerario_id: itinerario.id,
-            orden: i + 1,
-            vuelo_programado_id: segmento.id,
-          })),
-        ),
-      });
+      await this.guardarItinerarios(tx, [...itinerarios.values()], creada);
       await tx.oferta_cabecera.createMany({
         data: ofertas.map((oferta) => ({
           id: oferta.id,
@@ -191,6 +180,27 @@ export class BusquedaRepository {
           })),
         ),
       });
+    });
+  }
+
+  /** Itinerarios (cabecera) y sus segmentos en orden, en una transacción ya abierta. */
+  async guardarItinerarios(
+    tx: TransaccionVuelos,
+    itinerarios: ItinerarioArmado[],
+    creados: Date,
+  ): Promise<void> {
+    if (itinerarios.length === 0) return;
+    await tx.itinerario_cabecera.createMany({
+      data: itinerarios.map((it) => ({ id: it.id, fecha_creacion: creados })),
+    });
+    await tx.itinerario_detalle.createMany({
+      data: itinerarios.flatMap((itinerario) =>
+        itinerario.segmentos.map((segmento, i) => ({
+          itinerario_id: itinerario.id,
+          orden: i + 1,
+          vuelo_programado_id: segmento.id,
+        })),
+      ),
     });
   }
 

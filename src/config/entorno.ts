@@ -133,6 +133,26 @@ export class VariablesEntorno {
   HOLD_TTL_MINUTES?: number;
 
   /**
+   * Minutos que vale una cotización de cancelación (GET .../cancellation-quote). Sin valor: 15.
+   * De 1 a 60: lo que tarda una persona en decidir, sin que el precio quede viejo.
+   */
+  @Max(60, { message: 'CANCELLATION_QUOTE_TTL_MINUTES debe estar entre 1 y 60' })
+  @Min(1, { message: 'CANCELLATION_QUOTE_TTL_MINUTES debe estar entre 1 y 60' })
+  @IsInt({ message: 'CANCELLATION_QUOTE_TTL_MINUTES debe ser un número entero' })
+  @IsOptional()
+  CANCELLATION_QUOTE_TTL_MINUTES?: number;
+
+  /**
+   * Minutos que vale una oferta de cambio de fecha (POST .../date-change/search). Sin valor: 15.
+   * De 1 a 60: no toma cupo, así que el precio y el cupo se vuelven a comprobar al confirmar.
+   */
+  @Max(60, { message: 'CHANGE_OFFER_TTL_MINUTES debe estar entre 1 y 60' })
+  @Min(1, { message: 'CHANGE_OFFER_TTL_MINUTES debe estar entre 1 y 60' })
+  @IsInt({ message: 'CHANGE_OFFER_TTL_MINUTES debe ser un número entero' })
+  @IsOptional()
+  CHANGE_OFFER_TTL_MINUTES?: number;
+
+  /**
    * Proceso periódico que vence los holds y borra las claves de idempotencia vencidas. Sin
    * valor: true. Con false solo quedan los vencimientos perezosos (las pruebas lo apagan).
    */
@@ -161,6 +181,22 @@ export class VariablesEntorno {
   @IsInt({ message: 'BOOKING_ISSUE_JOB_INTERVAL_SECONDS debe ser un número entero' })
   @IsOptional()
   BOOKING_ISSUE_JOB_INTERVAL_SECONDS?: number;
+
+  /**
+   * Proceso periódico que completa la postventa en 202 (maletas, cambios de fecha y
+   * cancelaciones con el pago o el reembolso pendientes) y purga las ofertas de cambio y las
+   * cotizaciones vencidas. Sin valor: true.
+   */
+  @IsIn(['true', 'false'], { message: 'POSTSALE_JOB_ENABLED debe ser true o false' })
+  @IsOptional()
+  POSTSALE_JOB_ENABLED?: string;
+
+  /** Cada cuántos segundos corre ese proceso. Sin valor: 30. */
+  @Max(3600, { message: 'POSTSALE_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @Min(5, { message: 'POSTSALE_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @IsInt({ message: 'POSTSALE_JOB_INTERVAL_SECONDS debe ser un número entero' })
+  @IsOptional()
+  POSTSALE_JOB_INTERVAL_SECONDS?: number;
 
   /** Duración de la ventana del límite, en segundos. Sin valor: 60. */
   @Max(86_400, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })

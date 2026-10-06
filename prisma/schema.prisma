@@ -520,6 +520,7 @@ model reserva_detalle_pago {
   reserva_id               String                     @unique(map: "uq_reserva_detalle_pago_emision", where: raw("(concepto = 'EMISION'::concepto_pago)")) @db.Uuid
   referencia_pago          String                     @unique(map: "uq_reserva_detalle_pago_referencia")
   concepto                 concepto_pago
+  estado                   estado_pago                @default(APROBADO)
   fecha_registro           DateTime                   @default(now()) @db.Timestamptz(6)
   cambio_cabecera          cambio_cabecera?
   reserva_detalle_equipaje reserva_detalle_equipaje[]
@@ -921,4 +922,11 @@ enum motivo_revocacion {
   CIERRE_SESION
   REUTILIZACION
   USUARIO_INACTIVO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_pago {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
 }
