@@ -1,5 +1,6 @@
 import {
   clase_cabina,
+  estado_retencion,
   estado_vuelo,
   posicion_asiento,
   tipo_pasajero,
@@ -47,6 +48,17 @@ export const CABINA = traduccion<
 export type CabinaContrato = (typeof CABINA.valores)[number];
 
 /**
+ * El orden del ENUM clase_cabina en la base (el de ORDER BY clase_cabina). Quien bloquea
+ * varias filas de inventario_cabina lo hace en este orden, para no cruzarse con otro.
+ */
+export const ORDEN_CABINAS: readonly clase_cabina[] = [
+  'ECONOMICA',
+  'ECONOMICA_PREMIUM',
+  'EJECUTIVA',
+  'PRIMERA',
+];
+
+/**
  * Posición del asiento. El contrato solo nombra WINDOW y AISLE (como características); el
  * asiento del centro es MIDDLE en la API de administración.
  */
@@ -80,3 +92,15 @@ export const TIPO_PASAJERO = traduccion<tipo_pasajero, 'ADULT' | 'YOUTH' | 'CHIL
   INFANTE: 'INFANT',
 });
 export type TipoPasajeroContrato = (typeof TIPO_PASAJERO.valores)[number];
+
+/** Contrato HoldStatusResponse.status. */
+export const ESTADO_RETENCION = traduccion<
+  estado_retencion,
+  'HELD' | 'RELEASED' | 'EXPIRED' | 'CONSUMED'
+>({
+  RETENIDA: 'HELD',
+  LIBERADA: 'RELEASED',
+  EXPIRADA: 'EXPIRED',
+  CONSUMIDA: 'CONSUMED',
+});
+export type EstadoRetencionContrato = (typeof ESTADO_RETENCION.valores)[number];

@@ -1,12 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
-import { clase_cabina, Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
+import { Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
 import { fechaIsoAUtc } from '../../../../common/pipes/formatos';
+import { ORDEN_CABINAS } from '../../compartido/enums';
 import { cuerpoInvalido } from '../../compartido/errores';
 import { fechaLocal, sumarDias } from '../../compartido/fechas';
+import { asientosOcupados, ConteoPasajeros, validarPasajeros } from '../../compartido/pasajeros';
 import {
-  ConteoPasajeros,
   ItinerarioArmado,
   OfertaArmada,
   OpcionTarifa,
@@ -15,7 +16,7 @@ import {
   Totales,
 } from './busqueda.modelo';
 import { BusquedaRepository, FilaTarifaVendible } from './busqueda.repository';
-import { MAXIMO_PASAJEROS_CON_ASIENTO, SolicitudBusquedaDto } from './dto/solicitud-busqueda.dto';
+import { SolicitudBusquedaDto } from './dto/solicitud-busqueda.dto';
 
 /**
  * Reglas de la búsqueda. Todas deterministas: la misma búsqueda sobre los mismos datos da las
@@ -45,7 +46,6 @@ const ZONA_HOY = 'Pacific/Galapagos';
 
 /** Orden del contrato para pricePerPassengerType. */
 const ORDEN_TIPOS: tipo_pasajero[] = ['ADULTO', 'JOVEN', 'NINO', 'INFANTE'];
-const ORDEN_CABINAS: clase_cabina[] = ['ECONOMICA', 'ECONOMICA_PREMIUM', 'EJECUTIVA', 'PRIMERA'];
 const CERO = new Prisma.Decimal(0);
 const MINUTO = 60_000;
 
@@ -81,11 +81,9 @@ export class BusquedaService {
   }
 
   async buscar(solicitud: SolicitudBusquedaDto, huella: string): Promise<OfertaArmada[]> {
-    const pasajeros = validarPasajeros(solicitud);
+    const pasajeros = validarPasajeros(solicitud.passengers, 'passengers');
     const tramos = validarTramos(solicitud);
-    const asientos = pasajeros
-      .filter((p) => p.tipo !== 'INFANTE')
-      .reduce((suma, p) => suma + p.cantidad, 0);
+    const asientos = asientosOcupados(pasajeros);
 
     const salidasPorTramo = await Promise.all(
       tramos.map((t) => this.repositorio.salidasDelTramo(t.origen, t.destino, t.fecha)),
@@ -132,34 +130,6 @@ export class BusquedaService {
       this.logger.warn(`No se pudieron purgar las ofertas vencidas: ${(error as Error).name}`);
     }
   }
-}
-
-/** Pasajeros pedidos (solo los tipos con más de 0) y las reglas de la base que el DTO no ve. */
-function validarPasajeros(solicitud: SolicitudBusquedaDto): ConteoPasajeros {
-  const p = solicitud.passengers;
-  const adultos = p.adults ?? 1;
-  const jovenes = p.youths ?? 0;
-  const ninos = p.children ?? 0;
-  const infantes = p.infants ?? 0;
-  if (adultos + jovenes + ninos > MAXIMO_PASAJEROS_CON_ASIENTO) {
-    throw cuerpoInvalido(
-      'passengers',
-      `at most ${MAXIMO_PASAJEROS_CON_ASIENTO} passengers with a seat (adults, youths and children)`,
-    );
-  }
-  if (infantes > adultos) {
-    throw cuerpoInvalido(
-      'passengers.infants',
-      'cannot exceed adults (each infant travels with an adult)',
-    );
-  }
-  const conteo: Array<{ tipo: tipo_pasajero; cantidad: number }> = [
-    { tipo: 'ADULTO', cantidad: adultos },
-    { tipo: 'JOVEN', cantidad: jovenes },
-    { tipo: 'NINO', cantidad: ninos },
-    { tipo: 'INFANTE', cantidad: infantes },
-  ];
-  return conteo.filter((c) => c.cantidad > 0);
 }
 
 /** Tramos con origen distinto del destino, fechas desde hoy, dentro del horizonte y en orden. */

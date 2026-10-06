@@ -104,7 +104,7 @@ function traducirHttp(excepcion: HttpException, contexto: ContextoError): Respue
     }
   }
 
-  // Un cuerpo que ya trae los campos del contrato (como el de IdempotencyKeyGuard) se respeta.
+  // Un cuerpo que ya trae los campos del contrato (type, title, code) se respeta.
   const propio = problemaPropio(cuerpo);
   const code = propio?.code ?? codigoPorStatus(status);
 

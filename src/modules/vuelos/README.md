@@ -64,9 +64,11 @@ ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
 [docs/PLAN.md](../../../docs/PLAN.md)):
 
 - `catalogo/<entidad>/`: CRUD de administrador en `/admin/...` con una clase base. Hecho en la fase 4.
-- `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10). Hechos: `busqueda/` (`POST /search`)
-  y `oferta/` (`GET /offers/{offerId}/seatmap`).
-- `compartido/`: traducción de los ENUM al contrato (`enums.ts`) y formatos de salida (`formatos-salida.ts`).
+- `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10). Hechos: `busqueda/` (`POST /search`),
+  `oferta/` (`GET /offers/{offerId}/seatmap`) y `retencion/` (`/offers/hold`, fase 6).
+- `compartido/`: traducción de los ENUM al contrato (`enums.ts`, con `ORDEN_CABINAS`), formatos de
+  salida (`formatos-salida.ts`) y los pasajeros (`dto/pasajeros.dto.ts` y `pasajeros.ts`, que
+  comparten la búsqueda y el hold).
 - Cada entidad lleva `<entidad>.routes.ts`, controller, service, repository (el único que usa Prisma),
   mapper y `dto/`; las rutas se cuelgan en `vuelos.routes.ts`.
 
@@ -83,6 +85,8 @@ Lo transversal ya lo da la API a cualquier controller nuevo, sin código extra:
 | Escritura con auditoría               | `prisma.transaccionAuditada(tx => ...)` toma usuario e IP del contexto de la petición                                   |
 | Permisos y usuario                    | `@Scopes('flights:book')` (el scope del contrato) y `@UsuarioActual()`; toda ruta exige JWT salvo `@Publico()`           |
 | Request id, IP y usuario              | `obtenerContexto()` en `common/contexto`; el guard de JWT llama a `fijarUsuario(sub)` con cada token válido              |
+| `Idempotency-Key`                     | `@ClaveIdempotencia()` en el parámetro (400 si falta o no es uuid); qué hace con la clave lo decide el service           |
+| La hora                               | Inyectar `Reloj` (`common/reloj.ts`) y usar `reloj.ahora()` para todo vencimiento; las pruebas lo cambian por uno quieto |
 
 ## Operaciones del contrato
 
@@ -106,6 +110,61 @@ Cómo arma las ofertas `busqueda/busqueda.service.ts` (todo en `REGLAS_BUSQUEDA`
 | Ofertas           | Un itinerario por tramo, misma aerolínea, cada tramo 45 minutos después del anterior          |
 | Orden y tope      | Precio total, hora de salida e id de la salida; 10 itinerarios por tramo y aerolínea, 20 ofertas |
 | Vigencia          | `SEARCH_OFFER_TTL_MINUTES` (30); cada búsqueda purga las vencidas sin retención              |
+
+## Retenciones (hold)
+
+`retencion/` implementa `/offers/hold`. El service lo arma todo; solo el repository toca la base.
+
+| Regla              | Cómo                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------ |
+| Qué se retiene     | Una selección por itinerario de la oferta; `cabinClass` + `fareBrand` es una familia de su aerolínea     |
+| Precio             | La tarifa vigente de cada segmento por tipo de pasajero, por la cantidad pedida (la cuenta de la búsqueda), congelada en `retencion_detalle` |
+| Cupo               | Pasajeros con asiento (los infantes no), en la cabina de la familia de cada salida                     |
+| Vigencia           | `HOLD_TTL_MINUTES` (15); `expiresAt` = creación + vigencia, con la hora del `Reloj`                     |
+| Idempotencia       | Por usuario y clave, 24 horas; SHA-256 del cuerpo ya con los valores por defecto                      |
+| Propiedad          | El dueño es el `sub`; un hold ajeno es 404. `flights:admin` consulta cualquiera, pero no lo libera      |
+
+**Cupo sin sobreventa.** `tomarCupos` es una sola sentencia: bloquea las filas de
+`inventario_cabina` con `SELECT ... ORDER BY salida, cabina FOR UPDATE` y resta solo donde
+`cupos_disponibles >= cantidad`. Si cambió menos filas de las pedidas, la transacción entera se
+deshace (409). El orden fijo evita deadlocks entre holds, y el catálogo ajusta las cabinas en ese
+mismo orden (`ORDEN_CABINAS`). `devolverCupos` recalcula lo retenido desde la base y suma con el
+mismo orden de bloqueo.
+
+**Estados.** `RETENIDA` (HELD) pasa a `LIBERADA` (DELETE del dueño), `EXPIRADA` (al vencer) o
+`CONSUMIDA` (la reserva). Todo cierre es `UPDATE ... WHERE estado = 'RETENIDA'` en una transacción
+auditada: si dos procesos cierran el mismo hold, uno lo cambia y el otro no hace nada, así el cupo
+nunca vuelve dos veces. Vencer lo audita sin usuario (es un proceso interno).
+
+**Vencimiento.** Un hold vencido se cierra al consultarlo (GET o DELETE), antes de competir por el
+cupo de sus salidas (POST) y con `VencimientoRetenciones` cada
+`HOLD_EXPIRY_JOB_INTERVAL_SECONDS` (60), que también borra las claves de idempotencia vencidas.
+Una corrida a la vez por proceso; entre instancias, `FOR UPDATE SKIP LOCKED`. La búsqueda no vence
+holds: hasta que pase el proceso, el cupo de un hold vencido no se ve en `/search`.
+
+**Idempotencia.** La clave se reclama con `INSERT ... ON CONFLICT DO NOTHING` en la misma
+transacción que crea el hold, con la respuesta ya armada. Una segunda petición con la misma clave
+espera a la primera: si la primera confirma, repite su respuesta; si se deshace (sin cupo), sigue.
+Por eso un 409 no deja la clave usada.
+
+### Cómo consume un hold la reserva (fase 7)
+
+`RetencionModule` exporta `RetencionService`. `POST /bookings` llama, dentro de su propia
+transacción auditada, a:
+
+```ts
+const resultado = await retenciones.consumir(holdId, usuario.id, tx); // 'consumida' | 'no-existe' | 'vencida' | 'cerrada'
+```
+
+- `'consumida'`: el hold quedó `CONSUMIDA` en la misma transacción que la reserva; el cupo no
+  vuelve, pasa a la reserva (`reserva_cabecera.retencion_id`). Si la reserva falla después, el
+  rollback deja el hold `RETENIDA` otra vez.
+- `'no-existe'` (o de otro usuario), `'vencida'`, `'cerrada'` (liberada o ya consumida): no cambia
+  nada; la fase 7 elige el error (`410` del contrato para el vencido, por ejemplo).
+- El precio a cobrar es `lockedPrice` (`vista_retencion_precio`), los pasajeros deben coincidir con
+  los de `retencion_cabecera` y los itinerarios con `retencion_detalle`.
+- Cancelar una reserva (fase 8) devuelve el cupo de sus itinerarios: el hold consumido no se libera
+  (`DELETE` responde 409).
 
 ## Cómo se agrega una entidad al catálogo
 

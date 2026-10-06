@@ -83,6 +83,3 @@ export interface OfertaArmada {
   /** Todos los pasajeros con la familia más barata de cada itinerario. */
   total: Totales;
 }
-
-/** Cuántos pasajeros de cada tipo pidió la búsqueda (solo los que son más de 0). */
-export type ConteoPasajeros = ReadonlyArray<{ tipo: tipo_pasajero; cantidad: number }>;

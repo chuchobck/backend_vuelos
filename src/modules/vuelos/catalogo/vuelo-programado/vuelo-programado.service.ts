@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { clase_cabina } from '../../../../generated/prisma/client';
-import { CABINA, ESTADO_VUELO } from '../../compartido/enums';
+import { CABINA, ESTADO_VUELO, ORDEN_CABINAS } from '../../compartido/enums';
 import { fechaLocal } from '../../compartido/fechas';
 import { conflicto, cuerpoInvalido, referenciaInvalida, usos } from '../base/errores-catalogo';
 import { Ejecutor } from '../base/repositorio-catalogo';
@@ -172,7 +172,11 @@ export class VueloProgramadoService extends ServicioCatalogo<
     const cupos = validarCupos(cabinas, asientosPorCabina(mapa));
     const existentes = new Map(fila.inventario_cabina.map((c) => [c.clase_cabina, c]));
 
-    for (const cupo of cupos) {
+    // En el orden de la cabina, el mismo en que una retención bloquea el inventario: así las
+    // dos se esperan en vez de cruzarse (sin deadlock).
+    for (const cupo of [...cupos].sort(
+      (a, b) => ORDEN_CABINAS.indexOf(a.claseCabina) - ORDEN_CABINAS.indexOf(b.claseCabina),
+    )) {
       const actual = existentes.get(cupo.claseCabina);
       if (!actual) {
         await this.salidas.agregarCupo(fila.id, cupo, tx);
