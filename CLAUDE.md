@@ -8,6 +8,11 @@ Quinde · API de Vuelos: backend NestJS 10 + TypeScript + Prisma 7 que implement
 GDS Flight Core API v1.5.0.0 (`contracts/vuelos-openapi.yaml`), solo vuelos nacionales de Ecuador.
 Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`.
 
+## Alcance
+
+Este repo es solo del dominio de vuelos. Los otros dominios (alojamientos, autos, atracciones) viven
+en los repos de sus equipos; la plantilla original queda como remoto `upstream` solo de referencia.
+
 ## Idioma
 
 - Código, carpetas y base de datos en español.

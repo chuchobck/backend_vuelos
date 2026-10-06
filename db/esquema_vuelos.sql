@@ -52,7 +52,7 @@
 BEGIN;
 
 CREATE SCHEMA vuelos;
-COMMENT ON SCHEMA vuelos IS 'Dominio de Vuelos del Booking Ecuador. Aísla sus tablas de los dominios de alojamientos, autos y atracciones.';
+COMMENT ON SCHEMA vuelos IS 'Dominio de Vuelos del Booking Ecuador. Aísla sus tablas de las de otros dominios que compartan la base.';
 
 SET search_path TO vuelos;
 
