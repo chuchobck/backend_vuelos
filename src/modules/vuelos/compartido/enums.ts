@@ -1,8 +1,13 @@
 import {
   clase_cabina,
+  estado_boleto,
+  estado_cupon,
+  estado_reserva,
   estado_retencion,
   estado_vuelo,
+  genero,
   posicion_asiento,
+  tipo_documento,
   tipo_pasajero,
 } from '../../../generated/prisma/client';
 
@@ -104,3 +109,59 @@ export const ESTADO_RETENCION = traduccion<
   CONSUMIDA: 'CONSUMED',
 });
 export type EstadoRetencionContrato = (typeof ESTADO_RETENCION.valores)[number];
+
+/** Contrato BookingDetail.status. */
+export const ESTADO_RESERVA = traduccion<
+  estado_reserva,
+  | 'PENDING'
+  | 'PENDING_PAYMENT'
+  | 'TICKET_ISSUING'
+  | 'CONFIRMED'
+  | 'FAILED'
+  | 'CHANGE_PENDING'
+  | 'CANCELLATION_PENDING'
+  | 'CANCELLED'
+>({
+  PENDIENTE: 'PENDING',
+  PENDIENTE_PAGO: 'PENDING_PAYMENT',
+  EMITIENDO_BOLETOS: 'TICKET_ISSUING',
+  CONFIRMADA: 'CONFIRMED',
+  FALLIDA: 'FAILED',
+  CAMBIO_PENDIENTE: 'CHANGE_PENDING',
+  CANCELACION_PENDIENTE: 'CANCELLATION_PENDING',
+  CANCELADA: 'CANCELLED',
+});
+export type EstadoReservaContrato = (typeof ESTADO_RESERVA.valores)[number];
+
+/** Contrato TicketStatus. */
+export const ESTADO_BOLETO = traduccion<
+  estado_boleto,
+  'PENDING' | 'ISSUING' | 'ISSUED' | 'FAILED' | 'VOIDED' | 'REFUNDED'
+>({
+  PENDIENTE: 'PENDING',
+  EMITIENDO: 'ISSUING',
+  EMITIDO: 'ISSUED',
+  FALLIDO: 'FAILED',
+  ANULADO: 'VOIDED',
+  REEMBOLSADO: 'REFUNDED',
+});
+export type EstadoBoletoContrato = (typeof ESTADO_BOLETO.valores)[number];
+
+/** Contrato TicketSegmentStatus. */
+export const ESTADO_CUPON = traduccion<estado_cupon, 'PENDING' | 'ISSUED' | 'FAILED'>({
+  PENDIENTE: 'PENDING',
+  EMITIDO: 'ISSUED',
+  FALLIDO: 'FAILED',
+});
+export type EstadoCuponContrato = (typeof ESTADO_CUPON.valores)[number];
+
+/** Contrato PassengerItem.documentType. */
+export const TIPO_DOCUMENTO = traduccion<tipo_documento, 'PASSPORT' | 'NATIONAL_ID'>({
+  PASAPORTE: 'PASSPORT',
+  CEDULA: 'NATIONAL_ID',
+});
+export type TipoDocumentoContrato = (typeof TIPO_DOCUMENTO.valores)[number];
+
+/** Contrato PassengerItem.gender: los mismos valores en la base. */
+export const GENERO = traduccion<genero, 'M' | 'F' | 'X'>({ M: 'M', F: 'F', X: 'X' });
+export type GeneroContrato = (typeof GENERO.valores)[number];

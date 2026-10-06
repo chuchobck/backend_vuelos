@@ -1,35 +1,14 @@
 import { applyDecorators } from '@nestjs/common';
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 import {
-  SinCaracteresDeControl,
-  SinEtiquetasHtml,
-} from '../../../common/sanitizacion/texto-limpio.decorator';
-import { normalizarTexto } from '../../../common/sanitizacion/texto';
+  CorreoNormalizado,
+  LARGO_MAXIMO_CORREO,
+} from '../../../common/sanitizacion/correo.decorator';
 
 export const LARGO_MINIMO_CONTRASENA = 12;
 export const LARGO_MAXIMO_CONTRASENA = 128;
-/** Máximo práctico de una dirección de correo (RFC 5321) y el de ck_usuario_correo. */
-const LARGO_MAXIMO_CORREO = 254;
-
-/**
- * Correo de una cuenta: la sanitización común (recortar, NFC, sin controles ni HTML) y además
- * en minúsculas, como lo guarda la base (ck_usuario_correo). Así `Ana@Correo.ec ` y
- * `ana@correo.ec` son la misma cuenta.
- */
-function CorreoNormalizado() {
-  return applyDecorators(
-    Transform(({ value }: { value: unknown }) =>
-      typeof value === 'string' ? normalizarTexto(value).toLowerCase() : value,
-    ),
-    IsString(),
-    SinCaracteresDeControl(),
-    SinEtiquetasHtml(),
-    MaxLength(LARGO_MAXIMO_CORREO),
-    IsEmail({ allow_display_name: false, allow_ip_domain: false, require_tld: true }),
-  );
-}
 
 /**
  * Contraseña: de 12 a 128 caracteres y nada más. Sin reglas de composición (mayúsculas,
