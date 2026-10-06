@@ -1,0 +1,33 @@
+# Blueprint de Render para la API (https://render.com/docs/blueprint-spec). Los secretos van con
+# sync: false: Render los pide al crear el servicio y nunca están en este archivo.
+# Guía paso a paso (Neon, esquemas, semillas y variables): docs/DEPLOY.md
+services:
+  - type: web
+    name: quinde-vuelos-api
+    runtime: node
+    plan: free
+    # NODE_ENV=production también rige en el build y npm ci omitiría las devDependencies
+    # (@nestjs/cli, typescript): --include=dev las instala para compilar.
+    buildCommand: npm ci --include=dev && npx prisma generate && npm run build
+    startCommand: node dist/main
+    healthCheckPath: /flights/v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      # Render pone un proxy delante: con 1 la IP del cliente sale de X-Forwarded-For
+      - key: TRUST_PROXY
+        value: '1'
+      # Neon: postgresql://<usuario>:<clave>@<host>/<base>?sslmode=require&schema=vuelos
+      - key: DATABASE_URL
+        sync: false
+      # 32 caracteres o más, distinta en cada entorno
+      - key: JWT_SECRET
+        sync: false
+      # 32 caracteres o más, distinta de JWT_SECRET; cambiarla invalida los webhooks registrados
+      - key: WEBHOOK_SECRET_KEY
+        sync: false
+      # Orígenes del frontend separados por coma (https://app.example.com), o vacía
+      - key: CORS_ORIGINS
+        sync: false
