@@ -147,6 +147,29 @@ export class BoletoRepository {
          AND b.estado::text = ${desde}`;
   }
 
+  /**
+   * ANULADO → REEMBOLSADO solo para los boletos de los itinerarios vigentes (los que se anularon
+   * al cancelar). Un boleto anulado antes por un cambio de fecha tiene cupones de vuelos que ya
+   * no son de la reserva y no se reembolsa: se canjeó por el nuevo.
+   */
+  async reembolsarVigentes(tx: TransaccionVuelos, reservaId: string): Promise<number> {
+    return tx.$executeRaw`
+      UPDATE vuelos.boleto_cabecera b
+         SET estado = 'REEMBOLSADO'
+        FROM vuelos.reserva_detalle_pasajero p
+       WHERE p.id = b.pasajero_id
+         AND p.reserva_id = ${reservaId}::uuid
+         AND b.estado = 'ANULADO'
+         AND NOT EXISTS (
+               SELECT 1 FROM vuelos.boleto_detalle d
+                WHERE d.boleto_id = b.id
+                  AND d.vuelo_programado_id NOT IN (
+                        SELECT i.vuelo_programado_id
+                          FROM vuelos.reserva_detalle_itinerario r
+                          JOIN vuelos.itinerario_detalle i ON i.itinerario_id = r.itinerario_id
+                         WHERE r.reserva_id = p.reserva_id AND r.vigente))`;
+  }
+
   /** El dueño de la reserva (el de su hold), o null si la reserva no existe. */
   async propietarioDeReserva(reservaId: string): Promise<string | null> {
     const fila = await this.prisma.db.reserva_cabecera.findUnique({

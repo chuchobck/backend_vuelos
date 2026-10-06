@@ -938,6 +938,14 @@ describe('Cambio de fecha sobre un catálogo propio', () => {
     const cotizacion = await cotizar(c.app, cliente, reserva.id).expect(200);
     // Pagado: 60.30 + 23.70 de diferencia + 5.00 de cargo = 89.00; vuelve el 50 % de 84.00
     expect(cotizacion.body).toMatchObject({ refundAmount: '42.00', penaltyAmount: '47.00' });
+    // Se reembolsa el boleto vigente; el canjeado por el cambio sigue VOIDED
+    const cancelada = await cancelar(c.app, cliente, reserva.id, {
+      quoteId: cotizacion.body.quoteId,
+    }).expect(200);
+    expect(cancelada.body.tickets.map((t: { status: string }) => t.status).sort()).toEqual([
+      'REFUNDED',
+      'VOIDED',
+    ]);
     await limpiar();
   });
 });
