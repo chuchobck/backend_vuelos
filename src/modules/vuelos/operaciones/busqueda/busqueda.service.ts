@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
-import { clase_cabina, Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
+import { Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
 import { fechaIsoAUtc } from '../../../../common/pipes/formatos';
+import { ORDEN_CABINAS } from '../../compartido/enums';
 import { cuerpoInvalido } from '../../compartido/errores';
 import { fechaLocal, sumarDias } from '../../compartido/fechas';
 import { asientosOcupados, ConteoPasajeros, validarPasajeros } from '../../compartido/pasajeros';
@@ -45,7 +46,6 @@ const ZONA_HOY = 'Pacific/Galapagos';
 
 /** Orden del contrato para pricePerPassengerType. */
 const ORDEN_TIPOS: tipo_pasajero[] = ['ADULTO', 'JOVEN', 'NINO', 'INFANTE'];
-const ORDEN_CABINAS: clase_cabina[] = ['ECONOMICA', 'ECONOMICA_PREMIUM', 'EJECUTIVA', 'PRIMERA'];
 const CERO = new Prisma.Decimal(0);
 const MINUTO = 60_000;
 

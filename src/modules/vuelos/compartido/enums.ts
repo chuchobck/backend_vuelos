@@ -48,6 +48,17 @@ export const CABINA = traduccion<
 export type CabinaContrato = (typeof CABINA.valores)[number];
 
 /**
+ * El orden del ENUM clase_cabina en la base (el de ORDER BY clase_cabina). Quien bloquea
+ * varias filas de inventario_cabina lo hace en este orden, para no cruzarse con otro.
+ */
+export const ORDEN_CABINAS: readonly clase_cabina[] = [
+  'ECONOMICA',
+  'ECONOMICA_PREMIUM',
+  'EJECUTIVA',
+  'PRIMERA',
+];
+
+/**
  * Posición del asiento. El contrato solo nombra WINDOW y AISLE (como características); el
  * asiento del centro es MIDDLE en la API de administración.
  */
