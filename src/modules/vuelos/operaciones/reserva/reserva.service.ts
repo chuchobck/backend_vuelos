@@ -31,7 +31,12 @@ import { SolicitudReservaDto } from './dto/solicitud-reserva.dto';
 import { EventosReserva, TipoEventoReserva } from './eventos-reserva';
 import { validarPasajeros } from './pasajeros-reserva';
 import { Reserva, ResumenReserva } from './reserva.modelo';
-import { HoldParaReservar, PnrAgotado, ReservaRepository } from './reserva.repository';
+import {
+  AsientoDeSalida,
+  HoldParaReservar,
+  PnrAgotado,
+  ReservaRepository,
+} from './reserva.repository';
 
 /** Reglas de POST /bookings. */
 export const REGLAS_RESERVA = {
@@ -419,6 +424,49 @@ export class ReservaService {
   async liberarAsientosYCupo(tx: TransaccionVuelos, reservaId: string, ahora: Date): Promise<void> {
     await this.repositorio.liberarAsientos(tx, reservaId, ahora);
     await this.repositorio.devolverCupo(tx, reservaId);
+  }
+
+  /** Los asientos físicos de esas salidas y si están ocupados (con el inventario ya bloqueado). */
+  asientosDeSalidas(tx: TransaccionVuelos, salidas: readonly string[]): Promise<AsientoDeSalida[]> {
+    return this.repositorio.asientosDeSalidas(tx, salidas);
+  }
+
+  asignarAsientos(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    asientos: ReadonlyArray<{ codigoPasajero: string; salidaId: string; asientoId: bigint }>,
+    ahora: Date,
+  ): Promise<void> {
+    return this.repositorio.asignarAsientos(tx, reservaId, asientos, ahora);
+  }
+
+  /** Libera los asientos de la reserva en esos vuelos (fecha_liberacion; nada se borra). */
+  liberarAsientos(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    salidas: readonly string[],
+    ahora: Date,
+  ): Promise<void> {
+    return this.repositorio.liberarAsientos(tx, reservaId, ahora, salidas);
+  }
+
+  /**
+   * Vuelve a emitir los boletos (cambio de fecha): los EMITIDO pasan a ANULADO y cada pasajero
+   * recibe uno nuevo, con un cupón por cada vuelo de los itinerarios vigentes. Sin prefijo de
+   * boleto, 409 TICKET_ISSUANCE_FAILED (y la transacción se deshace).
+   */
+  async reemitirBoletos(tx: TransaccionVuelos, reservaId: string, ahora: Date): Promise<number> {
+    const prefijo = await this.repositorio.prefijoBoleto(tx, reservaId);
+    if (prefijo === null) {
+      throw new ErrorNegocio(
+        409,
+        CodigoError.TICKET_ISSUANCE_FAILED,
+        'The airline cannot issue tickets (it has no ticket prefix)',
+      );
+    }
+    await this.boletos.anular(tx, reservaId);
+    await this.boletos.crearPendientes(tx, reservaId, ahora);
+    return this.boletos.emitir(tx, reservaId, prefijo, ahora);
   }
 
   /** Cambia el estado (UPDATE condicionado) y lo deja en el historial con su evento. */

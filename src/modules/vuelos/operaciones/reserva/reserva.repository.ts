@@ -494,14 +494,44 @@ export class ReservaRepository {
   }
 
   /** Libera los asientos asignados de la reserva (no los borra: fecha_liberacion). */
-  async liberarAsientos(tx: TransaccionVuelos, reservaId: string, ahora: Date): Promise<void> {
+  async liberarAsientos(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    ahora: Date,
+    soloSalidas?: readonly string[],
+  ): Promise<void> {
     await tx.$executeRaw`
       UPDATE vuelos.reserva_detalle_asiento a
          SET fecha_liberacion = ${ahora}::timestamptz
         FROM vuelos.reserva_detalle_pasajero p
        WHERE p.id = a.pasajero_id
          AND p.reserva_id = ${reservaId}::uuid
-         AND a.fecha_liberacion IS NULL`;
+         AND a.fecha_liberacion IS NULL
+         AND (${soloSalidas === undefined}
+              OR a.vuelo_programado_id = ANY(${soloSalidas ?? []}::uuid[]))`;
+  }
+
+  /** Asienta asientos nuevos de pasajeros de la reserva (por su passengerId). */
+  async asignarAsientos(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    asientos: ReadonlyArray<{ codigoPasajero: string; salidaId: string; asientoId: bigint }>,
+    ahora: Date,
+  ): Promise<void> {
+    if (asientos.length === 0) return;
+    const pasajeros = await tx.reserva_detalle_pasajero.findMany({
+      where: { reserva_id: reservaId },
+      select: { id: true, codigo_pasajero: true },
+    });
+    const ids = new Map(pasajeros.map((p) => [p.codigo_pasajero, p.id]));
+    await tx.reserva_detalle_asiento.createMany({
+      data: asientos.map((a) => ({
+        pasajero_id: ids.get(a.codigoPasajero)!,
+        vuelo_programado_id: a.salidaId,
+        asiento_id: a.asientoId,
+        fecha_asignacion: ahora,
+      })),
+    });
   }
 
   /**
@@ -558,7 +588,8 @@ export class ReservaRepository {
       this.pasajeros(reservaId),
       this.prisma.db.reserva_detalle_historial.findMany({
         where: { reserva_id: reservaId },
-        orderBy: [{ fecha_evento: 'asc' }, { id: 'asc' }],
+        // En el orden en que se escribió: la hora puede saltar (el reloj de WSL lo hace), el id no
+        orderBy: { id: 'asc' },
         select: { fecha_evento: true, descripcion: true },
       }),
     ]);

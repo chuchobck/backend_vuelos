@@ -283,6 +283,13 @@ export class CambioFechaRepository {
     }
   }
 
+  /** Pasajeros de la reserva que ocupan asiento (los infantes no). */
+  pasajerosConAsiento(tx: TransaccionVuelos, reservaId: string): Promise<number> {
+    return tx.reserva_detalle_pasajero.count({
+      where: { reserva_id: reservaId, tipo_pasajero: { not: 'INFANTE' } },
+    });
+  }
+
   /** Los cambios con pago PENDIENTE, los más viejos primero. */
   pendientes(limite: number): Promise<CambioPendiente[]> {
     return this.prisma.db.$queryRaw<CambioPendiente[]>`
