@@ -232,11 +232,10 @@ export class RetencionRepository {
    * 2. Comprueba que la oferta siga vigente y la bloquea contra la purga de ofertas vencidas.
    * 3. Toma los cupos (ver la clase). Si a una cabina no le alcanza: 'sin-cupo'.
    * 4. Inserta la cabecera y las líneas con el precio congelado.
+   *
+   * Devuelve null si la creó, o el motivo por el que no (y no cambió nada).
    */
-  async crear(
-    retencion: RetencionNueva,
-    clave: ClaveNueva,
-  ): Promise<{ creada: true } | { creada: false; motivo: RechazoCreacion }> {
+  async crear(retencion: RetencionNueva, clave: ClaveNueva): Promise<RechazoCreacion | null> {
     try {
       await this.prisma.transaccionAuditada(async (tx) => {
         const reclamada = await tx.$executeRaw`
@@ -283,9 +282,9 @@ export class RetencionRepository {
           })),
         });
       });
-      return { creada: true };
+      return null;
     } catch (error) {
-      if (error instanceof Rechazo) return { creada: false, motivo: error.motivo };
+      if (error instanceof Rechazo) return error.motivo;
       throw error;
     }
   }

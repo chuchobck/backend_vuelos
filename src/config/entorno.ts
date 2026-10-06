@@ -114,13 +114,23 @@ export class VariablesEntorno {
 
   /**
    * Minutos que vale una oferta de POST /search (oferta_cabecera.fecha_expiracion). Sin valor:
-   * 30. Debe alcanzar para elegir y retener; pasado ese plazo el seatmap y el hold dan 404.
+   * 30. Debe alcanzar para elegir y retener; pasado ese plazo el seatmap da 404 y el hold 409.
    */
   @Max(240, { message: 'SEARCH_OFFER_TTL_MINUTES debe estar entre 5 y 240' })
   @Min(5, { message: 'SEARCH_OFFER_TTL_MINUTES debe estar entre 5 y 240' })
   @IsInt({ message: 'SEARCH_OFFER_TTL_MINUTES debe ser un número entero' })
   @IsOptional()
   SEARCH_OFFER_TTL_MINUTES?: number;
+
+  /**
+   * Minutos que un hold (POST /offers/hold) retiene el cupo antes de vencer. Sin valor: 15.
+   * De 1 a 60: debe alcanzar para pagar y reservar, sin dejar cupo inmovilizado por horas.
+   */
+  @Max(60, { message: 'HOLD_TTL_MINUTES debe estar entre 1 y 60' })
+  @Min(1, { message: 'HOLD_TTL_MINUTES debe estar entre 1 y 60' })
+  @IsInt({ message: 'HOLD_TTL_MINUTES debe ser un número entero' })
+  @IsOptional()
+  HOLD_TTL_MINUTES?: number;
 
   /** Duración de la ventana del límite, en segundos. Sin valor: 60. */
   @Max(86_400, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
