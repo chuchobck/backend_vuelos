@@ -67,7 +67,9 @@ ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
 - `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10). Hechos: `busqueda/` (`POST /search`),
   `oferta/` (`GET /offers/{offerId}/seatmap`), `retencion/` (`/offers/hold`, fase 6), y `reserva/`
   y `boleto/` (`/bookings` y `/bookings/{bookingId}/tickets`, fase 7), y `equipaje/`, `cambio-fecha/`
-  y `cancelacion/` (postventa, fase 8, colgadas de `bookings/:bookingId`).
+  y `cancelacion/` (postventa, fase 8, colgadas de `bookings/:bookingId`), y `checkin/`,
+  `pase-abordar/` y `estado-vuelo/` (fase 9: las dos primeras cuelgan de `bookings/:bookingId` y la
+  tercera, pública, de `flights/:flightNumber/status`).
 - `compartido/`: traducción de los ENUM al contrato (`enums.ts`, con `ORDEN_CABINAS`), formatos de
   salida (`formatos-salida.ts`), los pasajeros de la búsqueda y el hold (`dto/pasajeros.dto.ts` y
   `pasajeros.ts`), `FechaIso` (`dto/validadores.ts`), las claves de idempotencia
@@ -268,17 +270,43 @@ la cancelación confirmada: dos cancelaciones simultáneas nunca devuelven dos v
 físicamente (como las ofertas de búsqueda) al buscar o cotizar y en cada corrida del proceso; las
 confirmadas, pendientes, fallidas o aceptadas son parte de la reserva y no se tocan.
 
-### Cómo se apoyan las fases 9 y 10
+## Check-in, pases de abordar y estado de vuelo (fase 9)
 
-- **Check-in y pase de abordar (fase 9).** Parten de una reserva `CONFIRMADA` (no
-  `CAMBIO_PENDIENTE` ni cancelada), del pasajero, de su asiento vigente en ese vuelo
-  (`reserva_detalle_asiento` sin `fecha_liberacion`, filtrado por los itinerarios vigentes) y de su
-  cupón `EMITIDO` del boleto `EMITIDO` (tras un cambio, el boleto nuevo; el viejo queda `ANULADO`).
-  `exigirConfirmada` y `exigirSinDespegar` sirven igual.
-- **Webhooks (fase 10).** Todo pasa por `EventosReserva.registrar`: `booking.baggage_added`,
-  `booking.changed` y `booking.cancelled` están en `tipo_evento`; los pendientes y rechazados
-  (`booking.*_pending`, `booking.baggage_rejected`, `booking.change_failed`) no, y la fase 10 decide
-  si se agregan. Ahí se inserta la bandeja de salida (`evento`) sin tocar a quien los emite.
+**Check-in** (`checkin/`). Lee la reserva con `ReservaService.detalle` (404 si es de otro), exige
+`CONFIRMADA` y boletos `EMITIDO` con cupón `EMITIDO` en cada vuelo, y calcula la ventana de cada vuelo
+con su salida programada y el `Reloj`: abre `CHECKIN_OPENS_HOURS_BEFORE` horas antes (48) y cierra
+`CHECKIN_CLOSES_MINUTES_BEFORE` minutos antes (60), solo con el vuelo `PROGRAMADO` o `DEMORADO`. Para
+los vuelos con ventana abierta valida los datos (422 `CHECK_IN_FAILED`: asiento sin asignar,
+pasaporte que vence antes del vuelo) y, en una transacción auditada, bloquea la reserva, relee lo
+registrado e inserta un `checkin` `REGISTRADO` por pasajero (los adultos primero y el infante con su
+adulto) con `ON CONFLICT (pasajero, vuelo) WHERE estado = 'REGISTRADO' DO NOTHING`
+(`uq_checkin_registrado`): dos check-in simultáneos se serializan por el bloqueo, y el índice único
+queda de respaldo. Cada registro nuevo de un pasajero con asiento emite su pase en la misma
+transacción, y un vuelo con registros nuevos deja `booking.checked_in` en el historial. Solo se
+guardan los `REGISTRADO`: que un vuelo no abra todavía (`NOT_CHECKED_IN`) o ya haya cerrado
+(`FAILED`) se calcula con la hora y el estado del vuelo, así repetir no deja filas de más.
+
+**Pases** (`pase-abordar/`). El código de barras lo arma y firma `CodigoPase` (HMAC-SHA256 con una
+clave derivada de `JWT_SECRET` para este uso, 12 caracteres hexadecimales de firma); `verificar` lo
+comprueba sin consultar la base. Grupo (`grupoDeAbordaje`), posición (`posicionDeAbordaje`) y tipo de
+código (`tipoDeCodigo`) salen de la cabina y del asiento, y se guardan en `pase_abordar`. El asiento
+no se guarda en el pase: se lee de `reserva_detalle_asiento` vigente, y solo se listan los pases de
+los vuelos de los itinerarios vigentes de una reserva `CONFIRMADA`.
+
+**Estado de vuelo** (`estado-vuelo/`). Solo lectura de `vuelo_programado` por (aerolínea
+comercializadora, número, fecha local de salida): ninguna tabla de reservas ni de pasajeros.
+
+### Cómo se apoyan las fases 10 y 11
+
+- **Webhooks (fase 10).** Todo pasa por `EventosReserva.registrar`: `booking.checked_in`,
+  `booking.baggage_added`, `booking.changed` y `booking.cancelled` están en `tipo_evento`; los
+  pendientes y rechazados (`booking.*_pending`, `booking.baggage_rejected`, `booking.change_failed`)
+  y `booking.created` no, y la fase 10 decide si se agregan. Ahí se inserta la bandeja de salida
+  (`evento`) sin tocar a quien los emite. `flight.schedule_changed` y `flight.cancelled` también
+  existen en `tipo_evento` y aún no los emite nadie: el estado del vuelo cambia desde el
+  catálogo (`PATCH /admin/departures/{id}`), que es donde la fase 10 puede enganchar esos dos.
+- **Entrega (fase 11).** La prueba de contrato debe incluir las 22 operaciones; el estado de vuelo
+  es la única pública además de la búsqueda y el mapa de asientos.
 
 ## Cómo se agrega una entidad al catálogo
 
