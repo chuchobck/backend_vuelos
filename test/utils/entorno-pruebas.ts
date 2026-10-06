@@ -9,3 +9,5 @@
 process.env.HOLD_EXPIRY_JOB_ENABLED = 'false';
 process.env.BOOKING_ISSUE_JOB_ENABLED = 'false';
 process.env.POSTSALE_JOB_ENABLED = 'false';
+// La clave de cifrado de los webhooks es obligatoria; las pruebas no dependen de la del .env
+process.env.WEBHOOK_SECRET_KEY ??= 'clave-de-pruebas-de-los-webhooks-0123456789';

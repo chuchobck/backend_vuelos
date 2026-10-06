@@ -9,6 +9,7 @@ import { ofertaRoutes } from './oferta/oferta.routes';
 import { paseAbordarRoutes } from './pase-abordar/pase-abordar.routes';
 import { reservaRoutes } from './reserva/reserva.routes';
 import { retencionRoutes } from './retencion/retencion.routes';
+import { webhookRoutes } from './webhook/webhook.routes';
 
 /** Las rutas del contrato, cada una con su <entidad>.routes.ts. */
 export const operacionesRoutes: Routes = [
@@ -22,4 +23,5 @@ export const operacionesRoutes: Routes = [
   ...checkinRoutes,
   ...paseAbordarRoutes,
   ...estadoVueloRoutes,
+  ...webhookRoutes,
 ];

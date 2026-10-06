@@ -20,6 +20,7 @@ import { parsearTrustProxy } from './proxy';
 
 export const ENTORNOS = ['development', 'production', 'test'] as const;
 export const LARGO_MINIMO_JWT_SECRET = 32;
+export const LARGO_MINIMO_WEBHOOK_KEY = 32;
 export type Entorno = (typeof ENTORNOS)[number];
 
 @ValidatorConstraint({ name: 'listaDeOrigenes' })
@@ -82,6 +83,19 @@ export class VariablesEntorno {
   })
   @IsString({ message: 'JWT_SECRET es obligatoria' })
   JWT_SECRET: string;
+
+  /**
+   * Clave con la que se cifra el secreto de cada webhook (AES-256-GCM, derivada con HKDF). Hace
+   * falta porque el secreto se necesita en claro para firmar las entregas. Obligatoria, de al
+   * menos 32 caracteres: sin ella la API no arranca. Cambiarla deja ilegibles los secretos ya
+   * guardados (los webhooks hay que volver a registrarlos). Generar con:
+   *   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+   */
+  @MinLength(LARGO_MINIMO_WEBHOOK_KEY, {
+    message: `WEBHOOK_SECRET_KEY debe tener al menos ${LARGO_MINIMO_WEBHOOK_KEY} caracteres`,
+  })
+  @IsString({ message: 'WEBHOOK_SECRET_KEY es obligatoria' })
+  WEBHOOK_SECRET_KEY: string;
 
   /** `iss` de los tokens que emite y acepta la API. Sin valor: quinde-vuelos-api. */
   @Matches(/^\S+$/, { message: 'JWT_ISSUER no puede tener espacios' })
