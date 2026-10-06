@@ -104,7 +104,7 @@ export async function buscarYRetener(
   token: string,
   tramos: Array<[string, string, string]>,
   pasajeros: { adults?: number; youths?: number; children?: number; infants?: number },
-  opciones: { directa?: boolean } = {},
+  opciones: { directa?: boolean; fareBrand?: string } = {},
 ): Promise<Retenido> {
   const busqueda = await request(app.getHttpServer())
     .post('/flights/v1/search')
@@ -119,19 +119,27 @@ export async function buscarYRetener(
     })
     .expect(200);
   const ofertas: OfertaDePrueba[] = busqueda.body.offers;
-  const oferta = opciones.directa
-    ? ofertas.find((o) => o.itineraries.every((it) => it.segments.length === 1))
-    : ofertas[0];
+  const conFamilia = (o: OfertaDePrueba) =>
+    !opciones.fareBrand ||
+    o.itineraries.every((it) => it.pricingOptions.some((p) => p.fareBrand === opciones.fareBrand));
+  const oferta = ofertas.find(
+    (o) =>
+      conFamilia(o) && (!opciones.directa || o.itineraries.every((it) => it.segments.length === 1)),
+  );
   if (!oferta) throw new Error('La búsqueda no devolvió una oferta para retener');
   const hold = await con(app, token)('post', HOLD)
     .set('Idempotency-Key', randomUUID())
     .send({
       offerId: oferta.offerId,
-      itinerarySelections: oferta.itineraries.map((it) => ({
-        itineraryId: it.itineraryId,
-        cabinClass: it.pricingOptions[0].cabinClass,
-        fareBrand: it.pricingOptions[0].fareBrand,
-      })),
+      itinerarySelections: oferta.itineraries.map((it) => {
+        const opcion =
+          it.pricingOptions.find((p) => p.fareBrand === opciones.fareBrand) ?? it.pricingOptions[0];
+        return {
+          itineraryId: it.itineraryId,
+          cabinClass: opcion.cabinClass,
+          fareBrand: opcion.fareBrand,
+        };
+      }),
       passengersBreakdown: pasajeros,
     })
     .expect(201);

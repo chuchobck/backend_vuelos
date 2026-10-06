@@ -13,6 +13,7 @@ import { ADMIN, AppCatalogo, codigos, crearAppCatalogo } from './utils/catalogo'
 import { erroresContraContrato } from './utils/contrato';
 import { crearApp } from './utils/crear-app';
 import { LimitesReiniciables } from './utils/limites';
+import { cancelarReservasDe } from './utils/postventa';
 import { esperarProblemDetails } from './utils/problem-details';
 import { RelojDePrueba } from './utils/reloj';
 import {
@@ -802,7 +803,9 @@ describe('POST /bookings sobre un catálogo propio', () => {
   beforeEach(() => limites.reiniciar());
   afterAll(async () => {
     await c.admin('patch', `${ADMIN}/airlines/${k.aerolinea}`, { ticketPrefix: null }).expect(200);
-    await darDeBajaCadena(c, k).catch(() => undefined);
+    // Desde la fase 8 las reservas se cancelan: el cupo vuelve y la cadena se puede dar de baja
+    await cancelarReservasDe(c.app, cliente.token);
+    await darDeBajaCadena(c, k);
     await desactivarUsuariosDePrueba(c.app);
     await c.cerrar();
   });
@@ -920,7 +923,8 @@ describe('Concurrencia de POST /bookings', () => {
   beforeEach(() => limites.reiniciar());
   afterAll(async () => {
     await c.admin('patch', `${ADMIN}/airlines/${k.aerolinea}`, { ticketPrefix: null }).expect(200);
-    await darDeBajaCadena(c, k).catch(() => undefined);
+    for (const cliente of clientes) await cancelarReservasDe(c.app, cliente.token);
+    await darDeBajaCadena(c, k);
     await desactivarUsuariosDePrueba(c.app);
     await c.cerrar();
   });

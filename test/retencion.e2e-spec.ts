@@ -296,8 +296,10 @@ describe('POST /offers/hold sobre la semilla', () => {
     esperarContrato('HoldStatusResponse', respuesta.body);
     expect(respuesta.body.status).toBe('HELD');
     const restantes = respuesta.body.remainingSeconds;
-    expect(restantes).toBeGreaterThan(0);
-    expect(restantes).toBeLessThanOrEqual(900);
+    // Exacto contra la hora del reloj de prueba: no depende del tiempo real entre pruebas (el
+    // reloj de WSL salta)
+    const vence = new Date(respuesta.body.expiresAt).getTime();
+    expect(restantes).toBe(Math.floor((vence - reloj.ahora().getTime()) / 1000));
     reloj.adelantar(1);
     const despues = await con(app, cliente.token)('get', `${HOLD}/${id}`).expect(200);
     expect(despues.body.remainingSeconds).toBe(restantes - 60);
