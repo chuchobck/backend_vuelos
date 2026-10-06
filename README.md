@@ -20,10 +20,12 @@ está en [docs/PLAN.md](docs/PLAN.md).
 | 2. Transversales                      | Hecha                                  |
 | 3. Auth                               | Hecha                                  |
 | 4. Catálogo (CRUD de administración)  | Hecha                                  |
-| 5 a 11                                | Pendiente                              |
+| 5. Búsqueda y mapa de asientos        | Hecha                                  |
+| 6 a 11                                | Pendiente                              |
 
-Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth` y el CRUD de
-administración del catálogo en `/flights/v1/admin`. Los endpoints del contrato entran desde la fase 5.
+Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
+administración del catálogo en `/flights/v1/admin` y las dos primeras operaciones del contrato:
+`POST /search` y `GET /offers/{offerId}/seatmap`.
 
 Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
 
@@ -75,6 +77,7 @@ Variables opcionales (todas documentadas en `.env.example`):
 | `TRUST_PROXY`               | Proxies delante de la API para leer la IP real (`1` en Render; `true` no se acepta)                        | `false`           |
 | `JWT_ISSUER`                | `iss` de los tokens que emite y acepta la API                                                              | quinde-vuelos-api |
 | `JWT_AUDIENCE`              | `aud` de los tokens que emite y acepta la API                                                              | quinde-vuelos-api |
+| `SEARCH_OFFER_TTL_MINUTES`  | Minutos que vale una oferta de `POST /search` (de 5 a 240)                                                 | 30                |
 
 Si los puertos 5432 o 3000 ya están ocupados, cámbialos en `.env`: `DB_PORT` para la base
 (junto con el puerto de `DATABASE_URL`) y `PORT` para la API.
@@ -159,6 +162,31 @@ curl localhost:3000/flights/v1/auth/me -H "Authorization: Bearer <access_token>"
 
 En Swagger, el botón **Authorize** → `bearer` recibe el `access_token`. Los roles son `cliente`
 (registro público) y `administrador` (todos los scopes más `flights:admin`).
+
+## Búsqueda de vuelos
+
+Las dos operaciones son públicas (sin token), como en el contrato:
+
+| Endpoint                            | Qué hace                                                                       | Límite propio     |
+| ----------------------------------- | ------------------------------------------------------------------------------ | ----------------- |
+| `POST /search`                      | Ofertas para 1 a 6 tramos (ida, ida y vuelta o multidestino); exige `X-Device-Fingerprint` | 20 por minuto e IP |
+| `GET /offers/{offerId}/seatmap`     | Asientos de un segmento de la oferta, con `isAvailable` y sin precios          | 60 por minuto e IP |
+
+- Cada oferta es de una sola aerolínea y trae un itinerario por tramo (directo o con una escala),
+  con las familias tarifarias que tienen cupo para todos los pasajeros y el precio por tipo de
+  pasajero en texto. Se ordenan por precio y luego por hora; a lo sumo 20.
+- Las ofertas se guardan y vencen a los 30 minutos (`SEARCH_OFFER_TTL_MINUTES`); cada búsqueda
+  borra las vencidas que ninguna retención usa. La búsqueda no toma cupos.
+- Sin resultados responde 200 con la lista vacía.
+
+```bash
+curl -X POST localhost:3000/flights/v1/search -H 'Content-Type: application/json' \
+  -H 'X-Device-Fingerprint: b3f1c2a4-9d8e-4f6a-8b1c-2d3e4f5a6b7c' \
+  -d '{"itineraries":[{"origin":"UIO","destination":"GYE","departureDate":"2026-10-20"}],"passengers":{"adults":1}}'
+```
+
+La semilla genera salidas para los 90 días siguientes al día en que se cargó: elige una fecha en
+esa ventana. UIO-GPS no tiene vuelo directo y sale con escala en GYE.
 
 ## Catálogo de administración
 
