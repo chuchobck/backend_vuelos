@@ -172,7 +172,8 @@ export class EntregaRepository {
   /**
    * Anota cómo salió el intento `intentos` de la entrega. UPDATE condicionado a que la fila siga
    * PENDIENTE y en ese mismo intento: si el arrendamiento venció y otro proceso la retomó, el
-   * resultado atrasado no pisa al nuevo. `proximoIntento` null con fallo = FALLIDO definitivo.
+   * resultado atrasado no pisa al nuevo. `proximoIntento` null con fallo = FALLIDO definitivo. En
+   * un estado final `proximo_intento` queda en la hora del último intento (no en la del arrendamiento).
    * Devuelve el estado en que quedó, o null si no se aplicó.
    */
   async registrarResultado(
@@ -189,7 +190,7 @@ export class EntregaRepository {
          SET estado = (CASE WHEN ${exito} THEN 'ENTREGADO'
                             WHEN ${proximoIntento}::timestamptz IS NULL THEN 'FALLIDO'
                             ELSE 'PENDIENTE' END)::vuelos.estado_entrega_webhook,
-             proximo_intento = COALESCE(${proximoIntento}::timestamptz, proximo_intento),
+             proximo_intento = COALESCE(${proximoIntento}::timestamptz, ${ahora}::timestamptz),
              ultimo_codigo_http = ${resultado.codigoHttp}::smallint,
              ultimo_error = ${exito ? null : (resultado.error ?? 'HTTP_' + resultado.codigoHttp)}::text,
              fecha_actualizacion = ${ahora}::timestamptz
