@@ -7,31 +7,15 @@ import {
   IsDefined,
   Matches,
   ValidateNested,
-  ValidationOptions,
-  registerDecorator,
 } from 'class-validator';
-import { fechaIsoAUtc, REGEX_IATA_AEROPUERTO } from '../../../../../common/pipes/formatos';
+import { REGEX_IATA_AEROPUERTO } from '../../../../../common/pipes/formatos';
+import { FechaIso } from '../../../compartido/dto/validadores';
 import { PasajerosDto } from '../../../compartido/dto/pasajeros.dto';
 
 /** Máximo de tramos de una búsqueda multidestino (SearchRequest.itineraries.maxItems). */
 export const MAXIMO_TRAMOS = 6;
 
 const IATA = { message: '$property must be a 3-letter uppercase IATA airport code' };
-
-/** `YYYY-MM-DD` que existe en el calendario (rechaza 2026-02-30). */
-function FechaIso(opciones?: ValidationOptions): PropertyDecorator {
-  return (objeto, propiedad) =>
-    registerDecorator({
-      name: 'fechaIso',
-      target: objeto.constructor,
-      propertyName: propiedad as string,
-      options: opciones,
-      validator: {
-        validate: (valor: unknown) => fechaIsoAUtc(valor) !== undefined,
-        defaultMessage: ({ property }) => `${property} must be a valid date (YYYY-MM-DD)`,
-      },
-    });
-}
 
 /** Un tramo de SearchRequest.itineraries. */
 export class TramoSolicitadoDto {

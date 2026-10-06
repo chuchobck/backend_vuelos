@@ -12,11 +12,11 @@ import { cuerpoInvalido, noExiste } from '../../compartido/errores';
 import { asientosOcupados, ConteoPasajeros, validarPasajeros } from '../../compartido/pasajeros';
 import { RetencionCreadaDto } from './dto/respuesta-retencion.dto';
 import { SolicitudRetencionDto } from './dto/solicitud-retencion.dto';
+import { ClaveGuardada, IdempotenciaRepository } from '../../compartido/idempotencia.repository';
 import { aRetencionCreada, aRetencionRepetida } from './retencion.mapper';
 import { Retencion } from './retencion.modelo';
 import {
   ACTOR_SISTEMA,
-  ClaveGuardada,
   CupoDeCabina,
   FamiliaDeOferta,
   FilaPrecioActual,
@@ -48,8 +48,12 @@ export interface ResultadoCreacion {
   repetida: boolean;
 }
 
-/** Resultado de consumir un hold desde la reserva (fase 7), que decide el error de cada caso. */
-export type ResultadoConsumo = 'consumida' | 'no-existe' | 'vencida' | 'cerrada';
+/**
+ * Resultado de consumir un hold desde la reserva (fase 7), que decide el error de cada caso:
+ * 'no-existe' también para el de otro usuario; 'vencida' si pasó su hora (esté o no cerrado);
+ * 'liberada' si su dueño lo soltó; 'ya-consumida' si otra reserva lo usó.
+ */
+export type ResultadoConsumo = 'consumida' | 'no-existe' | 'vencida' | 'liberada' | 'ya-consumida';
 
 /** Una selección del cuerpo ya resuelta contra la oferta y el catálogo. */
 interface SeleccionResuelta {
@@ -86,6 +90,7 @@ export class RetencionService {
 
   constructor(
     private readonly repositorio: RetencionRepository,
+    private readonly claves: IdempotenciaRepository,
     private readonly reloj: Reloj,
     config: ConfigService,
   ) {
@@ -102,9 +107,9 @@ export class RetencionService {
     const huella = huellaDe(solicitud);
     const idClave = { idPropietario, operacion: 'CREAR_RETENCION' as const, clave };
 
-    const previa = await this.repositorio.leerClave(idPropietario, 'CREAR_RETENCION', clave);
+    const previa = await this.claves.leer(idClave);
     if (previa && previa.vence > ahora) return repetir(previa, huella);
-    if (previa) await this.repositorio.borrarClavesVencidas(ahora, idClave);
+    if (previa) await this.claves.borrarVencidas(ahora, idClave);
 
     const pasajeros = validarPasajeros(solicitud.passengersBreakdown, 'passengersBreakdown');
     const oferta = await this.repositorio.oferta(solicitud.offerId);
@@ -170,7 +175,7 @@ export class RetencionService {
     switch (rechazo) {
       case 'clave-en-uso': {
         // Otra petición con la misma clave terminó primero: se responde lo mismo que a ella.
-        const ganadora = await this.repositorio.leerClave(idPropietario, 'CREAR_RETENCION', clave);
+        const ganadora = await this.claves.leer(idClave);
         if (!ganadora) throw claveEnCurso();
         return repetir(ganadora, huella);
       }
@@ -297,12 +302,14 @@ export class RetencionService {
     const ahora = this.reloj.ahora();
     const retencion = await this.repositorio.leer(id);
     if (!retencion || retencion.idPropietario !== idPropietario) return 'no-existe';
-    if (retencion.estado !== 'RETENIDA') {
-      return retencion.estado === 'EXPIRADA' ? 'vencida' : 'cerrada';
+    if (retencion.estado === 'RETENIDA' && retencion.vence <= ahora) return 'vencida';
+    if (retencion.estado === 'RETENIDA') {
+      const estado = await this.repositorio.cerrar(id, 'consumir', ahora, { tx });
+      if (estado === 'CONSUMIDA') return 'consumida';
     }
-    if (retencion.vence <= ahora) return 'vencida';
-    const estado = await this.repositorio.cerrar(id, 'consumir', ahora, { tx });
-    return estado === 'CONSUMIDA' ? 'consumida' : 'cerrada';
+    // Ya estaba cerrado, o lo cerró otro (otra reserva) mientras este UPDATE esperaba
+    const actual = retencion.estado === 'RETENIDA' ? await this.repositorio.leer(id) : retencion;
+    return motivoDeCierre(actual.estado);
   }
 
   /** Libera (sin fallar la petición) las retenciones vencidas que tienen cupo en esas salidas. */
@@ -315,6 +322,12 @@ export class RetencionService {
       this.logger.warn(`No se pudieron vencer las retenciones: ${(error as Error).name}`);
     }
   }
+}
+
+function motivoDeCierre(estado: string): ResultadoConsumo {
+  if (estado === 'CONSUMIDA') return 'ya-consumida';
+  if (estado === 'LIBERADA') return 'liberada';
+  return 'vencida';
 }
 
 /**

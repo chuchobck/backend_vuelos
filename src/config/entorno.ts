@@ -147,6 +147,21 @@ export class VariablesEntorno {
   @IsOptional()
   HOLD_EXPIRY_JOB_INTERVAL_SECONDS?: number;
 
+  /**
+   * Proceso periódico que emite los boletos de las reservas con pago pendiente (las del 202)
+   * cuando el pago se aprueba. Sin valor: true. Con false, esas reservas no avanzan solas.
+   */
+  @IsIn(['true', 'false'], { message: 'BOOKING_ISSUE_JOB_ENABLED debe ser true o false' })
+  @IsOptional()
+  BOOKING_ISSUE_JOB_ENABLED?: string;
+
+  /** Cada cuántos segundos corre ese proceso. Sin valor: 30. */
+  @Max(3600, { message: 'BOOKING_ISSUE_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @Min(5, { message: 'BOOKING_ISSUE_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @IsInt({ message: 'BOOKING_ISSUE_JOB_INTERVAL_SECONDS debe ser un número entero' })
+  @IsOptional()
+  BOOKING_ISSUE_JOB_INTERVAL_SECONDS?: number;
+
   /** Duración de la ventana del límite, en segundos. Sin valor: 60. */
   @Max(86_400, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
   @Min(1, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })

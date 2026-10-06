@@ -800,7 +800,7 @@ describe('POST /offers/hold sobre un catálogo propio', () => {
 
     expect(await consumir(otro.id)).toBe('no-existe');
     expect(await consumir(duena.id)).toBe('consumida');
-    expect(await consumir(duena.id)).toBe('cerrada');
+    expect(await consumir(duena.id)).toBe('ya-consumida');
     const consulta = await con(c.app, duena.token)('get', `${HOLD}/${id}`).expect(200);
     expect(consulta.body).toMatchObject({ status: 'CONSUMED', remainingSeconds: 0 });
     expect(await cupoCadena()).toEqual({ totales: 2, disponibles: 1, retenidos: 1 });

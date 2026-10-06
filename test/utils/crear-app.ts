@@ -15,6 +15,8 @@ export interface OpcionesCrearApp {
   reloj?: Reloj;
   /** Contadores del límite de peticiones que la prueba puede reiniciar. */
   limites?: LimitesReiniciables;
+  /** Otros providers reemplazados (por ejemplo SERVICIO_PAGOS por un pago de prueba). */
+  reemplazos?: Array<{ proveedor: unknown; valor: unknown }>;
 }
 
 /**
@@ -37,6 +39,9 @@ export async function crearApp(
   if (opciones.reloj) constructor = constructor.overrideProvider(Reloj).useValue(opciones.reloj);
   if (opciones.limites) {
     constructor = constructor.overrideProvider(getStorageToken()).useValue(opciones.limites);
+  }
+  for (const { proveedor, valor } of opciones.reemplazos ?? []) {
+    constructor = constructor.overrideProvider(proveedor).useValue(valor);
   }
   const modulo = await constructor.compile();
   const app = modulo.createNestApplication<NestExpressApplication>();

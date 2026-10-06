@@ -80,7 +80,7 @@ function aPrecioCabina(opcion: OpcionTarifa): PrecioCabinaDto {
   };
 }
 
-function aItinerario(itinerario: ItinerarioArmado): OpcionItinerarioDto {
+export function aItinerario(itinerario: ItinerarioArmado): OpcionItinerarioDto {
   const { segmentos } = itinerario;
   return {
     itineraryId: itinerario.id,

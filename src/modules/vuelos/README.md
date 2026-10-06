@@ -65,10 +65,13 @@ ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
 
 - `catalogo/<entidad>/`: CRUD de administrador en `/admin/...` con una clase base. Hecho en la fase 4.
 - `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10). Hechos: `busqueda/` (`POST /search`),
-  `oferta/` (`GET /offers/{offerId}/seatmap`) y `retencion/` (`/offers/hold`, fase 6).
+  `oferta/` (`GET /offers/{offerId}/seatmap`), `retencion/` (`/offers/hold`, fase 6), y `reserva/`
+  y `boleto/` (`/bookings` y `/bookings/{bookingId}/tickets`, fase 7).
 - `compartido/`: traducción de los ENUM al contrato (`enums.ts`, con `ORDEN_CABINAS`), formatos de
-  salida (`formatos-salida.ts`) y los pasajeros (`dto/pasajeros.dto.ts` y `pasajeros.ts`, que
-  comparten la búsqueda y el hold).
+  salida (`formatos-salida.ts`), los pasajeros de la búsqueda y el hold (`dto/pasajeros.dto.ts` y
+  `pasajeros.ts`), `FechaIso` (`dto/validadores.ts`), las claves de idempotencia
+  (`idempotencia.repository.ts`), el PNR y el número de boleto (`generador-codigos.ts`) y la Payment
+  API (`pagos/`).
 - Cada entidad lleva `<entidad>.routes.ts`, controller, service, repository (el único que usa Prisma),
   mapper y `dto/`; las rutas se cuelgan en `vuelos.routes.ts`.
 
@@ -87,6 +90,8 @@ Lo transversal ya lo da la API a cualquier controller nuevo, sin código extra:
 | Request id, IP y usuario              | `obtenerContexto()` en `common/contexto`; el guard de JWT llama a `fijarUsuario(sub)` con cada token válido              |
 | `Idempotency-Key`                     | `@ClaveIdempotencia()` en el parámetro (400 si falta o no es uuid); qué hace con la clave lo decide el service           |
 | La hora                               | Inyectar `Reloj` (`common/reloj.ts`) y usar `reloj.ahora()` para todo vencimiento; las pruebas lo cambian por uno quieto |
+| Un pago                               | Inyectar `SERVICIO_PAGOS` (`compartido/pagos`): `autorizar` al crear y `consultar` después; nunca datos de tarjeta        |
+| Una Idempotency-Key guardada          | `IdempotenciaRepository`: `leer`, `reclamar(tx, clave)` en la transacción del cambio y `borrarVencidas`                |
 
 ## Operaciones del contrato
 
@@ -147,24 +152,93 @@ transacción que crea el hold, con la respuesta ya armada. Una segunda petición
 espera a la primera: si la primera confirma, repite su respuesta; si se deshace (sin cupo), sigue.
 Por eso un 409 no deja la clave usada.
 
-### Cómo consume un hold la reserva (fase 7)
+### Cómo consume un hold la reserva
 
 `RetencionModule` exporta `RetencionService`. `POST /bookings` llama, dentro de su propia
 transacción auditada, a:
 
 ```ts
-const resultado = await retenciones.consumir(holdId, usuario.id, tx); // 'consumida' | 'no-existe' | 'vencida' | 'cerrada'
+const resultado = await retenciones.consumir(holdId, usuario.id, tx);
+// 'consumida' | 'no-existe' | 'vencida' | 'liberada' | 'ya-consumida'
 ```
 
 - `'consumida'`: el hold quedó `CONSUMIDA` en la misma transacción que la reserva; el cupo no
-  vuelve, pasa a la reserva (`reserva_cabecera.retencion_id`). Si la reserva falla después, el
-  rollback deja el hold `RETENIDA` otra vez.
-- `'no-existe'` (o de otro usuario), `'vencida'`, `'cerrada'` (liberada o ya consumida): no cambia
-  nada; la fase 7 elige el error (`410` del contrato para el vencido, por ejemplo).
-- El precio a cobrar es `lockedPrice` (`vista_retencion_precio`), los pasajeros deben coincidir con
-  los de `retencion_cabecera` y los itinerarios con `retencion_detalle`.
-- Cancelar una reserva (fase 8) devuelve el cupo de sus itinerarios: el hold consumido no se libera
-  (`DELETE` responde 409).
+  vuelve, pasa a la reserva. Si la reserva falla después dentro de esa transacción, el rollback
+  deja el hold `RETENIDA` otra vez.
+- `'no-existe'` (también el de otro usuario) es 422; `'vencida'` y `'liberada'`, 410;
+  `'ya-consumida'`, 409. Ninguno cambia nada.
+
+## Reservas y boletos
+
+`reserva/` implementa `/bookings` y `boleto/` sus tickets (`/bookings/{bookingId}/tickets`, que
+cuelga de la reserva con `RouterModule`). Solo los repository tocan la base; pasajeros, asientos,
+pago, itinerarios, historial y cupones no tienen controller.
+
+**Crear (POST /bookings).** Antes de abrir la transacción: la clave (si ya se usó, se repite la
+respuesta), el hold (dueño, estado, vuelos que se siguen vendiendo), los pasajeros
+(`pasajeros-reserva.ts`), los asientos elegidos (`asientos-reserva.ts`), el prefijo de boleto de la
+aerolínea y el pago (`ServicioPagos.autorizar`). Un pago rechazado o inválido corta aquí: no queda
+nada y el hold sigue `RETENIDA`. Después, UNA transacción auditada:
+
+1. reclama la Idempotency-Key (guarda solo el `bookingId` y el status: los datos personales no van
+   a `clave_idempotencia`);
+2. consume el hold;
+3. bloquea el inventario de sus cabinas en orden (salida, cabina) y elige los asientos: el pedido
+   (de la cabina y libre) o el primero libre por fila y letra;
+4. inserta la reserva con un PNR nuevo, sus itinerarios con el precio del hold, los pasajeros, los
+   asientos y la referencia de pago;
+5. crea un boleto PENDIENTE por pasajero (también los infantes) con un cupón por vuelo;
+6. pago aprobado: `EMITIENDO_BOLETOS`, emite los boletos (número = prefijo + 10 dígitos) y
+   `CONFIRMADA` (201). Pago pendiente: `PENDIENTE_PAGO` (202).
+
+**Estados.** `PENDIENTE` → `PENDIENTE_PAGO` → `EMITIENDO_BOLETOS` → `CONFIRMADA`, o `FALLIDA` si el
+pago se rechaza después o la emisión no puede hacerse (la aerolínea perdió su prefijo). Una
+reserva `FALLIDA` deja sus boletos `FALLIDO` con el motivo, libera los asientos y devuelve el cupo;
+el hold queda `CONSUMIDA`. Cada cambio es un `UPDATE` condicionado al estado anterior y deja una
+línea en el historial (el `changes` del contrato).
+
+**Emisión asíncrona.** `EmisionPendiente` revisa cada `BOOKING_ISSUE_JOB_INTERVAL_SECONDS` (30) las
+reservas `PENDIENTE_PAGO`: consulta el pago (`ServicioPagos.consultar`) y, en una transacción por
+reserva tomada con `FOR UPDATE SKIP LOCKED`, la confirma o la da por fallida. Una corrida a la vez
+por proceso; entre instancias, `SKIP LOCKED` y el UPDATE condicionado.
+
+**Eventos.** Todo cambio pasa por `EventosReserva.registrar(tx, reservaId, evento)` con el tipo
+(`booking.created`, `booking.payment_pending`, `booking.ticket_issuing`, `booking.ticket_issued`,
+`booking.ticket_failed`, `booking.confirmed`, `booking.failed`). Hoy solo escribe el historial; la
+fase 10 agrega ahí la bandeja de webhooks (tabla `evento`) sin tocar a quien los emite.
+
+**Consultas.** Solo el dueño (el `sub` del hold); para cualquier otro, 404. `GET /bookings` ordena
+por creación e id (descendente) y pagina con un cursor opaco (`creación|id` en base64url).
+
+### Cómo se reemplaza ServicioPagos (RDA2)
+
+`compartido/pagos/servicio-pagos.ts` es la interfaz; `PagosSimulados`, la implementación de RDA1
+(el prefijo de la referencia decide: `PAY-OK-`, `PAY-PEND-`, `PAY-REJ-`). Para la Payment API real:
+
+1. Escribir `PagosHttp implements ServicioPagos`: `autorizar(cobro)` consulta el pago con esa
+   referencia y comprueba moneda, monto y concepto; `consultar(referencia)` devuelve su estado
+   actual. Traduce la respuesta a `APROBADO`, `PENDIENTE`, `RECHAZADO` o `INVALIDO`.
+2. En `PagosModule`, cambiar `useClass: PagosSimulados` por `useClass: PagosHttp` (y sus variables
+   de entorno en `entorno.ts` y `.env.example`).
+
+Las reservas, el proceso de emisión y las pruebas no cambian (las pruebas reemplazan el provider con
+`crearApp({ reemplazos: [{ proveedor: SERVICIO_PAGOS, valor }] })`).
+
+### Cómo se apoyan las fases 8 y 9
+
+- **Equipaje (fase 8).** `reserva_detalle_equipaje` cuelga del pasajero y del itinerario de la
+  reserva y de un pago nuevo (`concepto = EQUIPAJE_ADICIONAL`, otra `paymentReference` vía
+  `ServicioPagos`). `POST /bookings` rechaza `extraBaggage` (422): se compra después.
+- **Cambio de fecha (fase 8).** Apaga la línea de `reserva_detalle_itinerario` (`vigente = false`) y
+  agrega la nueva; libera los asientos de los vuelos viejos (`fecha_liberacion`), asigna los nuevos
+  con las mismas reglas (`asientos-reserva.ts`) y emite los cupones nuevos. El cupo se mueve con el
+  orden de bloqueo (salida, cabina).
+- **Cancelación (fase 8).** `ReservaRepository.liberarAsientos` y `devolverCupo` ya hacen lo que
+  pide (los usa hoy la reserva `FALLIDA`); los boletos pasan a `ANULADO` o `REEMBOLSADO`.
+- **Check-in y pase de abordar (fase 9).** Parten del pasajero (`reserva_detalle_pasajero`), su
+  asiento vigente en ese vuelo (`reserva_detalle_asiento`) y su cupón `EMITIDO` (`boleto_detalle`):
+  solo una reserva `CONFIRMADA` hace check-in.
+- Todas pasan sus cambios de estado por `EventosReserva` para que la fase 10 los notifique.
 
 ## Cómo se agrega una entidad al catálogo
 
