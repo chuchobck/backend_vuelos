@@ -153,6 +153,48 @@ describe('Seguridad HTTP', () => {
       esperarProblemDetails(respuesta);
     });
   });
+
+  describe('Content-Type del cuerpo', () => {
+    it.each([
+      ['text/plain', 'hola'],
+      ['application/xml', '<a>1</a>'],
+      ['application/x-www-form-urlencoded', 'texto=hola'],
+      ['multipart/form-data; boundary=x', '--x--'],
+    ])('%s responde 415 como ProblemDetails, sin llegar al controller', async (tipo, cuerpo) => {
+      const respuesta = await http()
+        .post('/flights/v1/prueba-seguridad')
+        .set('Content-Type', tipo)
+        .send(cuerpo);
+      expect(respuesta.status).toBe(415);
+      esperarProblemDetails(respuesta);
+      expect(respuesta.body.title).toBe('Unsupported Media Type');
+    });
+
+    it('un cuerpo sin Content-Type también es 415', async () => {
+      const respuesta = await http()
+        .post('/flights/v1/prueba-seguridad')
+        .set('Content-Type', '')
+        .send(Buffer.from('{"texto":"a"}'));
+      expect(respuesta.status).toBe(415);
+    });
+
+    it('application/json (con charset) pasa; un +json no, porque el parser no lo lee', async () => {
+      await http()
+        .post('/flights/v1/prueba-seguridad')
+        .set('Content-Type', 'application/json; charset=utf-8')
+        .send('{"texto":"a"}')
+        .expect(201);
+      await http()
+        .post('/flights/v1/prueba-seguridad')
+        .set('Content-Type', 'application/merge-patch+json')
+        .send('{"texto":"a"}')
+        .expect(415);
+    });
+
+    it('un POST sin cuerpo no exige Content-Type', async () => {
+      await http().post('/flights/v1/prueba-seguridad').expect(201);
+    });
+  });
 });
 
 describe('CORS_ORIGINS en la validación del entorno', () => {
