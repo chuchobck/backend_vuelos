@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { IdempotenciaRepository } from '../../compartido/idempotencia.repository';
 import { PagosModule } from '../../compartido/pagos/pagos.module';
 import { BoletoModule } from '../boleto/boleto.module';
+import { WebhookModule } from '../webhook/webhook.module';
 import { RetencionModule } from '../retencion/retencion.module';
 import { EmisionPendiente } from './emision-pendiente';
 import { EventosReserva } from './eventos-reserva';
@@ -16,7 +17,7 @@ import { ReservaService } from './reserva.service';
  * completa periódicamente las reservas cuyo pago quedó pendiente.
  */
 @Module({
-  imports: [RetencionModule, BoletoModule, PagosModule],
+  imports: [RetencionModule, BoletoModule, PagosModule, WebhookModule],
   controllers: [ReservaController],
   providers: [
     ReservaService,

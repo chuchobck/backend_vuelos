@@ -106,6 +106,9 @@ COMMENT ON TYPE estado_checkin IS 'Contrato CheckInResponse (por pasajero y segm
 CREATE TYPE tipo_codigo_barras AS ENUM ('AZTEC', 'PDF417', 'QR');
 COMMENT ON TYPE tipo_codigo_barras IS 'Contrato BoardingPass.barcodeType: mismos valores.';
 
+CREATE TYPE estado_entrega_webhook AS ENUM ('PENDIENTE', 'ENTREGADO', 'FALLIDO');
+COMMENT ON TYPE estado_entrega_webhook IS 'Ciclo de la entrega de un evento a un webhook: PENDIENTE (por enviar o por reintentar), ENTREGADO (el receptor respondió 2xx) o FALLIDO (se agotaron los intentos o la suscripción ya no está activa).';
+
 CREATE TYPE operacion_auditoria AS ENUM ('INSERCION', 'ACTUALIZACION', 'ELIMINACION');
 COMMENT ON TYPE operacion_auditoria IS 'Operación registrada en la auditoría: INSERCION=INSERT, ACTUALIZACION=UPDATE (incluye la eliminación lógica), ELIMINACION=DELETE físico.';
 
@@ -773,6 +776,32 @@ CREATE TABLE evento (
     CONSTRAINT ck_evento_estado_reserva CHECK (estado_reserva IS NULL OR reserva_id IS NOT NULL)
 );
 
+-- Bandeja de salida de los webhooks: una fila por evento y suscripción, con su propio reintento.
+-- Se inserta en la misma transacción que el hecho de negocio; el envío HTTP lo hace un proceso
+-- aparte (nunca dentro de esa transacción).
+CREATE TABLE webhook_entrega (
+    id                  bigint                  GENERATED ALWAYS AS IDENTITY,
+    webhook_id          uuid                    NOT NULL,
+    id_evento           uuid                    NOT NULL,
+    tipo_evento_id      bigint                  NOT NULL,
+    payload             jsonb                   NOT NULL,
+    estado              estado_entrega_webhook  NOT NULL DEFAULT 'PENDIENTE',
+    intentos            smallint                NOT NULL DEFAULT 0,
+    proximo_intento     timestamptz             NOT NULL,
+    ultimo_codigo_http  smallint,
+    ultimo_error        text,
+    fecha_creacion      timestamptz             NOT NULL DEFAULT now(),
+    fecha_actualizacion timestamptz             NOT NULL DEFAULT now(),
+    CONSTRAINT pk_webhook_entrega PRIMARY KEY (id),
+    CONSTRAINT uq_webhook_entrega_evento UNIQUE (webhook_id, id_evento),
+    CONSTRAINT fk_webhook_entrega_webhook FOREIGN KEY (webhook_id) REFERENCES webhook_cabecera (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_webhook_entrega_tipo_evento FOREIGN KEY (tipo_evento_id) REFERENCES tipo_evento (id) ON DELETE RESTRICT,
+    CONSTRAINT ck_webhook_entrega_intentos CHECK (intentos BETWEEN 0 AND 20),
+    CONSTRAINT ck_webhook_entrega_codigo_http CHECK (ultimo_codigo_http IS NULL OR ultimo_codigo_http BETWEEN 100 AND 599),
+    CONSTRAINT ck_webhook_entrega_entregado CHECK (estado <> 'ENTREGADO' OR (ultimo_codigo_http BETWEEN 200 AND 299 AND intentos >= 1)),
+    CONSTRAINT ck_webhook_entrega_payload CHECK (jsonb_typeof(payload) = 'object')
+);
+
 CREATE TABLE evento_entrega (
     id              bigint       GENERATED ALWAYS AS IDENTITY,
     evento_id       uuid         NOT NULL,
@@ -1050,6 +1079,9 @@ CREATE INDEX ix_evento_retencion ON evento (retencion_id) WHERE retencion_id IS 
 CREATE INDEX ix_evento_tipo_fecha ON evento (tipo_evento_id, fecha_evento);
 CREATE INDEX ix_evento_entrega_webhook ON evento_entrega (webhook_id);
 CREATE INDEX ix_evento_entrega_pendiente ON evento_entrega (fecha_intento) WHERE NOT entregado;
+CREATE INDEX ix_webhook_entrega_pendiente ON webhook_entrega (proximo_intento, id) WHERE estado = 'PENDIENTE';
+CREATE INDEX ix_webhook_entrega_webhook ON webhook_entrega (webhook_id, fecha_actualizacion DESC) WHERE estado <> 'PENDIENTE';
+CREATE INDEX ix_webhook_entrega_tipo_evento ON webhook_entrega (tipo_evento_id);
 CREATE INDEX ix_clave_idempotencia_fecha_expiracion ON clave_idempotencia (fecha_expiracion);
 
 
@@ -1281,6 +1313,7 @@ COMMENT ON TABLE pase_abordar               IS 'Pase de abordar emitido tras un 
 COMMENT ON TABLE webhook_cabecera           IS 'Suscripción de un integrador a notificaciones.';
 COMMENT ON TABLE webhook_detalle            IS 'Tipos de evento a los que está suscrito un webhook.';
 COMMENT ON TABLE evento                     IS 'Hecho de negocio ocurrido que debe notificarse (bandeja de salida).';
+COMMENT ON TABLE webhook_entrega            IS 'Entrega de un evento a una suscripción (bandeja de salida con reintentos). La crea la misma transacción del hecho de negocio y la envía un proceso aparte. No se audita fila por fila: cada intento la actualiza y el resultado vive en la propia fila.';
 COMMENT ON TABLE evento_entrega             IS 'Intentos de entrega de un evento a un webhook.';
 COMMENT ON TABLE clave_idempotencia         IS 'Registro de las cabeceras Idempotency-Key ya procesadas y su respuesta.';
 COMMENT ON TABLE auditoria                  IS 'Log de cambios: una fila por cada alta, cambio o baja en las tablas de negocio. La escribe el disparador fn_auditar y es de solo inserción. No es el historial que ve el cliente: ese es reserva_detalle_historial.';
@@ -1333,6 +1366,11 @@ COMMENT ON COLUMN cambio_cabecera.pago_id IS 'Pago de la diferencia. Puede ser N
 COMMENT ON COLUMN cambio_detalle.diferencia_tarifa IS 'fareDifference. Puede ser negativa si la tarifa nueva es menor. El totalToPay se calcula sumando diferencias y cargo_cambio.';
 COMMENT ON COLUMN cotizacion_cancelacion.fecha_aceptacion IS 'Momento en que POST /cancel aceptó la cotización. Debe caer dentro de su vigencia y solo una por reserva puede estar aceptada.';
 COMMENT ON COLUMN cotizacion_cancelacion.fecha_completada IS 'NULL mientras la reserva sigue en CANCELACION_PENDIENTE.';
+COMMENT ON COLUMN webhook_entrega.id_evento IS 'eventId del WebhookPayload: identifica el hecho, el mismo para todas las suscripciones que lo reciben. El receptor lo usa para no procesar dos veces una entrega repetida.';
+COMMENT ON COLUMN webhook_entrega.payload IS 'WebhookPayload congelado al ocurrir el hecho: un reintento envía exactamente el mismo cuerpo.';
+COMMENT ON COLUMN webhook_entrega.intentos IS 'Envíos HTTP ya hechos. Al llegar al máximo sin respuesta 2xx pasa a FALLIDO.';
+COMMENT ON COLUMN webhook_entrega.proximo_intento IS 'Desde cuándo se puede enviar. Quien toma la entrega lo adelanta unos segundos (arrendamiento) para que otro proceso no la envíe a la vez.';
+COMMENT ON COLUMN webhook_entrega.ultimo_error IS 'Motivo corto del último fallo (tiempo agotado, conexión rechazada, destino no permitido). Nunca el cuerpo ni la respuesta del receptor.';
 COMMENT ON COLUMN webhook_cabecera.secreto IS 'Secreto para firmar los envíos con HMAC. Se necesita en claro para firmar, así que debe cifrarse en la aplicación antes de guardarse.';
 COMMENT ON COLUMN evento.estado_reserva IS 'Estado de la reserva en el momento del evento, para que un reintento envíe el mismo dato.';
 COMMENT ON COLUMN clave_idempotencia.huella_solicitud IS 'SHA-256 en hexadecimal del cuerpo de la solicitud. Detecta la misma clave con un cuerpo distinto.';

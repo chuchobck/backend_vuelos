@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { IdempotenciaRepository } from '../../compartido/idempotencia.repository';
+import { WebhookModule } from '../webhook/webhook.module';
 import { RetencionController } from './retencion.controller';
 import { RetencionRepository } from './retencion.repository';
 import { RetencionService } from './retencion.service';
@@ -11,6 +12,7 @@ import { VencimientoRetenciones } from './vencimiento-retenciones';
  * VencimientoRetenciones vence periódicamente los holds abandonados.
  */
 @Module({
+  imports: [WebhookModule],
   controllers: [RetencionController],
   providers: [
     RetencionService,

@@ -9,6 +9,7 @@ import {
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { ActorAuditoria } from '../../../../prisma/extensiones/transaccion-auditada';
 import { ClaveNueva, IdempotenciaRepository } from '../../compartido/idempotencia.repository';
+import { PublicadorEventos } from '../webhook/publicador-eventos';
 import { Retencion } from './retencion.modelo';
 
 /** Estados en los que una salida se vende (los mismos de la búsqueda y del mapa de asientos). */
@@ -115,6 +116,7 @@ export class RetencionRepository {
   constructor(
     private readonly prisma: PrismaService,
     private readonly claves: IdempotenciaRepository,
+    private readonly publicador: PublicadorEventos,
   ) {}
 
   async oferta(ofertaId: string): Promise<OfertaParaRetener | null> {
@@ -326,6 +328,7 @@ export class RetencionRepository {
         RETURNING estado::text AS estado`;
       if (!fila) return null;
       if (cierre !== 'consumir') await devolverCupos(tx, id);
+      if (fila.estado === 'EXPIRADA') await this.publicador.deRetencionVencida(tx, id, ahora);
       return fila.estado;
     };
     if (opciones.tx) return trabajo(opciones.tx);
@@ -360,6 +363,7 @@ export class RetencionRepository {
              SET estado = 'EXPIRADA', fecha_cierre = ${ahora}::timestamptz
            WHERE id = ${fila.id}::uuid`;
         await devolverCupos(tx, fila.id);
+        await this.publicador.deRetencionVencida(tx, fila.id, ahora);
         return fila.id;
       },
       { actor: ACTOR_SISTEMA },

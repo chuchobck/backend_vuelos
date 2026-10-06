@@ -648,6 +648,7 @@ model tipo_evento {
   activo          Boolean           @default(true)
   evento          evento[]
   webhook_detalle webhook_detalle[]
+  webhook_entrega webhook_entrega[]
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -714,6 +715,7 @@ model webhook_cabecera {
   fecha_creacion  DateTime          @default(now()) @db.Timestamptz(6)
   evento_entrega  evento_entrega[]
   webhook_detalle webhook_detalle[]
+  webhook_entrega webhook_entrega[]
 
   @@unique([id_propietario, url], map: "uq_webhook_cabecera_propietario_url", where: raw("activo"))
 }
@@ -786,6 +788,30 @@ model usuario_rol {
 
   @@unique([usuario_id, rol_id], map: "uq_usuario_rol")
   @@index([rol_id], map: "ix_usuario_rol_rol")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model webhook_entrega {
+  id                  BigInt                 @id(map: "pk_webhook_entrega") @default(autoincrement())
+  webhook_id          String                 @db.Uuid
+  id_evento           String                 @db.Uuid
+  tipo_evento_id      BigInt
+  payload             Json
+  estado              estado_entrega_webhook @default(PENDIENTE)
+  intentos            Int                    @default(0) @db.SmallInt
+  proximo_intento     DateTime               @db.Timestamptz(6)
+  ultimo_codigo_http  Int?                   @db.SmallInt
+  ultimo_error        String?
+  fecha_creacion      DateTime               @default(now()) @db.Timestamptz(6)
+  fecha_actualizacion DateTime               @default(now()) @db.Timestamptz(6)
+  tipo_evento         tipo_evento            @relation(fields: [tipo_evento_id], references: [id], onUpdate: NoAction, map: "fk_webhook_entrega_tipo_evento")
+  webhook_cabecera    webhook_cabecera       @relation(fields: [webhook_id], references: [id], onUpdate: NoAction, map: "fk_webhook_entrega_webhook")
+
+  @@unique([webhook_id, id_evento], map: "uq_webhook_entrega_evento")
+  @@index([proximo_intento, id], map: "ix_webhook_entrega_pendiente", where: raw("(estado = 'PENDIENTE'::estado_entrega_webhook)"))
+  @@index([tipo_evento_id], map: "ix_webhook_entrega_tipo_evento")
+  @@index([webhook_id, fecha_actualizacion(sort: Desc)], map: "ix_webhook_entrega_webhook", where: raw("(estado <> 'PENDIENTE'::estado_entrega_webhook)"))
 }
 
 /// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -929,4 +955,11 @@ enum estado_pago {
   PENDIENTE
   APROBADO
   RECHAZADO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_entrega_webhook {
+  PENDIENTE
+  ENTREGADO
+  FALLIDO
 }

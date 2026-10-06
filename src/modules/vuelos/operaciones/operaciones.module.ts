@@ -9,6 +9,7 @@ import { OfertaModule } from './oferta/oferta.module';
 import { PaseAbordarModule } from './pase-abordar/pase-abordar.module';
 import { PendientesPostventa } from './pendientes-postventa';
 import { ReservaModule } from './reserva/reserva.module';
+import { WebhookModule } from './webhook/webhook.module';
 import { RetencionModule } from './retencion/retencion.module';
 
 /** Operaciones del contrato (fases 5 a 10). Las rutas cuelgan de /flights/v1 directamente. */
@@ -25,6 +26,7 @@ import { RetencionModule } from './retencion/retencion.module';
     CheckinModule,
     PaseAbordarModule,
     EstadoVueloModule,
+    WebhookModule,
   ],
   // El proceso periódico de postventa usa los tres módulos de postventa a la vez
   providers: [PendientesPostventa],

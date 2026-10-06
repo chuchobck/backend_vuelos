@@ -131,6 +131,7 @@ describe('Límite de peticiones', () => {
 describe('RATE_LIMIT_* en la validación del entorno', () => {
   const base = {
     DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
+    WEBHOOK_SECRET_KEY: 'k'.repeat(32),
     JWT_SECRET: 'x'.repeat(32),
     PORT: '3000',
     NODE_ENV: 'test',
