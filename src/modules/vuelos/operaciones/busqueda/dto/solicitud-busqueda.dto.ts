@@ -11,6 +11,7 @@ import {
 import { REGEX_IATA_AEROPUERTO } from '../../../../../common/pipes/formatos';
 import { FechaIso } from '../../../compartido/dto/validadores';
 import { PasajerosDto } from '../../../compartido/dto/pasajeros.dto';
+import { fechaDeEjemplo } from '../../../compartido/dto/ejemplos';
 
 /** Máximo de tramos de una búsqueda multidestino (SearchRequest.itineraries.maxItems). */
 export const MAXIMO_TRAMOS = 6;
@@ -28,9 +29,9 @@ export class TramoSolicitadoDto {
   destination: string;
 
   @ApiProperty({
-    example: '2026-10-20',
+    example: fechaDeEjemplo(14),
     format: 'date',
-    description: 'Fecha local de salida en el aeropuerto de origen',
+    description: 'Fecha local de salida en el aeropuerto de origen (la semilla cubre 90 días)',
   })
   @FechaIso()
   departureDate: string;
@@ -45,10 +46,8 @@ export class SolicitudBusquedaDto {
     type: [TramoSolicitadoDto],
     minItems: 1,
     maxItems: MAXIMO_TRAMOS,
-    example: [
-      { origin: 'UIO', destination: 'GYE', departureDate: '2026-10-20' },
-      { origin: 'GYE', destination: 'UIO', departureDate: '2026-10-25' },
-    ],
+    // Solo ida: la guía de Swagger sigue con un hold de un itinerario. Ida y vuelta es otro tramo
+    example: [{ origin: 'UIO', destination: 'GYE', departureDate: fechaDeEjemplo(14) }],
   })
   @IsArray()
   @ArrayMinSize(1)
