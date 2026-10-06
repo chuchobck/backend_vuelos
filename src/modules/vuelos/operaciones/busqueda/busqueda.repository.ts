@@ -6,7 +6,7 @@ import {
   tipo_pasajero,
 } from '../../../../generated/prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { SalidaVendible } from './busqueda.modelo';
+import { OfertaArmada, SalidaVendible } from './busqueda.modelo';
 
 /** Estados en los que una salida se vende: ni cancelada, ni embarcando, ni ya en el aire. */
 const ESTADOS_VENDIBLES: estado_vuelo[] = ['PROGRAMADO', 'DEMORADO'];
@@ -33,6 +33,7 @@ export interface FilaTarifaVendible {
 interface FilaSalida {
   id: string;
   numero_vuelo: string;
+  aerolinea_id: bigint;
   comercializa: string;
   nombre_comercializa: string;
   opera: string;
@@ -67,7 +68,7 @@ export class BusquedaRepository {
    */
   async salidasDelTramo(origen: string, destino: string, fecha: Date): Promise<SalidaVendible[]> {
     const filas = await this.prisma.db.$queryRaw<FilaSalida[]>`
-      SELECT vp.id, ac.codigo_iata || v.numero AS numero_vuelo,
+      SELECT vp.id, ac.codigo_iata || v.numero AS numero_vuelo, ac.id AS aerolinea_id,
              ac.codigo_iata AS comercializa, ac.nombre AS nombre_comercializa,
              ao.codigo_iata AS opera, po.codigo_iata AS origen, pd.codigo_iata AS destino,
              vp.fecha_salida, vp.salida_programada, vp.llegada_programada,
@@ -92,6 +93,7 @@ export class BusquedaRepository {
     return filas.map((f) => ({
       id: f.id,
       numeroVuelo: f.numero_vuelo,
+      aerolineaId: f.aerolinea_id,
       comercializa: f.comercializa,
       nombreComercializa: f.nombre_comercializa,
       opera: f.opera,
@@ -135,5 +137,73 @@ export class BusquedaRepository {
          AND t.activo AND f.activo AND mo.activo
          AND ic.cupos_disponibles >= ${asientos}
          AND td.tipo_pasajero::text = ANY(${tipos})`;
+  }
+
+  /**
+   * Guarda las ofertas que se devuelven: cabecera (aerolínea, huella del dispositivo y
+   * vencimiento), sus itinerarios en orden y los segmentos de cada itinerario. Un itinerario
+   * que aparece en varias ofertas de la misma búsqueda se guarda una vez. Los ids ya vienen
+   * generados, así que todo va en cuatro INSERT de varias filas dentro de una transacción.
+   * No toca cupos ni ninguna otra tabla.
+   */
+  async guardarOfertas(ofertas: OfertaArmada[], huella: string, vence: Date): Promise<void> {
+    if (ofertas.length === 0) return;
+    const itinerarios = new Map(
+      ofertas.flatMap((o) => o.itinerarios).map((itinerario) => [itinerario.id, itinerario]),
+    );
+
+    await this.prisma.transaccionAuditada(async (tx) => {
+      await tx.itinerario_cabecera.createMany({
+        data: [...itinerarios.keys()].map((id) => ({ id })),
+      });
+      await tx.itinerario_detalle.createMany({
+        data: [...itinerarios.values()].flatMap((itinerario) =>
+          itinerario.segmentos.map((segmento, i) => ({
+            itinerario_id: itinerario.id,
+            orden: i + 1,
+            vuelo_programado_id: segmento.id,
+          })),
+        ),
+      });
+      await tx.oferta_cabecera.createMany({
+        data: ofertas.map((oferta) => ({
+          id: oferta.id,
+          aerolinea_id: oferta.itinerarios[0].segmentos[0].aerolineaId,
+          huella_dispositivo: huella,
+          fecha_expiracion: vence,
+        })),
+      });
+      await tx.oferta_detalle.createMany({
+        data: ofertas.flatMap((oferta) =>
+          oferta.itinerarios.map((itinerario, i) => ({
+            oferta_id: oferta.id,
+            itinerario_id: itinerario.id,
+            orden: i + 1,
+          })),
+        ),
+      });
+    });
+  }
+
+  /**
+   * Borra (físicamente: son tablas temporales, ver TABLAS_CON_BORRADO_FISICO) las ofertas
+   * vencidas que ninguna retención usa y los itinerarios que ya nadie referencia: ni una
+   * oferta, ni una retención, ni una reserva, ni un cambio de fecha. Los detalles caen en
+   * cascada. `creadosAntesDe` protege a los itinerarios de una búsqueda en curso.
+   */
+  async purgarVencidas(creadosAntesDe: Date): Promise<{ ofertas: number; itinerarios: number }> {
+    const ofertas = await this.prisma.db.oferta_cabecera.deleteMany({
+      where: { fecha_expiracion: { lt: new Date() }, retencion_cabecera: { none: {} } },
+    });
+    const itinerarios = await this.prisma.db.itinerario_cabecera.deleteMany({
+      where: {
+        fecha_creacion: { lt: creadosAntesDe },
+        oferta_detalle: { none: {} },
+        retencion_detalle: { none: {} },
+        reserva_detalle_itinerario: { none: {} },
+        cambio_detalle: { none: {} },
+      },
+    });
+    return { ofertas: ofertas.count, itinerarios: itinerarios.count };
   }
 }

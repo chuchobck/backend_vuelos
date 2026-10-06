@@ -15,6 +15,8 @@ export interface SalidaVendible {
   /** vuelo_programado.id: el segmentId del contrato. */
   id: string;
   numeroVuelo: string;
+  /** aerolinea.id de la que comercializa: interno, para guardar la oferta; nunca sale. */
+  aerolineaId: bigint;
   comercializa: string;
   nombreComercializa: string;
   opera: string;
