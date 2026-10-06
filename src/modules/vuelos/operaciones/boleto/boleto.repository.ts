@@ -131,6 +131,22 @@ export class BoletoRepository {
          AND b.estado::text IN ('PENDIENTE', 'EMITIENDO')`;
   }
 
+  /** Los boletos de la reserva en estado `desde` pasan a `hacia` (cancelación). */
+  async cambiarEstado(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    desde: estado_boleto,
+    hacia: estado_boleto,
+  ): Promise<number> {
+    return tx.$executeRaw`
+      UPDATE vuelos.boleto_cabecera b
+         SET estado = ${hacia}::text::vuelos.estado_boleto
+        FROM vuelos.reserva_detalle_pasajero p
+       WHERE p.id = b.pasajero_id
+         AND p.reserva_id = ${reservaId}::uuid
+         AND b.estado::text = ${desde}`;
+  }
+
   /** El dueño de la reserva (el de su hold), o null si la reserva no existe. */
   async propietarioDeReserva(reservaId: string): Promise<string | null> {
     const fila = await this.prisma.db.reserva_cabecera.findUnique({

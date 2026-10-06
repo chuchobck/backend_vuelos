@@ -28,8 +28,7 @@ export interface CotizacionGuardada {
 export interface CancelacionPendiente {
   reservaId: string;
   cotizacionId: string;
-  referenciaPago: string;
-  reembolso: Prisma.Decimal;
+  moneda: string;
 }
 
 /**
@@ -138,14 +137,23 @@ export class CancelacionRepository {
     });
   }
 
+  /** La referencia del pago de emisión: el reembolso devuelve ese pago. */
+  async referenciaDeEmision(reservaId: string): Promise<string> {
+    const fila = await this.prisma.db.reserva_detalle_pago.findFirstOrThrow({
+      where: { reserva_id: reservaId, concepto: 'EMISION' },
+      select: { referencia_pago: true },
+    });
+    return fila.referencia_pago;
+  }
+
   /** Las cancelaciones aceptadas cuyo reembolso sigue pendiente. */
   pendientes(limite: number): Promise<CancelacionPendiente[]> {
     return this.prisma.db.$queryRaw<CancelacionPendiente[]>`
-      SELECT rc.id AS "reservaId", c.id AS "cotizacionId", g.referencia_pago AS "referenciaPago",
-             c.monto_reembolso AS reembolso
+      SELECT rc.id AS "reservaId", c.id AS "cotizacionId", m.codigo_iso AS moneda
         FROM vuelos.reserva_cabecera rc
         JOIN vuelos.cotizacion_cancelacion c ON c.reserva_id = rc.id AND c.fecha_aceptacion IS NOT NULL
-        JOIN vuelos.reserva_detalle_pago g   ON g.reserva_id = rc.id AND g.concepto = 'EMISION'
+        JOIN vuelos.retencion_cabecera r     ON r.id = rc.retencion_id
+        JOIN vuelos.moneda m                 ON m.id = r.moneda_id
        WHERE rc.estado = 'CANCELACION_PENDIENTE' AND c.fecha_completada IS NULL
        ORDER BY c.fecha_aceptacion, rc.id
        LIMIT ${limite}`;

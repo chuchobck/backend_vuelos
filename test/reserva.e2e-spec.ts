@@ -1009,6 +1009,8 @@ describe('Pago pendiente que la Payment API rechaza después', () => {
   const pagos: ServicioPagos = {
     autorizar: () => Promise.resolve('PENDIENTE'),
     consultar: () => Promise.resolve('RECHAZADO'),
+    reembolsar: () => Promise.resolve('APROBADO'),
+    consultarReembolso: () => Promise.resolve('APROBADO'),
   };
   let app: INestApplication;
   let prisma: PrismaService;
