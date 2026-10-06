@@ -30,7 +30,10 @@ export function aMonto(moneda: string, totales: Totales): MontoDto {
   };
 }
 
-function aSegmento(salida: SalidaVendible, anterior: SalidaVendible | undefined): SegmentoVueloDto {
+export function aSegmento(
+  salida: SalidaVendible,
+  anterior: SalidaVendible | undefined,
+): SegmentoVueloDto {
   return {
     segmentId: salida.id,
     flightNumber: salida.numeroVuelo,
