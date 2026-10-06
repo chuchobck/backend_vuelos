@@ -198,6 +198,26 @@ export class VariablesEntorno {
   @IsOptional()
   POSTSALE_JOB_INTERVAL_SECONDS?: number;
 
+  /**
+   * Horas antes de la salida de cada vuelo en que abre su check-in. Sin valor: 48. De 2 a 168
+   * (una semana): debe ser mayor que el cierre (como mucho 90 minutos).
+   */
+  @Max(168, { message: 'CHECKIN_OPENS_HOURS_BEFORE debe estar entre 2 y 168' })
+  @Min(2, { message: 'CHECKIN_OPENS_HOURS_BEFORE debe estar entre 2 y 168' })
+  @IsInt({ message: 'CHECKIN_OPENS_HOURS_BEFORE debe ser un número entero' })
+  @IsOptional()
+  CHECKIN_OPENS_HOURS_BEFORE?: number;
+
+  /**
+   * Minutos antes de la salida de cada vuelo en que cierra su check-in. Sin valor: 60. De 15 a
+   * 90: el tiempo que el aeropuerto necesita para cerrar el vuelo.
+   */
+  @Max(90, { message: 'CHECKIN_CLOSES_MINUTES_BEFORE debe estar entre 15 y 90' })
+  @Min(15, { message: 'CHECKIN_CLOSES_MINUTES_BEFORE debe estar entre 15 y 90' })
+  @IsInt({ message: 'CHECKIN_CLOSES_MINUTES_BEFORE debe ser un número entero' })
+  @IsOptional()
+  CHECKIN_CLOSES_MINUTES_BEFORE?: number;
+
   /** Duración de la ventana del límite, en segundos. Sin valor: 60. */
   @Max(86_400, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
   @Min(1, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })

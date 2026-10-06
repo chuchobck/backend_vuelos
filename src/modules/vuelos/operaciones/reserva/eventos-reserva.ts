@@ -6,7 +6,8 @@ import { ReservaRepository } from './reserva.repository';
 /**
  * Hechos de una reserva que otros pueden querer saber. Los que tienen el mismo código en
  * tipo_evento (booking.confirmed, booking.failed, booking.ticket_*, booking.baggage_added,
- * booking.changed, booking.cancelled) son los que el contrato deja suscribir por webhook. Los
+ * booking.changed, booking.cancelled, booking.checked_in) son los que el contrato deja suscribir
+ * por webhook. Los
  * demás (booking.created y los pendientes o rechazados de pago, equipaje, cambio y
  * cancelación) no están en ese catálogo: hoy solo van al historial.
  */
@@ -25,7 +26,8 @@ export type TipoEventoReserva =
   | 'booking.change_pending'
   | 'booking.change_failed'
   | 'booking.cancelled'
-  | 'booking.cancellation_pending';
+  | 'booking.cancellation_pending'
+  | 'booking.checked_in';
 
 export interface EventoReserva {
   tipo: TipoEventoReserva;

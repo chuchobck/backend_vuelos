@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BusquedaModule } from './busqueda/busqueda.module';
 import { CambioFechaModule } from './cambio-fecha/cambio-fecha.module';
 import { CancelacionModule } from './cancelacion/cancelacion.module';
+import { CheckinModule } from './checkin/checkin.module';
 import { EquipajeModule } from './equipaje/equipaje.module';
 import { EstadoVueloModule } from './estado-vuelo/estado-vuelo.module';
 import { OfertaModule } from './oferta/oferta.module';
@@ -20,6 +21,7 @@ import { RetencionModule } from './retencion/retencion.module';
     EquipajeModule,
     CancelacionModule,
     CambioFechaModule,
+    CheckinModule,
     EstadoVueloModule,
   ],
   // El proceso periódico de postventa usa los tres módulos de postventa a la vez
