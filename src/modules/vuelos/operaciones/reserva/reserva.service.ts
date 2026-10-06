@@ -20,6 +20,7 @@ import {
   IdClave,
   IdempotenciaRepository,
 } from '../../compartido/idempotencia.repository';
+import { Cobros } from '../../compartido/pagos/cobros';
 import { PagosRepository } from '../../compartido/pagos/pagos.repository';
 import { EstadoPago, SERVICIO_PAGOS, ServicioPagos } from '../../compartido/pagos/servicio-pagos';
 import { BoletoService } from '../boleto/boleto.service';
@@ -99,6 +100,7 @@ export class ReservaService {
     private readonly eventos: EventosReserva,
     @Inject(SERVICIO_PAGOS) private readonly pagos: ServicioPagos,
     private readonly pagosRegistrados: PagosRepository,
+    private readonly cobros: Cobros,
     private readonly reloj: Reloj,
   ) {}
 
@@ -432,45 +434,18 @@ export class ReservaService {
     });
   }
 
-  /**
-   * La referencia de pago, antes de tocar nada: una ya usada por otra operación es 409; una
-   * que la Payment API no reconoce o que rechazó es 422 y no deja reserva (el hold sigue
-   * RETENIDA). Aprobada o pendiente, la reserva sigue.
-   */
-  private async autorizarPago(referencia: string, hold: HoldParaReservar): Promise<EstadoPago> {
-    if (await this.pagosRegistrados.referenciaUsada(referencia)) {
-      throw new ErrorNegocio(
-        409,
-        CodigoError.PAYMENT_REFERENCE_INVALID,
-        'payment.paymentReference: was already used for another operation',
-      );
-    }
+  /** El cobro del total congelado del hold (ver Cobros: 409 o 422 si no sigue). */
+  private autorizarPago(referencia: string, hold: HoldParaReservar): Promise<EstadoPago> {
     const total = hold.itinerarios.reduce(
       (suma, it) => suma.plus(it.base).plus(it.impuestos),
       new Prisma.Decimal(0),
     );
-    const estado = await this.pagos.autorizar({
+    return this.cobros.autorizar({
       referencia,
       concepto: 'EMISION',
       moneda: hold.moneda,
       monto: total,
     });
-    if (estado === 'INVALIDO') {
-      throw new ErrorNegocio(
-        422,
-        CodigoError.PAYMENT_REFERENCE_INVALID,
-        'payment.paymentReference: is not a payment of the Payment API',
-        { invalidParams: [{ name: 'payment.paymentReference', reason: 'unknown payment' }] },
-      );
-    }
-    if (estado === 'RECHAZADO') {
-      throw new ErrorNegocio(
-        422,
-        CodigoError.PAYMENT_NOT_AUTHORIZED,
-        'The payment was not authorized by the Payment API',
-      );
-    }
-    return estado;
   }
 
   /** La respuesta de una clave ya usada: la misma reserva, como está hoy, con el status original. */

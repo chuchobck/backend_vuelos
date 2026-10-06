@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { Cobros } from './cobros';
 import { PagosRepository } from './pagos.repository';
 import { PagosSimulados } from './pagos-simulados';
 import { SERVICIO_PAGOS } from './servicio-pagos';
@@ -9,7 +10,7 @@ import { SERVICIO_PAGOS } from './servicio-pagos';
  * `useClass`. Las pruebas reemplazan el provider con `overrideProvider(SERVICIO_PAGOS)`.
  */
 @Module({
-  providers: [{ provide: SERVICIO_PAGOS, useClass: PagosSimulados }, PagosRepository],
-  exports: [SERVICIO_PAGOS, PagosRepository],
+  providers: [{ provide: SERVICIO_PAGOS, useClass: PagosSimulados }, PagosRepository, Cobros],
+  exports: [SERVICIO_PAGOS, PagosRepository, Cobros],
 })
 export class PagosModule {}

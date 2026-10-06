@@ -28,6 +28,8 @@ export interface FamiliaVendida {
   equipajeBodega: number;
   /** Precio actual de una maleta adicional, sumado sobre los segmentos. */
   equipajeAdicional: Prisma.Decimal;
+  /** Maletas adicionales que admite la familia por pasajero en el itinerario. */
+  maximoEquipaje: number;
   /** El menor cupo disponible de esa cabina entre los segmentos, hoy. */
   asientosDisponibles: number;
 }

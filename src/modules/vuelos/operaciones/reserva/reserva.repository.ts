@@ -154,6 +154,7 @@ interface FilaItinerario {
   incluye_articulo_personal: boolean;
   equipaje_mano_incluido: number;
   equipaje_bodega_incluido: number;
+  maximo_equipaje_adicional: number;
   equipaje_adicional: Prisma.Decimal | null;
   asientos_disponibles: number | null;
 }
@@ -649,7 +650,7 @@ export class ReservaRepository {
         SELECT r.itinerario_id AS id, r.orden, r.tarifa_base, r.impuestos, f.codigo,
                f.clase_cabina::text AS clase_cabina, f.es_cambiable,
                f.porcentaje_penalidad_cancelacion, f.incluye_articulo_personal,
-               f.equipaje_mano_incluido, f.equipaje_bodega_incluido,
+               f.equipaje_mano_incluido, f.equipaje_bodega_incluido, f.maximo_equipaje_adicional,
                (SELECT SUM(t.precio_equipaje_adicional)
                   FROM vuelos.itinerario_detalle i
                   JOIN vuelos.tarifa_cabecera t ON t.vuelo_programado_id = i.vuelo_programado_id
@@ -698,6 +699,7 @@ export class ReservaRepository {
         equipajeMano: c.equipaje_mano_incluido,
         equipajeBodega: c.equipaje_bodega_incluido,
         equipajeAdicional: c.equipaje_adicional ?? new Prisma.Decimal(0),
+        maximoEquipaje: c.maximo_equipaje_adicional,
         asientosDisponibles: c.asientos_disponibles ?? 0,
       },
       salidas: segmentos.filter((s) => s.itinerario_id === c.id).map(aSalida),
