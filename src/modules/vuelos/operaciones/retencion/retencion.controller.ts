@@ -1,5 +1,13 @@
-import { Body, Controller, Header, HttpCode, Post, Res } from '@nestjs/common';
-import { ApiCreatedResponse, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Header, HttpCode, Param, Post, Res } from '@nestjs/common';
+import {
+  ApiCreatedResponse,
+  ApiHeader,
+  ApiNoContentResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Response } from 'express';
 import {
   CABECERA_IDEMPOTENCIA,
@@ -12,8 +20,10 @@ import {
   UsuarioActual,
   UsuarioAutenticado,
 } from '../../../../common/decorators/usuario-actual.decorator';
+import { UuidPipe } from '../../../../common/pipes/uuid.pipe';
 import { ETIQUETAS } from '../../../../config/swagger';
-import { RetencionCreadaDto } from './dto/respuesta-retencion.dto';
+import { EstadoRetencionDto, RetencionCreadaDto } from './dto/respuesta-retencion.dto';
+import { aEstadoRetencion } from './retencion.mapper';
 import { SolicitudRetencionDto } from './dto/solicitud-retencion.dto';
 import { REGLAS_RETENCION, RetencionService } from './retencion.service';
 
@@ -75,5 +85,47 @@ export class RetencionController {
     const { cuerpo, repetida } = await this.servicio.crear(solicitud, usuario.id, clave);
     if (repetida) respuesta.setHeader(CABECERA_REPETIDA, 'true');
     return cuerpo;
+  }
+
+  @Scopes('flights:read')
+  @Get(':holdId')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary: 'Consultar estado de un hold',
+    description:
+      'El dueño consulta el suyo; un administrador, cualquiera. Un hold de otro usuario responde ' +
+      '404, como uno que no existe. Si ya venció, responde EXPIRED (y el cupo ya volvió).',
+  })
+  @ApiParam({ name: 'holdId', format: 'uuid', description: 'holdId de POST /offers/hold' })
+  @ApiOkResponse({ type: EstadoRetencionDto, description: 'HELD, RELEASED, EXPIRED o CONSUMED' })
+  @ApiProblema(400, 'holdId no es un uuid')
+  @ApiProblema(404, 'El hold no existe o es de otro usuario')
+  async consultar(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Param('holdId', UuidPipe) holdId: string,
+  ): Promise<EstadoRetencionDto> {
+    const { retencion, ahora } = await this.servicio.consultar(holdId, usuario);
+    return aEstadoRetencion(retencion, ahora);
+  }
+
+  @Scopes('flights:hold')
+  @Delete(':holdId')
+  @HttpCode(204)
+  @ApiOperation({
+    summary: 'Liberar hold anticipadamente',
+    description:
+      'Devuelve el cupo y deja el hold RELEASED. Liberar uno ya liberado o vencido no cambia nada ' +
+      '(204). Solo lo libera su dueño.',
+  })
+  @ApiParam({ name: 'holdId', format: 'uuid', description: 'holdId de POST /offers/hold' })
+  @ApiNoContentResponse({ description: 'Liberado exitosamente' })
+  @ApiProblema(400, 'holdId no es un uuid')
+  @ApiProblema(404, 'El hold no existe o es de otro usuario')
+  @ApiProblema(409, 'El hold ya se usó en una reserva (fuera del contrato: se cancela la reserva)')
+  async liberar(
+    @UsuarioActual() usuario: UsuarioAutenticado,
+    @Param('holdId', UuidPipe) holdId: string,
+  ): Promise<void> {
+    await this.servicio.liberar(holdId, usuario);
   }
 }

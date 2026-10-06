@@ -3,15 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, randomUUID } from 'node:crypto';
 import { CodigoError, CODIGO_SIN_EQUIVALENTE } from '../../../../common/errores/codigo-error';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
+import { UsuarioAutenticado } from '../../../../common/decorators/usuario-actual.decorator';
 import { Reloj } from '../../../../common/reloj';
+import { TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
 import { CABINA, ORDEN_CABINAS } from '../../compartido/enums';
-import { cuerpoInvalido } from '../../compartido/errores';
+import { cuerpoInvalido, noExiste } from '../../compartido/errores';
 import { asientosOcupados, ConteoPasajeros, validarPasajeros } from '../../compartido/pasajeros';
 import { RetencionCreadaDto } from './dto/respuesta-retencion.dto';
 import { SolicitudRetencionDto } from './dto/solicitud-retencion.dto';
 import { aRetencionCreada, aRetencionRepetida } from './retencion.mapper';
+import { Retencion } from './retencion.modelo';
 import {
+  ACTOR_SISTEMA,
   ClaveGuardada,
   CupoDeCabina,
   FamiliaDeOferta,
@@ -44,6 +48,9 @@ export interface ResultadoCreacion {
   repetida: boolean;
 }
 
+/** Resultado de consumir un hold desde la reserva (fase 7), que decide el error de cada caso. */
+export type ResultadoConsumo = 'consumida' | 'no-existe' | 'vencida' | 'cerrada';
+
 /** Una selección del cuerpo ya resuelta contra la oferta y el catálogo. */
 interface SeleccionResuelta {
   itinerarioId: string;
@@ -52,6 +59,9 @@ interface SeleccionResuelta {
 }
 
 /** 409 OFFER_NO_LONGER_AVAILABLE, el único código del contrato para "ya no se puede retener". */
+/** 404 para un hold que no existe y también para el de otro usuario: no se revela que existe. */
+const holdNoExiste = (id: string) => noExiste(`Hold ${id} was not found`);
+
 const noDisponible = (detalle: string) =>
   new ErrorNegocio(409, CodigoError.OFFER_NO_LONGER_AVAILABLE, detalle);
 
@@ -222,6 +232,77 @@ export class RetencionService {
       if (!familia.activo) throw noDisponible(`${opcion} is no longer sold`);
       return { itinerarioId: itinerario.id, salidas: itinerario.salidas, familia };
     });
+  }
+
+  /**
+   * GET /offers/hold/{holdId}: el dueño ve el suyo y un administrador (flights:admin) ve
+   * cualquiera; para los demás no existe (404). Si sigue RETENIDA pero ya venció, se vence en
+   * ese momento (devolviendo el cupo) sin esperar al proceso periódico.
+   */
+  async consultar(
+    id: string,
+    usuario: UsuarioAutenticado,
+  ): Promise<{ retencion: Retencion; ahora: Date }> {
+    const ahora = this.reloj.ahora();
+    const retencion = await this.repositorio.leer(id);
+    const esAdministrador = usuario.scopes.includes('flights:admin');
+    if (!retencion || (retencion.idPropietario !== usuario.id && !esAdministrador)) {
+      throw holdNoExiste(id);
+    }
+    if (retencion.estado === 'RETENIDA' && retencion.vence <= ahora) {
+      await this.repositorio.cerrar(id, 'vencer', ahora, { actor: ACTOR_SISTEMA });
+      return { retencion: await this.repositorio.leer(id), ahora };
+    }
+    return { retencion, ahora };
+  }
+
+  /**
+   * DELETE /offers/hold/{holdId}: solo el dueño (para cualquier otro, 404, también para un
+   * administrador). Devuelve el cupo y la deja LIBERADA. Si ya estaba liberada o vencida no
+   * hay nada que hacer (204 igual); si ya venció y nadie la había cerrado, queda EXPIRADA. Una
+   * consumida por una reserva no se libera: 409 (el cupo es de la reserva).
+   */
+  async liberar(id: string, usuario: UsuarioAutenticado): Promise<void> {
+    const ahora = this.reloj.ahora();
+    const retencion = await this.repositorio.leer(id);
+    if (!retencion || retencion.idPropietario !== usuario.id) throw holdNoExiste(id);
+    if (retencion.estado === 'RETENIDA') {
+      const vencida = retencion.vence <= ahora;
+      const cerrada = vencida
+        ? await this.repositorio.cerrar(id, 'vencer', ahora, { actor: ACTOR_SISTEMA })
+        : await this.repositorio.cerrar(id, 'liberar', ahora);
+      if (cerrada !== null) return;
+    }
+    // Ya estaba cerrada, o la cerró otro proceso entre la lectura y el UPDATE.
+    const actual = retencion.estado === 'RETENIDA' ? await this.repositorio.leer(id) : retencion;
+    if (actual.estado === 'CONSUMIDA') {
+      throw new ErrorNegocio(
+        409,
+        CODIGO_SIN_EQUIVALENTE,
+        `Hold ${id} was already used for a booking; cancel the booking instead`,
+      );
+    }
+  }
+
+  /**
+   * Pasa el hold a CONSUMIDA dentro de la transacción de quien lo usa (la reserva, fase 7). El
+   * cupo no vuelve: pasa a la reserva. Solo lo consume su dueño y mientras no haya vencido; si
+   * no, no cambia nada y dice por qué, para que quien llama elija el error.
+   */
+  async consumir(
+    id: string,
+    idPropietario: string,
+    tx: TransaccionVuelos,
+  ): Promise<ResultadoConsumo> {
+    const ahora = this.reloj.ahora();
+    const retencion = await this.repositorio.leer(id);
+    if (!retencion || retencion.idPropietario !== idPropietario) return 'no-existe';
+    if (retencion.estado !== 'RETENIDA') {
+      return retencion.estado === 'EXPIRADA' ? 'vencida' : 'cerrada';
+    }
+    if (retencion.vence <= ahora) return 'vencida';
+    const estado = await this.repositorio.cerrar(id, 'consumir', ahora, { tx });
+    return estado === 'CONSUMIDA' ? 'consumida' : 'cerrada';
   }
 
   /** Libera (sin fallar la petición) las retenciones vencidas que tienen cupo en esas salidas. */
