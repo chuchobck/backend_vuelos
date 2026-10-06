@@ -39,5 +39,11 @@ export default tseslint.config(
     languageOptions: { sourceType: 'commonjs' },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
+  {
+    // Herramientas de prueba y verificación (scripts/): CommonJS que informa por consola.
+    files: ['scripts/**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs' },
+    rules: { '@typescript-eslint/no-require-imports': 'off', 'no-console': 'off' },
+  },
   prettier,
 );

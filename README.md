@@ -179,6 +179,50 @@ curl localhost:3000/flights/v1/auth/me -H "Authorization: Bearer <access_token>"
 En Swagger, el botón **Authorize** → `bearer` recibe el `access_token`. Los roles son `cliente`
 (registro público) y `administrador` (todos los scopes más `flights:admin`).
 
+## Probar desde Swagger
+
+Con la base recién cargada (`./db/reset.sh`) y la API arriba, abre <http://localhost:3000/api/docs>
+(cambia el puerto si usas otro `PORT`). Los ejemplos de cada cuerpo ya funcionan con la semilla:
+basta con pegar los ids que devuelve el paso anterior.
+
+1. **Cuenta.** `Auth` → `POST /flights/v1/auth/register` → **Try it out** → **Execute** con el
+   ejemplo (cambia el correo si ya existe; la contraseña debe tener de 12 a 128 caracteres). Con
+   `SEED_ADMIN_PASSWORD` en el `.env`, también existe `admin@quinde.example` con todos los scopes.
+2. **Token.** `POST /flights/v1/auth/login` con el mismo correo y contraseña. Copia el valor de
+   `access_token` de la respuesta (sin comillas). Vence en 15 minutos: si una operación responde
+   401, repite el login.
+3. **Authorize.** Botón **Authorize** arriba a la derecha → sección **bearer** → pega el token →
+   **Authorize** → **Close**. La sección `OAuth2Security` es la del contrato y no funciona en RDA1
+   (apunta a un proveedor externo que no existe); solo muestra los scopes de cada operación.
+4. **Búsqueda.** `POST /flights/v1/search`: el ejemplo es UIO→GYE solo ida dentro de 14 días
+   para un adulto (la semilla cubre 90 días desde que se cargó, con vuelos LA y AV todos los días).
+   `X-Device-Fingerprint` ya trae un ejemplo (vale cualquier texto de 8 a 128 letras, dígitos o
+   `. _ : + / = -`). Copia de una oferta: `offerId`, `itineraries[0].itineraryId`,
+   `pricingOptions[0].cabinClass` y `pricingOptions[0].fareBrand` (BASIC, CLASSIC, FLEX o
+   BUSINESS_FLEX).
+5. **Hold.** `POST /flights/v1/offers/hold`: en `Idempotency-Key` un uuid nuevo (en la consola del
+   navegador: `crypto.randomUUID()`); en el cuerpo, los cuatro valores copiados y
+   `passengersBreakdown` igual al de la búsqueda. Copia el `holdId`. Vale 15 minutos.
+6. **Reserva.** `POST /flights/v1/bookings` con otro uuid en `Idempotency-Key`, el `holdId` y el
+   pasajero del ejemplo (cédula ecuatoriana válida `1710034065`). El pago se simula según el
+   prefijo de `paymentReference`: `PAY-OK-<4 a 50 mayúsculas o dígitos>` aprueba (201, `CONFIRMED`
+   con boleto), `PAY-PEND-...` queda pendiente (202) y `PAY-REJ-...` se rechaza (422). Cada
+   referencia se usa una sola vez: cambia el sufijo en cada reserva. Copia `bookingId`.
+7. **Consultas.** `GET /bookings/{bookingId}`, `.../tickets`, `.../baggage-options` y, con la
+   reserva confirmada, `POST .../baggage` (uuid en `Idempotency-Key`, otro `PAY-OK-`).
+8. **Cambio de fecha.** `POST .../date-change/search` con el `itineraryId` de la reserva y la fecha
+   del ejemplo (la familia BASIC no permite cambios: 409; usa CLASSIC o FLEX en el hold). Confirma
+   con `POST .../date-change`, el `changeOfferId` y otro `PAY-OK-`.
+9. **Cancelación.** `GET .../cancellation-quote` y `POST .../cancel` con su `quoteId` y otro uuid
+   en `Idempotency-Key`: 200 con la reserva `CANCELLED`.
+10. **Check-in.** Abre 48 horas antes de la salida: para probarlo, reserva un vuelo de mañana
+    (la fecha de búsqueda de mañana) y haz `POST .../check-in` y `GET .../boarding-passes`.
+11. **Estado de vuelo** (público): `GET /flights/v1/flights/LA1400/status?date=<una fecha de la
+    semilla>`.
+
+El mismo recorrido, automatizado en un navegador, está en `scripts/swagger-ui.cjs` (Playwright;
+capturas en [docs/pruebas/swagger](docs/pruebas/swagger)).
+
 ## Búsqueda de vuelos
 
 Las dos operaciones son públicas (sin token), como en el contrato:
