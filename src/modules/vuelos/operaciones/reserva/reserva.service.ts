@@ -15,7 +15,11 @@ import {
 import { ESTADO_RESERVA, ORDEN_CABINAS } from '../../compartido/enums';
 import { cuerpoInvalido, noExiste } from '../../compartido/errores';
 import { sumarDias } from '../../compartido/fechas';
-import { ClaveGuardada, IdempotenciaRepository } from '../../compartido/idempotencia.repository';
+import {
+  ClaveGuardada,
+  IdClave,
+  IdempotenciaRepository,
+} from '../../compartido/idempotencia.repository';
 import { EstadoPago, SERVICIO_PAGOS, ServicioPagos } from '../../compartido/pagos/servicio-pagos';
 import { BoletoService } from '../boleto/boleto.service';
 import { RetencionService } from '../retencion/retencion.service';
@@ -109,6 +113,27 @@ export class ReservaService {
     if (previa && previa.vence > ahora) return this.repetir(previa, huella, idPropietario);
     if (previa) await this.claves.borrarVencidas(ahora, idClave);
 
+    try {
+      return await this.crearNueva(solicitud, idPropietario, idClave, huella, ahora);
+    } catch (error) {
+      // Otra petición con la misma clave pudo terminar entre la lectura de arriba y la
+      // comprobación que falló (el hold ya consumido, la referencia ya usada): se repite su
+      // respuesta en vez de responder un 409 que el cliente no provocó.
+      if (error instanceof ErrorNegocio && error.status === 409) {
+        const ganadora = await this.claves.leer(idClave);
+        if (ganadora) return this.repetir(ganadora, huella, idPropietario);
+      }
+      throw error;
+    }
+  }
+
+  private async crearNueva(
+    solicitud: SolicitudReservaDto,
+    idPropietario: string,
+    idClave: IdClave,
+    huella: string,
+    ahora: Date,
+  ): Promise<ResultadoReserva> {
     const hold = await this.repositorio.holdParaReservar(solicitud.holdId);
     if (!hold || hold.idPropietario !== idPropietario) throw holdNoExiste();
     if (hold.estado === 'CONSUMIDA') throw holdConsumido(hold.id);
