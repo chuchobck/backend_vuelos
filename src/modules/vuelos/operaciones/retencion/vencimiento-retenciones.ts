@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reloj } from '../../../../common/reloj';
+import { IdempotenciaRepository } from '../../compartido/idempotencia.repository';
 import { RetencionRepository } from './retencion.repository';
 
 /** Reglas del proceso periódico de vencimiento. */
@@ -41,6 +42,7 @@ export class VencimientoRetenciones implements OnApplicationBootstrap, OnModuleD
 
   constructor(
     private readonly repositorio: RetencionRepository,
+    private readonly claves: IdempotenciaRepository,
     private readonly reloj: Reloj,
     config: ConfigService,
   ) {
@@ -79,7 +81,7 @@ export class VencimientoRetenciones implements OnApplicationBootstrap, OnModuleD
         if ((await this.repositorio.vencerSiguiente(ahora)) === null) break;
         resultado.retenciones++;
       }
-      resultado.claves = await this.repositorio.borrarClavesVencidas(ahora);
+      resultado.claves = await this.claves.borrarVencidas(ahora);
     } catch (error) {
       this.logger.error(`Falló el vencimiento de retenciones: ${(error as Error).name}`);
     }

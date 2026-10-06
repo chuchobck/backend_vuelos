@@ -12,11 +12,11 @@ import { cuerpoInvalido, noExiste } from '../../compartido/errores';
 import { asientosOcupados, ConteoPasajeros, validarPasajeros } from '../../compartido/pasajeros';
 import { RetencionCreadaDto } from './dto/respuesta-retencion.dto';
 import { SolicitudRetencionDto } from './dto/solicitud-retencion.dto';
+import { ClaveGuardada, IdempotenciaRepository } from '../../compartido/idempotencia.repository';
 import { aRetencionCreada, aRetencionRepetida } from './retencion.mapper';
 import { Retencion } from './retencion.modelo';
 import {
   ACTOR_SISTEMA,
-  ClaveGuardada,
   CupoDeCabina,
   FamiliaDeOferta,
   FilaPrecioActual,
@@ -86,6 +86,7 @@ export class RetencionService {
 
   constructor(
     private readonly repositorio: RetencionRepository,
+    private readonly claves: IdempotenciaRepository,
     private readonly reloj: Reloj,
     config: ConfigService,
   ) {
@@ -102,9 +103,9 @@ export class RetencionService {
     const huella = huellaDe(solicitud);
     const idClave = { idPropietario, operacion: 'CREAR_RETENCION' as const, clave };
 
-    const previa = await this.repositorio.leerClave(idPropietario, 'CREAR_RETENCION', clave);
+    const previa = await this.claves.leer(idClave);
     if (previa && previa.vence > ahora) return repetir(previa, huella);
-    if (previa) await this.repositorio.borrarClavesVencidas(ahora, idClave);
+    if (previa) await this.claves.borrarVencidas(ahora, idClave);
 
     const pasajeros = validarPasajeros(solicitud.passengersBreakdown, 'passengersBreakdown');
     const oferta = await this.repositorio.oferta(solicitud.offerId);
@@ -170,7 +171,7 @@ export class RetencionService {
     switch (rechazo) {
       case 'clave-en-uso': {
         // Otra petición con la misma clave terminó primero: se responde lo mismo que a ella.
-        const ganadora = await this.repositorio.leerClave(idPropietario, 'CREAR_RETENCION', clave);
+        const ganadora = await this.claves.leer(idClave);
         if (!ganadora) throw claveEnCurso();
         return repetir(ganadora, huella);
       }

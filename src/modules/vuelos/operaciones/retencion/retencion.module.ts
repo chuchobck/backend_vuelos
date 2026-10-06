@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { IdempotenciaRepository } from '../../compartido/idempotencia.repository';
 import { RetencionController } from './retencion.controller';
 import { RetencionRepository } from './retencion.repository';
 import { RetencionService } from './retencion.service';
@@ -11,7 +12,12 @@ import { VencimientoRetenciones } from './vencimiento-retenciones';
  */
 @Module({
   controllers: [RetencionController],
-  providers: [RetencionService, RetencionRepository, VencimientoRetenciones],
+  providers: [
+    RetencionService,
+    RetencionRepository,
+    IdempotenciaRepository,
+    VencimientoRetenciones,
+  ],
   exports: [RetencionService],
 })
 export class RetencionModule {}
