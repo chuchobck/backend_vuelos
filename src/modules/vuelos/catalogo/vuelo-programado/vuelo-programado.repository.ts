@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { clase_cabina, estado_vuelo, Prisma } from '../../../../generated/prisma/client';
+import { Reloj } from '../../../../common/reloj';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { PublicadorEventos } from '../../operaciones/webhook/publicador-eventos';
 import { Ejecutor, FiltroCatalogo, RepositorioCatalogo } from '../base/repositorio-catalogo';
 
 const CON_DETALLE = {
@@ -28,6 +30,19 @@ const CON_DETALLE = {
 export type FilaVueloProgramado = Prisma.vuelo_programadoGetPayload<{
   include: typeof CON_DETALLE;
 }>;
+
+/** Si los cambios mueven el horario que ve el pasajero: programado, estimado o el paso a DELAYED. */
+function cambiaElHorario(fila: FilaVueloProgramado, c: CambiosSalida): boolean {
+  const distinto = (nuevo: Date | null | undefined, actual: Date | null) =>
+    nuevo !== undefined && (nuevo?.getTime() ?? null) !== (actual?.getTime() ?? null);
+  return (
+    distinto(c.salidaProgramada, fila.salida_programada) ||
+    distinto(c.llegadaProgramada, fila.llegada_programada) ||
+    distinto(c.salidaEstimada, fila.salida_estimada) ||
+    distinto(c.llegadaEstimada, fila.llegada_estimada) ||
+    (c.estado === 'DEMORADO' && fila.estado !== 'DEMORADO')
+  );
+}
 
 export function numeroVueloDeSalida(fila: FilaVueloProgramado): string {
   return `${fila.vuelo.aerolinea_vuelo_aerolinea_idToaerolinea.codigo_iata}${fila.vuelo.numero}`;
@@ -73,7 +88,11 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
   FilaVueloProgramado,
   FiltroVueloProgramado
 > {
-  constructor(prisma: PrismaService) {
+  constructor(
+    prisma: PrismaService,
+    private readonly publicador: PublicadorEventos,
+    private readonly reloj: Reloj,
+  ) {
     super(prisma);
   }
 
@@ -134,6 +153,8 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
       where: { id: fila.id },
       data: { estado: activo ? 'PROGRAMADO' : 'CANCELADO' },
     });
+    // Cancelar avisa (flight.cancelled) a los dueños de las reservas vivas de esta salida
+    if (!activo) await this.publicador.deVuelo(tx, fila.id, 'flight.cancelled', this.reloj.ahora());
   }
 
   /** La salida y sus cupos por cabina en una sola transacción. Devuelve el id (segmentId). */
@@ -188,6 +209,10 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
         estado: cambios.estado,
       },
     });
+    // Un horario o una hora estimada nueva, o pasar a DELAYED, avisa (flight.schedule_changed)
+    if (cambiaElHorario(fila, cambios)) {
+      await this.publicador.deVuelo(tx, fila.id, 'flight.schedule_changed', this.reloj.ahora());
+    }
   }
 
   /**

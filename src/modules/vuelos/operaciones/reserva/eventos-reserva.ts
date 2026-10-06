@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { estado_reserva } from '../../../../generated/prisma/client';
 import { TransaccionVuelos } from '../../../../prisma/prisma.service';
+import { PublicadorEventos } from '../webhook/publicador-eventos';
 import { ReservaRepository } from './reserva.repository';
 
 /**
@@ -40,13 +41,16 @@ export interface EventoReserva {
 
 /**
  * Punto único por donde pasan los eventos de la reserva, siempre dentro de la transacción del
- * cambio. Hoy solo los deja en el historial (reserva_detalle_historial, el `changes` del
- * contrato). La fase 10 agrega aquí la bandeja de salida de webhooks (tabla `evento`) sin tocar
- * a quien los emite.
+ * cambio. Los deja en el historial (reserva_detalle_historial, el `changes` del contrato) y, si
+ * son de los 12 que el contrato deja suscribir, encola su entrega a los webhooks del dueño
+ * (PublicadorEventos, webhook_entrega). Quien emite el evento no cambia.
  */
 @Injectable()
 export class EventosReserva {
-  constructor(private readonly repositorio: ReservaRepository) {}
+  constructor(
+    private readonly repositorio: ReservaRepository,
+    private readonly publicador: PublicadorEventos,
+  ) {}
 
   async registrar(tx: TransaccionVuelos, reservaId: string, evento: EventoReserva): Promise<void> {
     await this.repositorio.agregarHistorial(tx, reservaId, {
@@ -55,5 +59,7 @@ export class EventosReserva {
       descripcion: evento.descripcion,
       fecha: evento.fecha,
     });
+    // Los webhooks: una entrega PENDIENTE por suscripción del dueño, en esta misma transacción
+    await this.publicador.deReserva(tx, reservaId, evento.tipo, evento.fecha);
   }
 }
