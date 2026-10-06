@@ -457,6 +457,7 @@ describe('Ningún secreto en logs ni en respuestas', () => {
 describe('JWT_SECRET en la validación del entorno', () => {
   const base = {
     DATABASE_URL: 'postgresql://u:p@localhost:5432/db',
+    WEBHOOK_SECRET_KEY: 'k'.repeat(32),
     PORT: '3000',
     NODE_ENV: 'test',
   };
