@@ -29,7 +29,7 @@ export class PaseAbordarDto {
   boardingPosition: string | null;
 
   @ApiProperty({
-    example: 'Q1|K7M2QX|0451331201527|LA1400|20261020|UIOGYE|10A|001|9F2C41B7A0D3',
+    example: 'BP1|K7M2QX|0451331201527|LA1400|20261020|UIOGYE|10A|001|9f2c41b7a0d3',
     description:
       'PNR, boleto, vuelo, fecha, ruta, asiento y orden, con una firma. Sin datos personales',
   })

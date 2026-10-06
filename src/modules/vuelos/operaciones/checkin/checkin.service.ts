@@ -8,6 +8,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { ESTADO_RESERVA } from '../../compartido/enums';
 import { SalidaVendible } from '../busqueda/busqueda.modelo';
 import { ItinerarioDeReserva, Reserva } from '../reserva/reserva.modelo';
+import { PaseAbordarService } from '../pase-abordar/pase-abordar.service';
 import { ReservaService } from '../reserva/reserva.service';
 import { EstadoCheckinPasajero, PasajeroCheckin, ResultadoCheckin } from './checkin.modelo';
 import { CheckinRegistrado, CheckinRepository } from './checkin.repository';
@@ -48,6 +49,7 @@ const noDisponible = (detalle: string) =>
  * - Reserva que no está CONFIRMED (cancelada, pendiente, con cambio pendiente): 409.
  * - Ningún vuelo en ventana y nada registrado antes: 409 CHECK_IN_NOT_AVAILABLE, diciendo cuándo
  *   abre o que ya cerró.
+ * - Cada check-in de un pasajero con asiento emite su pase de abordar en la misma transacción.
  * - Si no: 200 con lo registrado ahora y antes. Un vuelo que todavía no abre queda
  *   NOT_CHECKED_IN y uno que ya cerró (o cuyo vuelo salió o se canceló) queda FAILED: resultado
  *   parcial, IN_PROGRESS. COMPLETED es todos los pasajeros en todos los vuelos.
@@ -62,6 +64,7 @@ export class CheckinService {
   constructor(
     private readonly repositorio: CheckinRepository,
     private readonly reservas: ReservaService,
+    private readonly pases: PaseAbordarService,
     private readonly prisma: PrismaService,
     private readonly reloj: Reloj,
     config: ConfigService,
@@ -114,7 +117,24 @@ export class CheckinService {
               tramo.salida.id,
               ahora,
             );
-            if (id !== null) nuevos++;
+            if (id === null) continue;
+            nuevos++;
+            const asiento = pasajero.asientos.find((a) => a.salidaId === tramo.salida.id);
+            // Un infante no tiene asiento ni pase propio
+            if (pasajero.tipo !== 'INFANTE' && asiento) {
+              await this.pases.emitir(tx, {
+                checkinId: id,
+                reserva,
+                codigoPasajero: pasajero.codigo,
+                numeroVuelo: tramo.salida.numeroVuelo,
+                fechaSalida: tramo.salida.fechaSalida,
+                origen: tramo.salida.origen,
+                destino: tramo.salida.destino,
+                asiento: asiento.numero,
+                cabina: tramo.itinerario.familia.cabina,
+                emitido: ahora,
+              });
+            }
           }
           if (nuevos > 0) {
             await this.reservas.evento(
