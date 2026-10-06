@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BusquedaModule } from './busqueda/busqueda.module';
+import { CambioFechaModule } from './cambio-fecha/cambio-fecha.module';
 import { CancelacionModule } from './cancelacion/cancelacion.module';
 import { EquipajeModule } from './equipaje/equipaje.module';
 import { OfertaModule } from './oferta/oferta.module';
@@ -16,6 +17,7 @@ import { RetencionModule } from './retencion/retencion.module';
     ReservaModule,
     EquipajeModule,
     CancelacionModule,
+    CambioFechaModule,
   ],
 })
 export class OperacionesModule {}

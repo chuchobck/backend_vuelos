@@ -143,6 +143,16 @@ export class VariablesEntorno {
   CANCELLATION_QUOTE_TTL_MINUTES?: number;
 
   /**
+   * Minutos que vale una oferta de cambio de fecha (POST .../date-change/search). Sin valor: 15.
+   * De 1 a 60: no toma cupo, así que el precio y el cupo se vuelven a comprobar al confirmar.
+   */
+  @Max(60, { message: 'CHANGE_OFFER_TTL_MINUTES debe estar entre 1 y 60' })
+  @Min(1, { message: 'CHANGE_OFFER_TTL_MINUTES debe estar entre 1 y 60' })
+  @IsInt({ message: 'CHANGE_OFFER_TTL_MINUTES debe ser un número entero' })
+  @IsOptional()
+  CHANGE_OFFER_TTL_MINUTES?: number;
+
+  /**
    * Proceso periódico que vence los holds y borra las claves de idempotencia vencidas. Sin
    * valor: true. Con false solo quedan los vencimientos perezosos (las pruebas lo apagan).
    */

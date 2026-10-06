@@ -57,7 +57,10 @@ export class DiferenciaPrecioDto {
   })
   taxDifference: string;
 
-  @ApiProperty({ example: '12.32', description: 'Cargo por cambio de la tarifa original' })
+  @ApiProperty({
+    example: '12.32',
+    description: 'cargo_cambio de la tarifa original por cada pasajero con asiento',
+  })
   changeFee: string;
 
   @ApiProperty({

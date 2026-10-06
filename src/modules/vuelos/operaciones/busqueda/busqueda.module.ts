@@ -7,5 +7,6 @@ import { BusquedaService } from './busqueda.service';
 @Module({
   controllers: [BusquedaController],
   providers: [BusquedaService, BusquedaRepository],
+  exports: [BusquedaService],
 })
 export class BusquedaModule {}

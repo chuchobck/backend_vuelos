@@ -6,7 +6,7 @@ export interface DiferenciaPrecio {
   tarifa: Prisma.Decimal;
   impuestos: Prisma.Decimal;
   cargo: Prisma.Decimal;
-  /** max(0, tarifa + impuestos + cargo). */
+  /** max(0, tarifa + impuestos) + cargo: lo que baja no se devuelve; el cargo se cobra siempre. */
   aPagar: Prisma.Decimal;
 }
 
