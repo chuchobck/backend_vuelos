@@ -1,5 +1,6 @@
 import {
   clase_cabina,
+  estado_retencion,
   estado_vuelo,
   posicion_asiento,
   tipo_pasajero,
@@ -80,3 +81,15 @@ export const TIPO_PASAJERO = traduccion<tipo_pasajero, 'ADULT' | 'YOUTH' | 'CHIL
   INFANTE: 'INFANT',
 });
 export type TipoPasajeroContrato = (typeof TIPO_PASAJERO.valores)[number];
+
+/** Contrato HoldStatusResponse.status. */
+export const ESTADO_RETENCION = traduccion<
+  estado_retencion,
+  'HELD' | 'RELEASED' | 'EXPIRED' | 'CONSUMED'
+>({
+  RETENIDA: 'HELD',
+  LIBERADA: 'RELEASED',
+  EXPIRADA: 'EXPIRED',
+  CONSUMIDA: 'CONSUMED',
+});
+export type EstadoRetencionContrato = (typeof ESTADO_RETENCION.valores)[number];
