@@ -213,6 +213,22 @@ export class VariablesEntorno {
   POSTSALE_JOB_INTERVAL_SECONDS?: number;
 
   /**
+   * Proceso periódico que envía los webhooks pendientes (POST firmado a la URL de cada
+   * suscripción) y reintenta los fallidos. Sin valor: true. Con false, los eventos se acumulan en
+   * la bandeja sin enviarse (las pruebas lo apagan).
+   */
+  @IsIn(['true', 'false'], { message: 'WEBHOOK_DELIVERY_JOB_ENABLED debe ser true o false' })
+  @IsOptional()
+  WEBHOOK_DELIVERY_JOB_ENABLED?: string;
+
+  /** Cada cuántos segundos corre ese proceso. Sin valor: 10. */
+  @Max(3600, { message: 'WEBHOOK_DELIVERY_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @Min(5, { message: 'WEBHOOK_DELIVERY_JOB_INTERVAL_SECONDS debe estar entre 5 y 3600' })
+  @IsInt({ message: 'WEBHOOK_DELIVERY_JOB_INTERVAL_SECONDS debe ser un número entero' })
+  @IsOptional()
+  WEBHOOK_DELIVERY_JOB_INTERVAL_SECONDS?: number;
+
+  /**
    * Horas antes de la salida de cada vuelo en que abre su check-in. Sin valor: 48. De 2 a 168
    * (una semana): debe ser mayor que el cierre (como mucho 90 minutos).
    */
