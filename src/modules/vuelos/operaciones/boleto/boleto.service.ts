@@ -1,14 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { CodigoError } from '../../../../common/errores/codigo-error';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
+import { esUuid } from '../../../../common/pipes/formatos';
 import { TransaccionVuelos } from '../../../../prisma/prisma.service';
+import { noExiste } from '../../compartido/errores';
 import { Boleto } from './boleto.modelo';
 import { BoletoRepository, NumeroBoletoAgotado } from './boleto.repository';
 
 /**
  * Boletos de una reserva: los crea pendientes, los emite y los da por fallidos dentro de la
- * transacción de la reserva, y los lee para GET /bookings/{bookingId}/tickets. La propiedad
- * de la reserva la comprueba ReservaService antes de llamar a las lecturas.
+ * transacción de la reserva, y los lee para GET /bookings/{bookingId}/tickets, solo para el
+ * dueño de la reserva: para cualquier otro, la reserva no existe (404).
  */
 @Injectable()
 export class BoletoService {
@@ -48,8 +50,26 @@ export class BoletoService {
     return this.repositorio.deReserva(reservaId);
   }
 
-  async uno(reservaId: string, boletoId: string): Promise<Boleto | undefined> {
-    const [boleto] = await this.repositorio.deReserva(reservaId, boletoId);
+  /** GET /bookings/{bookingId}/tickets. */
+  async consultar(reservaId: string, idPropietario: string): Promise<Boleto[]> {
+    await this.comprobarDueno(reservaId, idPropietario);
+    return this.repositorio.deReserva(reservaId);
+  }
+
+  /**
+   * GET /bookings/{bookingId}/tickets/{ticketId}. El contrato no le da formato a ticketId: uno
+   * que no es uuid no puede existir y es 404, como uno que no es de esa reserva.
+   */
+  async consultarUno(reservaId: string, boletoId: string, idPropietario: string): Promise<Boleto> {
+    await this.comprobarDueno(reservaId, idPropietario);
+    const [boleto] = esUuid(boletoId) ? await this.repositorio.deReserva(reservaId, boletoId) : [];
+    if (!boleto) throw noExiste(`Ticket ${boletoId} was not found in booking ${reservaId}`);
     return boleto;
+  }
+
+  private async comprobarDueno(reservaId: string, idPropietario: string): Promise<void> {
+    if ((await this.repositorio.propietarioDeReserva(reservaId)) !== idPropietario) {
+      throw noExiste(`Booking ${reservaId} was not found`);
+    }
   }
 }

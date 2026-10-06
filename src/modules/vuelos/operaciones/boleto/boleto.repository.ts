@@ -131,6 +131,15 @@ export class BoletoRepository {
          AND b.estado::text IN ('PENDIENTE', 'EMITIENDO')`;
   }
 
+  /** El dueño de la reserva (el de su hold), o null si la reserva no existe. */
+  async propietarioDeReserva(reservaId: string): Promise<string | null> {
+    const fila = await this.prisma.db.reserva_cabecera.findUnique({
+      where: { id: reservaId },
+      select: { retencion_cabecera: { select: { id_propietario: true } } },
+    });
+    return fila?.retencion_cabecera.id_propietario ?? null;
+  }
+
   /** Los boletos de la reserva (con o sin `boletoId`), en el orden de los pasajeros. */
   async deReserva(reservaId: string, boletoId?: string): Promise<Boleto[]> {
     const filas = await this.prisma.db.$queryRaw<FilaBoleto[]>`

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { GeneradorCodigos } from '../../compartido/generador-codigos';
+import { BoletoController } from './boleto.controller';
 import { BoletoRepository } from './boleto.repository';
 import { BoletoService } from './boleto.service';
 
@@ -9,6 +10,7 @@ import { BoletoService } from './boleto.service';
  * GeneradorCodigos (PNR y número de boleto) se exporta para que reserva use la misma instancia.
  */
 @Module({
+  controllers: [BoletoController],
   providers: [BoletoService, BoletoRepository, GeneradorCodigos],
   exports: [BoletoService, GeneradorCodigos],
 })

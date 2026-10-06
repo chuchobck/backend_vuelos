@@ -5,17 +5,26 @@ import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { Reloj } from '../../../../common/reloj';
 import { estado_reserva, estado_vuelo, Prisma } from '../../../../generated/prisma/client';
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
-import { ORDEN_CABINAS } from '../../compartido/enums';
-import { noExiste } from '../../compartido/errores';
+import { esUuid, fechaIsoAUtc } from '../../../../common/pipes/formatos';
+import { cursorInvalido } from '../../catalogo/base/errores-catalogo';
+import {
+  codificarCursor,
+  decodificarCursor,
+  LIMITE_POR_DEFECTO,
+} from '../../catalogo/base/paginacion';
+import { ESTADO_RESERVA, ORDEN_CABINAS } from '../../compartido/enums';
+import { cuerpoInvalido, noExiste } from '../../compartido/errores';
+import { sumarDias } from '../../compartido/fechas';
 import { ClaveGuardada, IdempotenciaRepository } from '../../compartido/idempotencia.repository';
 import { EstadoPago, SERVICIO_PAGOS, ServicioPagos } from '../../compartido/pagos/servicio-pagos';
 import { BoletoService } from '../boleto/boleto.service';
 import { RetencionService } from '../retencion/retencion.service';
 import { asignarAsientos, SalidaConCabina, validarAsientosElegidos } from './asientos-reserva';
+import { ConsultaReservasDto } from './dto/consulta-reservas.dto';
 import { SolicitudReservaDto } from './dto/solicitud-reserva.dto';
 import { EventosReserva, TipoEventoReserva } from './eventos-reserva';
 import { validarPasajeros } from './pasajeros-reserva';
-import { Reserva } from './reserva.modelo';
+import { Reserva, ResumenReserva } from './reserva.modelo';
 import { HoldParaReservar, PnrAgotado, ReservaRepository } from './reserva.repository';
 
 /** Reglas de POST /bookings. */
@@ -224,9 +233,36 @@ export class ReservaService {
     return { ...encontrada.reserva, boletos: await this.boletos.deReserva(reservaId) };
   }
 
-  /** Comprueba que la reserva existe y es de ese usuario (404 si no): para los boletos. */
-  async comprobarDueno(reservaId: string, idPropietario: string): Promise<void> {
-    await this.detalle(reservaId, idPropietario);
+  /**
+   * GET /bookings: las reservas del usuario, de la más reciente a la más vieja. El cursor es
+   * la creación y el id de la última fila de la página (opaco, en base64url). createdFrom y
+   * createdTo son días UTC completos, los dos incluidos.
+   */
+  async listar(
+    consulta: ConsultaReservasDto,
+    idPropietario: string,
+  ): Promise<{ filas: ResumenReserva[]; nextCursor?: string }> {
+    const limite = consulta.limit ?? LIMITE_POR_DEFECTO;
+    const desde = consulta.createdFrom ? fechaIsoAUtc(consulta.createdFrom) : undefined;
+    const hasta = consulta.createdTo ? sumarDias(fechaIsoAUtc(consulta.createdTo)!, 1) : undefined;
+    if (desde && hasta && desde >= hasta) {
+      throw cuerpoInvalido('createdTo', 'must not be before createdFrom');
+    }
+    const filas = await this.repositorio.listar({
+      idPropietario,
+      pnr: consulta.pnr,
+      estado: consulta.status ? ESTADO_RESERVA.aBase(consulta.status) : undefined,
+      desde,
+      hasta,
+      despuesDe: consulta.cursor ? leerCursor(consulta.cursor) : undefined,
+      limite,
+    });
+    if (filas.length <= limite) return { filas };
+    const ultima = filas[limite - 1];
+    return {
+      filas: filas.slice(0, limite),
+      nextCursor: codificarCursor(`${ultima.creada.toISOString()}|${ultima.id}`),
+    };
   }
 
   /**
@@ -428,6 +464,14 @@ export class ReservaService {
     const encontrada = await this.repositorio.detalle(reservaId);
     return { ...encontrada!.reserva, boletos: await this.boletos.deReserva(reservaId) };
   }
+}
+
+/** El cursor de GET /bookings: `creación|id` en base64url. Otro texto es 400. */
+function leerCursor(cursor: string): { creada: Date; id: string } {
+  const [creada, id, ...resto] = (decodificarCursor(cursor) ?? '').split('|');
+  const fecha = new Date(creada);
+  if (resto.length > 0 || Number.isNaN(fecha.getTime()) || !esUuid(id)) throw cursorInvalido();
+  return { creada: fecha, id };
 }
 
 /** No debería pasar: la clave se guarda con su respuesta en la misma transacción. */
