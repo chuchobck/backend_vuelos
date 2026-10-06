@@ -38,7 +38,23 @@ con ese usuario, sin código extra.
   scopes, se documenta con `@DocumentarAutenticacion()`.
 - `@Publico()` y `@Scopes()` juntos no tienen sentido: `ScopesGuard` niega igual.
 - Límite más estricto para una ruta: `@LimiteEstricto(limite, ventanaSegundos)`.
-- La propiedad del recurso (filtrar por `id_propietario = usuario.id` y responder 404 si es
-  ajeno) la hace el repository de cada entidad, desde las fases 6 y 7.
+- La propiedad del recurso (comparar `id_propietario` con `usuario.id` y responder 404 si es
+  ajeno, nunca 403: no se revela que existe) la hace el service de cada entidad, como en
+  `retencion.service.ts`.
 - El token de acceso no se revoca: vale hasta que vence (15 minutos) aunque la cuenta se
   desactive. Si una ruta necesita saberlo al instante, que consulte la base.
+
+## Idempotency-Key y hora
+
+```ts
+@Scopes('flights:hold')
+@Post()
+crear(@ClaveIdempotencia() clave: string, @Body() dto: X) {}   // 400 si falta o no es uuid
+```
+
+- `@ClaveIdempotencia()` (`decorators/clave-idempotencia.decorator.ts`) solo valida la cabecera y
+  la entrega en minúsculas, sin repetir el valor recibido en el error. Guardarla en
+  `clave_idempotencia` y repetir la respuesta es del service, en la misma transacción que el
+  cambio que protege (ver `src/modules/vuelos/README.md`, Retenciones).
+- `Reloj` (`reloj.ts`, global) da la hora de la aplicación. Todo lo que decide si algo venció la
+  pide ahí; las pruebas lo reemplazan por `RelojDePrueba` (`test/utils/reloj.ts`).

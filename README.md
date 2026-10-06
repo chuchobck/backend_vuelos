@@ -20,11 +20,12 @@ está en [docs/PLAN.md](docs/PLAN.md).
 | 3. Auth                               | Hecha                                  |
 | 4. Catálogo (CRUD de administración)  | Hecha                                  |
 | 5. Búsqueda y mapa de asientos        | Hecha                                  |
-| 6 a 11                                | Pendiente                              |
+| 6. Retenciones (hold)                 | Hecha                                  |
+| 7 a 11                                | Pendiente                              |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
-administración del catálogo en `/flights/v1/admin` y las dos primeras operaciones del contrato:
-`POST /search` y `GET /offers/{offerId}/seatmap`.
+administración del catálogo en `/flights/v1/admin` y estas operaciones del contrato:
+`POST /search`, `GET /offers/{offerId}/seatmap` y el bloqueo de cupos en `/offers/hold`.
 
 Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
 
@@ -77,6 +78,9 @@ Variables opcionales (todas documentadas en `.env.example`):
 | `JWT_ISSUER`                | `iss` de los tokens que emite y acepta la API                                                              | quinde-vuelos-api |
 | `JWT_AUDIENCE`              | `aud` de los tokens que emite y acepta la API                                                              | quinde-vuelos-api |
 | `SEARCH_OFFER_TTL_MINUTES`  | Minutos que vale una oferta de `POST /search` (de 5 a 240)                                                 | 30                |
+| `HOLD_TTL_MINUTES`          | Minutos que un hold retiene el cupo (de 1 a 60)                                                            | 15                |
+| `HOLD_EXPIRY_JOB_ENABLED`   | Proceso que vence los holds abandonados y borra las claves de idempotencia vencidas (`true` o `false`)    | `true`            |
+| `HOLD_EXPIRY_JOB_INTERVAL_SECONDS` | Cada cuántos segundos corre ese proceso (de 5 a 3600)                                               | 60                |
 
 Si los puertos 5432 o 3000 ya están ocupados, cámbialos en `.env`: `DB_PORT` para la base
 (junto con el puerto de `DATABASE_URL`) y `PORT` para la API.
@@ -186,6 +190,38 @@ curl -X POST localhost:3000/flights/v1/search -H 'Content-Type: application/json
 
 La semilla genera salidas para los 90 días siguientes al día en que se cargó: elige una fecha en
 esa ventana. UIO-GPS no tiene vuelo directo y sale con escala en GYE.
+
+## Bloqueo de cupos (hold)
+
+Las tres operaciones exigen token, como en el contrato:
+
+| Endpoint                     | Scope          | Qué hace                                                         |
+| ---------------------------- | -------------- | ---------------------------------------------------------------- |
+| `POST /offers/hold`          | `flights:hold` | Toma el cupo y congela el precio; exige `Idempotency-Key` (uuid) |
+| `GET /offers/hold/{holdId}`  | `flights:read` | `HELD`, `RELEASED`, `EXPIRED` o `CONSUMED`, con `remainingSeconds` |
+| `DELETE /offers/hold/{holdId}` | `flights:hold` | Libera el hold y devuelve el cupo (204)                        |
+
+- El cuerpo lleva una selección (`cabinClass` + `fareBrand`, una de las `pricingOptions`) por cada
+  itinerario de la oferta y los pasajeros, con las mismas reglas de la búsqueda (a lo sumo 9 con
+  asiento, no más infantes que adultos). Los infantes viajan en brazos y no toman cupo.
+- El precio es el de la tarifa en el momento del hold, para todos los pasajeros, y queda
+  congelado aunque la tarifa cambie después.
+- Oferta vencida o inexistente, tarifa que ya no se vende o falta de cupo: 409
+  `OFFER_NO_LONGER_AVAILABLE`. Un itinerario ajeno a la oferta o una familia que la aerolínea no
+  tiene: 422.
+- La misma `Idempotency-Key` con el mismo cuerpo devuelve la misma respuesta (201, con
+  `Idempotent-Replayed: true`) durante 24 horas; con otro cuerpo, 422. La clave es de cada usuario.
+- El hold vence a los `HOLD_TTL_MINUTES` y el cupo vuelve: al consultarlo, al competir por esas
+  salidas o con el proceso periódico (`HOLD_EXPIRY_JOB_INTERVAL_SECONDS`).
+- Cada hold es de quien lo creó: el de otro usuario responde 404. Un administrador puede
+  consultar cualquiera, pero solo el dueño lo libera.
+- `POST` tiene un límite propio de 30 por minuto e IP.
+
+```bash
+curl -X POST localhost:3000/flights/v1/offers/hold -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $(cat /proc/sys/kernel/random/uuid)" \
+  -d '{"offerId":"<offerId>","itinerarySelections":[{"itineraryId":"<itineraryId>","cabinClass":"ECONOMY","fareBrand":"BASIC"}],"passengersBreakdown":{"adults":1}}'
+```
 
 ## Catálogo de administración
 

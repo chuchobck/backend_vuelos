@@ -53,6 +53,11 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   El id en una URL es un código natural (ISO, IATA, número de vuelo) o un uuid; una tabla sin
   clave natural lleva `id_publico uuid` en el esquema.
 - El dinero que entra también es texto (`"35.00"`), validado con expresión regular; nunca `number`.
+- El cupo (`inventario_cabina`) solo se mueve con UPDATE condicionado dentro de una transacción
+  auditada, bloqueando las filas en orden (salida, cabina) para no cruzarse con otro proceso.
+- Un vencimiento nuevo se decide con la hora de `Reloj` (`src/common/reloj.ts`), no con
+  `new Date()` ni `now()` de la base: las pruebas lo adelantan. Ya lo usan los holds y las claves
+  de idempotencia; las ofertas de la búsqueda todavía no (ver Pendientes del plan).
 - Una baja de catálogo es `activo = false` (una salida: estado `CANCELADO`) y responde 409 si otras
   filas activas la usan. Las filas de detalle (asientos, cupos, precios) no se quitan.
 - Las pruebas e2e no borran: crean cuentas `@e2e.quinde.example` y catálogo con códigos libres al
