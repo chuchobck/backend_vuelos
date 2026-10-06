@@ -4,6 +4,7 @@ import { PagosModule } from '../../compartido/pagos/pagos.module';
 import { BoletoModule } from '../boleto/boleto.module';
 import { RetencionModule } from '../retencion/retencion.module';
 import { EventosReserva } from './eventos-reserva';
+import { ReservaController } from './reserva.controller';
 import { ReservaRepository } from './reserva.repository';
 import { ReservaService } from './reserva.service';
 
@@ -14,6 +15,7 @@ import { ReservaService } from './reserva.service';
  */
 @Module({
   imports: [RetencionModule, BoletoModule, PagosModule],
+  controllers: [ReservaController],
   providers: [ReservaService, ReservaRepository, IdempotenciaRepository, EventosReserva],
   exports: [ReservaService],
 })
