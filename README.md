@@ -19,10 +19,11 @@ está en [docs/PLAN.md](docs/PLAN.md).
 | 1. Núcleo (Prisma, rutas, despliegue) | Hecha en local; falta desplegar Render |
 | 2. Transversales                      | Hecha                                  |
 | 3. Auth                               | Hecha                                  |
-| 4 a 11                                | Pendiente                              |
+| 4. Catálogo (CRUD de administración)  | Hecha                                  |
+| 5 a 11                                | Pendiente                              |
 
-Hoy la API expone `GET /flights/v1/health` y la autenticación en `/flights/v1/auth`. Prisma ya
-lee el esquema `vuelos`; los endpoints del contrato entran desde la fase 4.
+Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth` y el CRUD de
+administración del catálogo en `/flights/v1/admin`. Los endpoints del contrato entran desde la fase 5.
 
 Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
 
@@ -113,8 +114,9 @@ Los archivos de `db/` son la fuente de verdad: la base se crea desde el SQL, no 
   hay que volver a correr `./db/reset.sh`.
 - La semilla se carga una sola vez por base; para recargar, siempre `./db/reset.sh`.
 - `./db/reset.sh --solo-esquema` deja la base sin datos (tampoco roles: el registro no funciona).
-- Las pruebas e2e crean cuentas `@e2e.quinde.example` y las dejan desactivadas: no se pueden
-  borrar (eliminación lógica). `./db/reset.sh` las quita junto con todo lo demás.
+- Las pruebas e2e crean cuentas `@e2e.quinde.example` y catálogo con códigos libres al azar, y lo
+  dejan todo dado de baja: no se puede borrar (eliminación lógica). `./db/reset.sh` lo quita
+  junto con todo lo demás.
 - Prisma no crea ni cambia tablas: un cambio se hace en el SQL, se recarga la base y se corre
   `npm run prisma:pull`. `prisma/schema.prisma` no se edita a mano y no se usa `prisma migrate`.
 
@@ -157,6 +159,41 @@ curl localhost:3000/flights/v1/auth/me -H "Authorization: Bearer <access_token>"
 
 En Swagger, el botón **Authorize** → `bearer` recibe el `access_token`. Los roles son `cliente`
 (registro público) y `administrador` (todos los scopes más `flights:admin`).
+
+## Catálogo de administración
+
+CRUD de las 10 entidades de catálogo, fuera del contrato y solo con el scope `flights:admin` (el
+administrador que siembra `./db/reset.sh` lo tiene). En Swagger están bajo las etiquetas
+`Admin · <Entidad>`.
+
+| Ruta                     | Id en la URL                        | Detalle que maneja sin controller propio |
+| ------------------------ | ----------------------------------- | ---------------------------------------- |
+| `/admin/countries`       | código ISO alfa-2 (`EC`)            |                                          |
+| `/admin/cities`          | uuid                                |                                          |
+| `/admin/airports`        | código IATA (`UIO`)                 |                                          |
+| `/admin/airlines`        | código IATA (`AV`)                  |                                          |
+| `/admin/aircraft-models` | código IATA (`320`)                 |                                          |
+| `/admin/fare-families`   | uuid                                |                                          |
+| `/admin/seat-maps`       | uuid                                | filas y asientos físicos                 |
+| `/admin/flights`         | número de vuelo (`AV1234`)          |                                          |
+| `/admin/departures`      | uuid (el `segmentId` del contrato)  | cupos por cabina                         |
+| `/admin/fares`           | uuid                                | precios por tipo de pasajero             |
+
+Cada una tiene `GET` (lista paginada), `GET /:id`, `POST`, `PATCH /:id` (parcial),
+`DELETE /:id` y `POST /:id/reactivate`:
+
+- `DELETE` es una baja lógica: responde 204 y deja la fila con `activo = false` (una salida
+  queda `CANCELLED`). Nunca borra. Si otras filas activas la usan, responde 409 diciendo cuáles.
+- Las listas ocultan lo dado de baja; `?includeInactive=true` lo incluye. Paginan como el contrato:
+  `?limit=` (10 por defecto, 50 como máximo) y `?cursor=` con el `nextCursor` de la página anterior.
+- Una referencia a algo que no existe o está dado de baja responde 422; una clave repetida, 409.
+- El dinero viaja en texto (`"35.00"`), nunca como número.
+
+```bash
+TOKEN=$(curl -s -X POST localhost:3000/flights/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"admin@quinde.example","password":"<SEED_ADMIN_PASSWORD>"}' | jq -r .access_token)
+curl "localhost:3000/flights/v1/admin/departures?flightNumber=AV1500&limit=5" -H "Authorization: Bearer $TOKEN"
+```
 
 ## Cómo se trabaja
 

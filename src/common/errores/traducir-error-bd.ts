@@ -103,6 +103,81 @@ const POR_RESTRICCION: Record<string, Regla> = {
     CodigoError.VALIDATION_FAILED,
     'A webhook with this URL already exists',
   ),
+  uq_pais_codigo_iso2: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A country with this code already exists',
+  ),
+  uq_pais_codigo_iso3: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A country with this ISO 3166-1 alpha-3 code already exists',
+  ),
+  uq_pais_nombre: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A country with this name already exists',
+  ),
+  uq_ciudad_pais_nombre: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A city with this name already exists in the country',
+  ),
+  uq_aeropuerto_codigo_iata: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'An airport with this IATA code already exists',
+  ),
+  uq_aerolinea_codigo_iata: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'An airline with this IATA code already exists',
+  ),
+  uq_aerolinea_prefijo_boleto: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'Another airline already uses this ticket prefix',
+  ),
+  uq_modelo_aeronave_codigo_iata: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'An aircraft model with this IATA code already exists',
+  ),
+  uq_familia_tarifa_aerolinea_cabina_codigo: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'The airline already has a fare family with this code in this cabin',
+  ),
+  uq_mapa_asientos_cabecera_nombre: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'The airline already has a seat map with this name for this aircraft model',
+  ),
+  uq_vuelo_aerolinea_numero: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'A flight with this number already exists',
+  ),
+  uq_vuelo_programado_vuelo_fecha: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'The flight already has a departure on that local date',
+  ),
+  ck_vuelo_programado_estimadas: regla(
+    422,
+    CodigoError.VALIDATION_FAILED,
+    'The estimated arrival must be after the estimated departure',
+  ),
+  ck_vuelo_programado_reales: regla(
+    422,
+    CodigoError.VALIDATION_FAILED,
+    'The actual arrival needs an actual departure before it',
+  ),
+  uq_tarifa_cabecera_vuelo_familia: regla(
+    409,
+    CodigoError.VALIDATION_FAILED,
+    'The departure already has a fare for this fare family',
+  ),
   uq_usuario_correo: regla(
     409,
     CodigoError.VALIDATION_FAILED,

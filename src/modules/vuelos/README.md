@@ -60,11 +60,12 @@ graph TD
 ## Estado de la implementación
 
 El controller de ejemplo de la plantilla (`vuelos.controller.ts`, con respuestas simuladas en blanco)
-ya no existe: se quitó en la fase 1. Hoy `VuelosModule` está vacío y las entidades se agregan por
-fases (ver [docs/PLAN.md](../../../docs/PLAN.md)):
+ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
+[docs/PLAN.md](../../../docs/PLAN.md)):
 
-- `catalogo/<entidad>/`: CRUD de administrador en `/admin/...` con una clase base (fase 4).
+- `catalogo/<entidad>/`: CRUD de administrador en `/admin/...` con una clase base. Hecho en la fase 4.
 - `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10).
+- `compartido/`: traducción de los ENUM al contrato (`enums.ts`) y formatos de salida (`formatos-salida.ts`).
 - Cada entidad lleva `<entidad>.routes.ts`, controller, service, repository (el único que usa Prisma),
   mapper y `dto/`; las rutas se cuelgan en `vuelos.routes.ts`.
 
@@ -75,12 +76,38 @@ Lo transversal ya lo da la API a cualquier controller nuevo, sin código extra:
 | Errores `application/problem+json`    | Lanzar `ErrorNegocio(status, CodigoError.X, 'detalle en inglés')` desde el service; el filtro global arma el cuerpo     |
 | Errores de la base                    | No se capturan: el filtro traduce unique, FK, `RESTRICT`, CHECK y los triggers del esquema (`common/errores`)           |
 | Validación de la entrada              | DTO con class-validator; el `ValidationPipe` global rechaza campos de más con 400 `VALIDATION_FAILED`                    |
-| Parámetros de ruta y de query         | `@Param('id', UuidPipe)`, `@Query('date', FechaPipe)`, `CodigoIataAeropuertoPipe`, `CodigoIataAerolineaPipe`            |
+| Parámetros de ruta y de query         | `UuidPipe`, `FechaPipe`, `CodigoIataAeropuertoPipe`, `CodigoIataAerolineaPipe`, `CodigoPaisPipe`, `CodigoModeloAeronavePipe`, `NumeroVueloPipe` |
 | Texto libre del cliente               | `@TextoLimpio()` en el DTO (recorta, normaliza y rechaza controles y HTML); ver `src/common/sanitizacion/README.md`    |
 | Límite de peticiones                  | Ya aplica a toda ruta; `@LimiteEstricto(5, 60)` da uno propio y `@SinLimiteDePeticiones()` la excluye                  |
 | Escritura con auditoría               | `prisma.transaccionAuditada(tx => ...)` toma usuario e IP del contexto de la petición                                   |
 | Permisos y usuario                    | `@Scopes('flights:book')` (el scope del contrato) y `@UsuarioActual()`; toda ruta exige JWT salvo `@Publico()`           |
 | Request id, IP y usuario              | `obtenerContexto()` en `common/contexto`; el guard de JWT llama a `fijarUsuario(sub)` con cada token válido              |
+
+## Cómo se agrega una entidad al catálogo
+
+La lógica común está en `catalogo/base/`; una entidad nueva solo pone lo propio:
+
+| Archivo                  | Qué hace                                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `<entidad>.repository.ts` | Extiende `RepositorioCatalogo`: `claveDe`, `buscar`, `listar` (orden estable y página después de una fila), `estaActiva`, `fijarActivo`, más sus `insertar` y `modificar` |
+| `<entidad>.service.ts`    | Extiende `ServicioCatalogo`: `insertar`, `modificar`, `usosQueImpidenDesactivar` (409) y, si depende de otra fila, `motivoQueImpideReactivar` (422) |
+| `<entidad>.controller.ts` | `@ControllerAdmin(ETIQUETAS.x)` y las seis rutas con `DocCatalogo.*`; convierte con el mapper y `aPagina`          |
+| `<entidad>.mapper.ts`     | Fila → JSON en inglés: ENUM con `compartido/enums.ts`, Decimal y fechas con `compartido/formatos-salida.ts`        |
+| `<entidad>.routes.ts`     | `[{ path: '<ruta-en-inglés>', module: XModule }]`, colgado en `catalogo.routes.ts`                                 |
+
+Reglas que siguen todas:
+
+- El id en la URL es el código natural (ISO, IATA, número de vuelo) o un uuid; nunca el `bigint`
+  interno. Una tabla sin clave natural lleva una columna `id_publico uuid` en el esquema.
+- La baja es un `UPDATE` (`fijarActivo`), dentro de `enTransaccion` (la transacción auditada). Ningún
+  archivo del catálogo llama a `delete`, `deleteMany` ni SQL sin parámetros: lo revisa
+  `test/catalogo-borrado.e2e-spec.ts`.
+- Las filas de detalle (asientos, cupos, precios por pasajero) no tienen controller: las crea y
+  cambia el service de su cabecera, y no se quitan (no hay borrado).
+- Una referencia a otra fila se resuelve por su clave pública con el repository de esa entidad y,
+  si no existe o está inactiva, `referenciaInvalida(campo, detalle)` (422). Un duplicado lo
+  rechaza la base y `common/errores/traducir-error-bd.ts` lo responde 409 (con un mensaje propio
+  si la restricción está en `POR_RESTRICCION`).
 
 Pruebas: `npm run test:e2e`. Un controller que solo existe en la prueba se agrega con
 `crearApp([MiControllerDePrueba])` (ver `test/utils/crear-app.ts`).

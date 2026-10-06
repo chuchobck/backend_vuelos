@@ -48,8 +48,9 @@ describe('Errores de la base traducidos al contrato', () => {
 
   it('P2002 (unique) → 409 VALIDATION_FAILED', async () => {
     await enTransaccionRevertida(prisma, async (tx) => {
-      const error = await tx.pais
-        .create({ data: { codigo_iso2: 'EC', codigo_iso3: 'ZZZ', nombre: 'Otro' } })
+      // Una restricción sin mensaje propio en POR_RESTRICCION: sale el genérico
+      const error = await tx.moneda
+        .create({ data: { codigo_iso: 'USD', nombre: 'Otro dólar' } })
         .catch((e: unknown) => e);
       expect((error as { code: string }).code).toBe('P2002');
       esperar(

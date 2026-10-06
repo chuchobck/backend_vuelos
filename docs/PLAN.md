@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-05 (cierre de la fase 3) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-10-05 (cierre de la fase 4) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1.
 
@@ -12,7 +12,8 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | 1. Núcleo | Hecha en local (2026-10-05); falta el despliegue en Render | Cada commit pasa `npm ci`, `build`, `lint` y `format:check` por separado. Con el `.env` local: `GET /flights/v1/health` responde 200 y la base registra el `SELECT 1`; `/flights/v2/health` responde 404; `/api/docs` abre y `/api/docs-json` lista la ruta. Con la base caída, `/health` responde 503. La imagen de `docker build` arranca, responde lo mismo contra la base local y su HEALTHCHECK queda `healthy`. La extensión bloquea `delete` y `deleteMany` y la transacción auditada deja usuario e IP en `auditoria` (probado dentro de una transacción revertida) |
 | 2. Transversales | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (137 pruebas contra la base real) pasan en cada commit. Con `curl` contra la API: ruta inexistente → 404 `application/problem+json`; `POST` sobre ruta existente que no lo admite → 405 con `Allow`; cuerpo inválido, campo no permitido, HTML en un texto y UUID mal formado → 400 `VALIDATION_FAILED` con `invalidParams`; errores de base provocados a propósito (unique, FK, `ON DELETE RESTRICT`) → 409/422 sin detalles internos, y la base queda igual (0 filas nuevas en `pais` y en `auditoria`); error no controlado → 500 sin detalle ni stack; 105 peticiones en un minuto → 429 con `Retry-After`; cuerpo de más de 100 kB → 413; cabeceras de helmet presentes; Swagger UI en `/api/docs` carga en un navegador headless sin errores de consola ni peticiones fallidas; `X-Request-Id` generado, respetado si es válido, reemplazado si no, y presente en los errores |
 | 3. Auth | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (184 pruebas, 47 nuevas, contra la base real) pasan. `./db/reset.sh` carga los dos esquemas y las dos semillas; sin `SEED_ADMIN_PASSWORD` no crea el administrador y con una de menos de 12 caracteres falla. Con `curl` contra la API en el puerto 3010: register 201 (correo normalizado) y 409 si se repite; login 200 con `Cache-Control: no-store` y el mismo 401 para contraseña errónea, correo inexistente y cuenta inactiva; `GET /auth/me` 401 sin token (`WWW-Authenticate: Bearer realm=...`) y 200 con token; refresh rota el token; reusar uno rotado da 401 y revoca también el vigente; logout 204 y el refresh siguiente 401; token manipulado 401 `invalid_token`; el sexto login en un minuto 429 aunque la contraseña sea correcta; 403 con `insufficient_scope` y los scopes que faltan (con un controller de sonda, porque ningún endpoint real usa `@Scopes` todavía). Swagger: Authorize con `bearer` probado en un navegador headless (`/auth/me` pasa de 401 a 200). argon2 funciona dentro de la imagen Docker. Ninguna contraseña ni token completo aparece en los logs ni en las respuestas de error |
-| 4 a 11 | Pendientes | |
+| 4. Catálogo | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (277 pruebas, 93 nuevas, contra la base real) pasan; la prueba del catálogo se repitió dos veces seguidas sin chocar con sus propios datos. Con la base recién cargada (`./db/reset.sh`) y la API en el puerto 3010, entrando como el administrador de desarrollo, `curl` recorre el ciclo completo de una aerolínea y de una salida programada: crear 201, leer 200, PATCH 200, DELETE 204 (la salida queda `CANCELLED`), la lista la oculta y con `includeInactive=true` la muestra, reactivate 200; la auditoría guarda cada cambio con el `sub` del administrador. Un cliente recién registrado recibe 403 (`Missing required scopes: flights:admin`) y sin token, 401: el 403 pendiente de la fase 3 queda verificado contra endpoints reales. Swagger lista las 10 etiquetas `Admin · …` aparte de las 7 del contrato, y en un navegador headless Authorize con `bearer` lleva `GET /admin/airlines` de 401 a 200. Ningún DELETE físico: el código del catálogo no los tiene (prueba de escaneo, que falla si se inyecta uno), la extensión los corta en sus 14 tablas y la auditoría no tiene ninguna `ELIMINACION` |
+| 5 a 11 | Pendientes | |
 
 ## Decisiones
 
@@ -38,6 +39,11 @@ La plantilla manda en lenguaje y framework; lo único que se reemplaza es el ORM
 | Eliminación | Lógica: `activo = false` o cambio de estado | Ningún endpoint ejecuta un `DELETE` de SQL sobre datos de negocio. |
 | CRUD de catálogo | Rutas `/flights/v1/admin/...`, fuera del contrato, con una clase base compartida | El contrato no tiene mantenimiento de aeropuertos, vuelos ni tarifas, y el curso pide CRUD. Las 10 entidades repiten listar, ver, crear, editar y dar de baja lógica. |
 | Swagger | `/api/docs`, versión 1.5.0.0, esquema bearer, 7 etiquetas del contrato más las propias | Las etiquetas viven en `src/config/swagger.ts` (`ETIQUETAS`) para que cada controller use la misma. |
+| Identificador del catálogo en la URL | El código natural (ISO alfa-2, IATA, número de vuelo) o un uuid; nunca el `bigint` | CLAUDE.md prohíbe que el `bigint` salga. `ciudad`, `familia_tarifa`, `mapa_asientos_cabecera` y `tarifa_cabecera` no tienen clave natural simple: se les agregó `id_publico uuid` en `esquema_vuelos.sql` (decidido con el dueño del repo en la fase 4). |
+| Baja de una salida programada | `DELETE /admin/departures/:id` la deja en estado `CANCELADO`; `reactivate` la vuelve a `PROGRAMADO` | `vuelo_programado` no tiene columna `activo`, y una segunda bandera podría contradecir al estado. Decidido con el dueño del repo. |
+| Nombres de las rutas admin | En inglés: `/reactivate`, `?includeInactive=true` | CLAUDE.md fija rutas y JSON en inglés; el pedido de la fase 4 los nombraba en español. Decidido con el dueño del repo. |
+| Cursor de las listas admin | La clave pública de la última fila en base64url; respuesta `{ nextCursor, items }` como `GET /bookings` del contrato | El contrato no define el formato del cursor. Así es opaco y no contiene el `bigint`; el orden es el id interno (o salida y uuid en las salidas). |
+| Detalle del catálogo | Asientos, cupos y precios por pasajero se crean con su cabecera y no se quitan | Quitarlos sería un borrado físico. La distribución de un mapa no cambia (las reservas apuntan a sus asientos): se crea otro mapa. Un cupo se baja a 0, no se borra. |
 | Pagos y GDS | Simulados | El pago llega como `paymentReference` y se da por bueno; la emisión de boletos es local. |
 
 El diseño de rutas está probado sobre la plantilla: `GET /flights/v1/bookings/{bookingId}/tickets` respondió 200 y `/flights/v2/...` respondió 404.
@@ -128,11 +134,11 @@ quinde-vuelos-api/
 │       ├── salud/                # ✓ GET /health
 │       ├── auth/                 # ✓ registro, login, refresh, logout, me; scopes.ts y seguridad/
 │       └── vuelos/
-│           ├── vuelos.module.ts  # ✓ junta los submódulos (vacío por ahora)
+│           ├── vuelos.module.ts  # ✓ junta los submódulos
 │           ├── vuelos.routes.ts  # ✓ cuelga las rutas de catálogo y operaciones
-│           ├── compartido/       # cálculo de precios, mapeo de enums español ↔ contrato
-│           ├── catalogo/         # CRUD de administrador en /admin/...
-│           │   ├── base/         # clase base compartida: repository, service y controller
+│           ├── compartido/       # ✓ enums.ts (español ↔ contrato) y formatos-salida.ts; precios en la fase 5
+│           ├── catalogo/         # ✓ CRUD de administrador en /admin/... (fase 4)
+│           │   ├── base/         # ✓ RepositorioCatalogo, ServicioCatalogo, paginación, errores, Swagger
 │           │   ├── pais/
 │           │   ├── ciudad/
 │           │   ├── aeropuerto/
@@ -370,14 +376,17 @@ Cambios frente al pedido: los scopes por rol (commit 4) van antes del módulo po
 
 ### Fase 4 · Catálogo
 
-1. `feat(catalogo): clase base de CRUD con eliminación lógica`
-2. `feat(catalogo): CRUD de países y ciudades`
-3. `feat(catalogo): CRUD de aeropuertos`
-4. `feat(catalogo): CRUD de aerolíneas y modelos de aeronave`
-5. `feat(catalogo): CRUD de familias tarifarias y mapas de asientos`
-6. `feat(catalogo): CRUD de vuelos y vuelos programados`
-7. `feat(catalogo): CRUD de tarifas`
-8. `test(catalogo): e2e de alta, edición, baja lógica y auditoría`
+1. `feat(catalogo): agregar la clase base de CRUD con eliminación lógica`
+2. `feat(catalogo): agregar el CRUD de países y ciudades`
+3. `feat(catalogo): agregar el CRUD de aeropuertos`
+4. `feat(catalogo): agregar el CRUD de aerolíneas y modelos de aeronave`
+5. `feat(catalogo): agregar el CRUD de familias tarifarias y mapas de asientos`
+6. `feat(catalogo): agregar el CRUD de vuelos y salidas programadas`
+7. `feat(catalogo): agregar el CRUD de tarifas`
+8. `test(catalogo): agregar e2e de alta, edición, baja lógica y auditoría`
+9. `docs: cerrar la fase 4 en el plan, los README y CLAUDE.md`
+
+Los commits 2, 5 y 7 incluyen el cambio de esquema que usan (`id_publico uuid`) junto con el `schema.prisma` regenerado, como pide la regla de un cambio de base completo por commit.
 
 ### Fase 5 · Búsqueda
 
@@ -497,6 +506,21 @@ Lo que se vio al probar Prisma 7 (adaptador de `pg`) contra PostgreSQL 18.6, con
 | Controllers de prueba | Con el guard global, los controllers de las pruebas de la fase 2 respondían 401 | Se marcaron `@Publico()` |
 | `type` de los 401 y 403 | Un `ErrorNegocio` con el código de respaldo sale con `type: .../errors/validation-failed`, que no describe un error de autenticación | Se dejó como en la fase 2 para no cambiar el filtro; ver Pendientes |
 
+### Fase 4
+
+| Tema | Qué pasó | Qué implica |
+| --- | --- | --- |
+| Identificadores | Cuatro tablas de catálogo solo tenían una PK `bigint` y ninguna clave natural simple | `id_publico uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE` en `ciudad`, `familia_tarifa`, `mapa_asientos_cabecera` y `tarifa_cabecera`. La semilla no cambió: el default llena las 15 316 tarifas |
+| Salidas sin `activo` | `vuelo_programado` tiene `estado` y no `activo` | La base del catálogo deja que cada repository diga qué es "activa" (`estaActiva`, `fijarActivo`): para una salida, `estado <> 'CANCELADO'` |
+| Integridad que el esquema no cubre | No hay triggers sobre catálogo ni inventario: solo CHECK y UNIQUE (`cupos_disponibles BETWEEN 0 AND cupos_totales`, un cupo por cabina) | En el service de salidas: el mapa es de la aerolínea que opera el vuelo, cada cupo existe en el mapa y no supera sus asientos físicos, la fecha local de salida se calcula con la zona de la ciudad de origen (00:30 UTC es el día anterior en Quito), y la salida es futura. En el de tarifas: la familia es de la aerolínea que comercializa el vuelo (la semilla lo cumple en las 15 316) y su cabina tiene cupo en la salida |
+| Cambio de cupo concurrente | Un `UPDATE` con Prisma no puede comparar columnas entre sí | `$executeRaw` parametrizado: `SET disponibles = disponibles + (nuevo - totales), totales = nuevo WHERE nuevo >= totales - disponibles`. Una retención simultánea no puede dejar `cupos_disponibles` negativo; si el nuevo total queda por debajo de lo comprometido, 409 |
+| Cancelar una salida | Las retenciones y reservas llegan a la salida por el itinerario (`retencion_detalle` / `reserva_detalle_itinerario` → `itinerario_detalle`) | Se cuentan con relaciones de Prisma: retenciones `RETENIDA` sin vencer y reservas que no están `CANCELADA` ni `FALLIDA`, con itinerario vigente. Una salida `DESPEGADO`, `ATERRIZADO` o `DESVIADO` no se cancela ni cambia horario ni cupos |
+| "En uso" | Las filas de salidas pasadas referencian mapas, familias y vuelos para siempre | Solo bloquean la baja las salidas próximas no canceladas y las tarifas en venta; lo histórico no |
+| `strictNullChecks` apagado | En un ternario, TypeScript no estrecha `string \| null \| undefined` y aceptaba devolver un `string` como `Date` | En los helpers que manejan `null` se escribe el `if` explícito |
+| Límite de login en las pruebas manuales | Una ráfaga de `curl` que inicia sesión varias veces agota los 5 logins por minuto y los tokens salen vacíos (todo da 401) | Es el límite de la fase 3 funcionando. En las pruebas manuales se guarda el token (vale 15 minutos) en vez de volver a iniciar sesión |
+| Pruebas que no borran | Lo que crean las pruebas queda dado de baja y los códigos naturales (ISO, IATA) son finitos | `test/utils/catalogo.ts` elige códigos libres al azar y los nombres únicos llevan un sufijo; la prueba se repite sin chocar. El país (676 códigos) es el primero que se agotaría: `./db/reset.sh` los libera |
+| Una corrida lenta | Una vez, `test:e2e` tardó 318 s en `errores-bd.e2e-spec.ts`; no se pudo repetir (las siguientes, 10 a 30 s) | Probablemente un bloqueo con una conexión de una API de prueba todavía abierta. Si vuelve a pasar, revisar `pg_stat_activity` |
+
 ## Pendientes
 
 Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corresponde.
@@ -521,5 +545,10 @@ Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corr
 - [ ] Fase 1/2: en Render poner `TRUST_PROXY=1` y `CORS_ORIGINS` con el origen del frontend.
 - [ ] Fase 2: las rutas que no existen (404) no cuentan en el límite de peticiones porque no pasan por ningún guard; si hace falta limitarlas, hay que pasar a un middleware.
 - [ ] Fase 1: el servicio gratuito de Render se duerme tras 15 minutos sin uso; la primera petición después tarda.
-- [ ] Fase 7: la tabla `pais` solo tiene Ecuador, así que un pasajero con otra nacionalidad se rechaza hasta agregar su país.
+- [ ] Fase 7: la tabla `pais` solo tiene Ecuador, así que un pasajero con otra nacionalidad se rechaza hasta agregar su país (desde la fase 4, con `POST /admin/countries`).
+- [ ] Fase 5: la búsqueda debe vender solo lo activo del catálogo: salidas no `CANCELADO` y futuras, tarifas, familias, vuelos y aeropuertos con `activo = true`. Las bajas de la fase 4 no tocan esas filas: solo las marcan.
+- [ ] Fase 5 o después: no hay CRUD de `moneda` (la tarifa la referencia por código ISO y la semilla solo trae USD) ni de `tipo_evento` (lo fija el contrato).
+- [ ] Límite conocido del catálogo: el chequeo "en uso" y la escritura que lo sigue corren en la misma transacción, pero sin bloquear las filas hijas; un alta simultánea de una ciudad mientras se da de baja su país podría colarse. Para el uso de un administrador alcanza; si hiciera falta, `SELECT ... FOR UPDATE` sobre la fila padre.
+- [ ] Límite conocido: una salida no cambia de mapa de asientos (cambio de aeronave). Hacerlo exige revalidar cupos y asientos ya asignados; queda para cuando haya reservas (fase 7).
+- [ ] El pedido de la fase 4 citaba un "Ajuste de estructura" de este archivo que no existe: la estructura por entidad está en la sección Esqueleto.
 - [ ] Fase 11: la semilla cubre 90 días desde el día en que se carga; hay que volver a sembrar antes de la entrega.
