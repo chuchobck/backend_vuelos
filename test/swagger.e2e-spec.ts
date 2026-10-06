@@ -1,4 +1,6 @@
 import { INestApplication } from '@nestjs/common';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import * as request from 'supertest';
 import { crearApp } from './utils/crear-app';
 import {
@@ -220,6 +222,13 @@ describe('Swagger (/api/docs) contra el contrato', () => {
     const respuesta = await request(app.getHttpServer()).get('/api/docs').redirects(1);
     expect(respuesta.status).toBe(200);
     expect(respuesta.text).toContain('swagger-ui');
+  });
+
+  it('la versión de Swagger es la de package.json y la descripción nombra el contrato', () => {
+    const paquete = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
+    expect(generado.info.version).toBe(paquete.version);
+    expect(generado.info.version).toBe('1.0.0');
+    expect(generado.info.description).toContain('v1.5.0.0');
   });
 
   it('el documento es OpenAPI 3 con las 7 etiquetas del contrato, en su orden', () => {
