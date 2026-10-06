@@ -38,6 +38,8 @@ con ese usuario, sin código extra.
   scopes, se documenta con `@DocumentarAutenticacion()`.
 - `@Publico()` y `@Scopes()` juntos no tienen sentido: `ScopesGuard` niega igual.
 - Límite más estricto para una ruta: `@LimiteEstricto(limite, ventanaSegundos)`.
+  Los contadores (`guards/almacen-limites.ts`) usan el `Reloj` inyectable con una ventana
+  deslizante: una prueba de límites crea la app con un `RelojDePrueba` y lo adelanta, sin esperas.
 - La propiedad del recurso (comparar `id_propietario` con `usuario.id` y responder 404 si es
   ajeno, nunca 403: no se revela que existe) la hace el service de cada entidad, como en
   `retencion.service.ts`.

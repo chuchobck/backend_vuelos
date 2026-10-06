@@ -7,8 +7,10 @@
 Backend del dominio de **vuelos** del Booking Prototipo: implementa el contrato
 [GDS Flight Core API v1.5.0.0](contracts/vuelos-openapi.yaml) para vuelos nacionales de Ecuador.
 
-Es un backend NestJS 10 + TypeScript con PostgreSQL 18 (ver [Origen](#origen)). El plan completo, con decisiones, fases y commits,
-está en [docs/PLAN.md](docs/PLAN.md).
+Es un backend NestJS 10 + TypeScript con PostgreSQL 18 (ver [Origen](#origen)), versión **1.0.0**
+([CHANGELOG](CHANGELOG.md)). El plan completo, con decisiones, fases y commits, está en
+[docs/PLAN.md](docs/PLAN.md); el despliegue, en [docs/DEPLOY.md](docs/DEPLOY.md), y las diferencias
+con el contrato, en [docs/DISCREPANCIAS-CONTRATO.md](docs/DISCREPANCIAS-CONTRATO.md).
 
 ## Estado
 
@@ -24,13 +26,15 @@ está en [docs/PLAN.md](docs/PLAN.md).
 | 7. Reservas y boletos                 | Hecha                                  |
 | 8. Postventa                          | Hecha                                  |
 | 9. Check-in, pases y estado de vuelo  | Hecha                                  |
-| 10 y 11                               | Pendiente                              |
+| 10. Webhooks                          | Hecha                                  |
+| 11. Calidad y entrega (v1.0.0)        | Hecha; el despliegue en Render queda para el dueño del repo |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
 administración del catálogo en `/flights/v1/admin` y estas operaciones del contrato:
 `POST /search`, `GET /offers/{offerId}/seatmap`, el bloqueo de cupos en `/offers/hold`, las
 reservas con sus boletos en `/bookings`, su postventa (equipaje, cambio de fecha y cancelación), el
-check-in con sus pases de abordar y el estado público de un vuelo.
+check-in con sus pases de abordar, el estado público de un vuelo y los webhooks: las 22
+operaciones del contrato.
 
 Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
 
@@ -61,8 +65,9 @@ npm run start:dev         # API en http://localhost:3000
 curl localhost:3000/flights/v1/health
 ```
 
-La API no arranca si falta `DATABASE_URL`, `PORT`, `NODE_ENV` o `JWT_SECRET` (al menos 32
-caracteres), o si alguna variable tiene un formato inválido. Para generar la clave:
+La API no arranca si falta `DATABASE_URL`, `PORT`, `NODE_ENV`, `JWT_SECRET` o `WEBHOOK_SECRET_KEY`
+(las dos claves, de al menos 32 caracteres y distintas), o si alguna variable tiene un formato
+inválido: el mensaje nombra la variable sin mostrar su valor. Para generar una clave:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
@@ -94,6 +99,8 @@ Variables opcionales (todas documentadas en `.env.example`):
 | `POSTSALE_JOB_INTERVAL_SECONDS` | Cada cuántos segundos corre ese proceso (de 5 a 3600)                                                  | 30                |
 | `CHECKIN_OPENS_HOURS_BEFORE` | Horas antes de la salida en que abre el check-in de un vuelo (de 2 a 168)                                | 48                |
 | `CHECKIN_CLOSES_MINUTES_BEFORE` | Minutos antes de la salida en que cierra (de 15 a 90)                                                  | 60                |
+| `WEBHOOK_DELIVERY_JOB_ENABLED` | Proceso que envía y reintenta los webhooks (`true` o `false`)                                          | `true`            |
+| `WEBHOOK_DELIVERY_JOB_INTERVAL_SECONDS` | Cada cuántos segundos corre ese proceso (de 5 a 3600)                                         | 10                |
 
 Si los puertos 5432 o 3000 ya están ocupados, cámbialos en `.env`: `DB_PORT` para la base
 (junto con el puerto de `DATABASE_URL`) y `PORT` para la API.
@@ -107,6 +114,7 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | `npm run start:dev`       | Levanta la API y recarga al guardar                         |
 | `npm run build`           | Compila a `dist/`                                           |
 | `npm run test:e2e`        | Pruebas e2e (Jest + supertest); necesitan PostgreSQL arriba |
+| `npm run test:cov`        | Las mismas, con cobertura (resumen en `coverage/`)          |
 | `npm run lint`            | Revisa el código con ESLint                                 |
 | `npm run lint:fix`        | Igual, corrigiendo lo que se pueda                          |
 | `npm run format`          | Aplica Prettier                                             |
@@ -114,6 +122,29 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | `npm run prisma:pull`     | Relee el esquema de la base y regenera el cliente de Prisma |
 | `npm run prisma:generate` | Regenera el cliente de Prisma (`npm ci` ya lo hace)         |
 | `./db/reset.sh`           | Borra, crea y carga la base (esquemas y semillas)           |
+
+## Cómo probar
+
+Todo corre contra la base local (`docker compose up -d` y `./db/reset.sh`).
+
+| Qué | Cómo | Dónde está el resultado |
+| --- | --- | --- |
+| Suite completa (26 suites, 723 pruebas) | `npm run test:e2e` | En la consola. También corre en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) |
+| Contrato: las 22 operaciones, caso feliz y de error, validadas con Ajv | `npx jest --config test/jest-e2e.json contrato` | `test/contrato.e2e-spec.ts` (con su lista de excepciones) |
+| Swagger contra el contrato | `npx jest --config test/jest-e2e.json swagger` | `test/swagger.e2e-spec.ts` |
+| Seguridad (401, 403, recurso ajeno, JWT, SQLi y XSS, 413, 415, helmet, CORS, producción) | `npx jest --config test/jest-e2e.json seguridad` | [docs/pruebas/seguridad.md](docs/pruebas/seguridad.md) |
+| Cobertura | `npm run test:cov` | [docs/pruebas/cobertura.md](docs/pruebas/cobertura.md) |
+| A mano, desde Swagger | Ver [Probar desde Swagger](#probar-desde-swagger) | — |
+| A mano, con una colección | [docs/pruebas/vuelos.http](docs/pruebas/vuelos.http) (VS Code REST Client): el flujo completo, encadenado | — |
+| Swagger UI en un navegador real | `scripts/swagger-ui.cjs` (Playwright; ver el comentario del script) | [docs/pruebas/swagger](docs/pruebas/swagger) |
+| Prueba de humo contra un despliegue | `scripts/smoke.sh <BASE_URL>` | OK o FALLÓ por paso; código de salida 1 si algo falla |
+| Carga ligera | `scripts/carga.cjs` (autocannon; ver [docs/pruebas/carga.md](docs/pruebas/carga.md)) | [docs/pruebas/carga.md](docs/pruebas/carga.md) |
+
+## Despliegue
+
+En Render con la base en Neon: paso a paso en [docs/DEPLOY.md](docs/DEPLOY.md) (Blueprint
+[`render.yaml`](render.yaml), carga de esquemas y semillas con `psql`, variables y verificación
+con `scripts/smoke.sh`).
 
 ## Base de datos
 
@@ -376,6 +407,15 @@ salió, 409):
 curl "localhost:3000/flights/v1/flights/LA1400/status?date=2026-10-20"
 curl -X POST localhost:3000/flights/v1/bookings/<bookingId>/check-in -H "Authorization: Bearer $TOKEN"
 ```
+
+## Webhooks
+
+`GET` y `POST /webhooks` y `DELETE /webhooks/{id}` (scope `flights:webhooks`): un usuario registra
+hasta 10 URL que reciben los eventos de sus reservas, holds y vuelos. La URL debe ser `https`
+pública (fuera de producción también `http://localhost`); el secreto se guarda cifrado y se
+devuelve enmascarado. Cada entrega es un POST con el `WebhookPayload` del contrato, firmado
+(`X-Webhook-Signature: sha256=<HMAC-SHA256 de "timestamp.cuerpo">`), y se reintenta a 1 min,
+5 min, 30 min y 2 h. Detalle en [src/modules/vuelos/README.md](src/modules/vuelos/README.md#webhooks-fase-10).
 
 ## Catálogo de administración
 
