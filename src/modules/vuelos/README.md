@@ -66,12 +66,14 @@ ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
 - `catalogo/<entidad>/`: CRUD de administrador en `/admin/...` con una clase base. Hecho en la fase 4.
 - `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10). Hechos: `busqueda/` (`POST /search`),
   `oferta/` (`GET /offers/{offerId}/seatmap`), `retencion/` (`/offers/hold`, fase 6), y `reserva/`
-  y `boleto/` (`/bookings` y `/bookings/{bookingId}/tickets`, fase 7).
+  y `boleto/` (`/bookings` y `/bookings/{bookingId}/tickets`, fase 7), y `equipaje/`, `cambio-fecha/`
+  y `cancelacion/` (postventa, fase 8, colgadas de `bookings/:bookingId`).
 - `compartido/`: traducción de los ENUM al contrato (`enums.ts`, con `ORDEN_CABINAS`), formatos de
   salida (`formatos-salida.ts`), los pasajeros de la búsqueda y el hold (`dto/pasajeros.dto.ts` y
   `pasajeros.ts`), `FechaIso` (`dto/validadores.ts`), las claves de idempotencia
-  (`idempotencia.repository.ts`), el PNR y el número de boleto (`generador-codigos.ts`) y la Payment
-  API (`pagos/`).
+  (`idempotencia.repository.ts`), el PNR y el número de boleto (`generador-codigos.ts`), el cupo de
+  varias cabinas a la vez (`inventario.repository.ts`) y la Payment API (`pagos/`: la interfaz
+  `ServicioPagos`, el cobro común `Cobros` y las referencias guardadas `PagosRepository`).
 - Cada entidad lleva `<entidad>.routes.ts`, controller, service, repository (el único que usa Prisma),
   mapper y `dto/`; las rutas se cuelgan en `vuelos.routes.ts`.
 
@@ -90,7 +92,7 @@ Lo transversal ya lo da la API a cualquier controller nuevo, sin código extra:
 | Request id, IP y usuario              | `obtenerContexto()` en `common/contexto`; el guard de JWT llama a `fijarUsuario(sub)` con cada token válido              |
 | `Idempotency-Key`                     | `@ClaveIdempotencia()` en el parámetro (400 si falta o no es uuid); qué hace con la clave lo decide el service           |
 | La hora                               | Inyectar `Reloj` (`common/reloj.ts`) y usar `reloj.ahora()` para todo vencimiento; las pruebas lo cambian por uno quieto |
-| Un pago                               | Inyectar `SERVICIO_PAGOS` (`compartido/pagos`): `autorizar` al crear y `consultar` después; nunca datos de tarjeta        |
+| Un pago                               | `Cobros.autorizar(cobro)` (409 si la referencia ya se usó, 422 si se rechaza) y `PagosRepository` para guardarla con su estado; nunca datos de tarjeta |
 | Una Idempotency-Key guardada          | `IdempotenciaRepository`: `leer`, `reclamar(tx, clave)` en la transacción del cambio y `borrarVencidas`                |
 
 ## Operaciones del contrato
@@ -218,27 +220,65 @@ por creación e id (descendente) y pagina con un cursor opaco (`creación|id` en
 1. Escribir `PagosHttp implements ServicioPagos`: `autorizar(cobro)` consulta el pago con esa
    referencia y comprueba moneda, monto y concepto; `consultar(referencia)` devuelve su estado
    actual. Traduce la respuesta a `APROBADO`, `PENDIENTE`, `RECHAZADO` o `INVALIDO`.
+   `reembolsar` y `consultarReembolso` piden y siguen la devolución de un pago (idempotentes por
+   `operacion`, el quoteId).
 2. En `PagosModule`, cambiar `useClass: PagosSimulados` por `useClass: PagosHttp` (y sus variables
    de entorno en `entorno.ts` y `.env.example`).
 
 Las reservas, el proceso de emisión y las pruebas no cambian (las pruebas reemplazan el provider con
 `crearApp({ reemplazos: [{ proveedor: SERVICIO_PAGOS, valor }] })`).
 
-### Cómo se apoyan las fases 8 y 9
+## Postventa (fase 8)
 
-- **Equipaje (fase 8).** `reserva_detalle_equipaje` cuelga del pasajero y del itinerario de la
-  reserva y de un pago nuevo (`concepto = EQUIPAJE_ADICIONAL`, otra `paymentReference` vía
-  `ServicioPagos`). `POST /bookings` rechaza `extraBaggage` (422): se compra después.
-- **Cambio de fecha (fase 8).** Apaga la línea de `reserva_detalle_itinerario` (`vigente = false`) y
-  agrega la nueva; libera los asientos de los vuelos viejos (`fecha_liberacion`), asigna los nuevos
-  con las mismas reglas (`asientos-reserva.ts`) y emite los cupones nuevos. El cupo se mueve con el
-  orden de bloqueo (salida, cabina).
-- **Cancelación (fase 8).** `ReservaRepository.liberarAsientos` y `devolverCupo` ya hacen lo que
-  pide (los usa hoy la reserva `FALLIDA`); los boletos pasan a `ANULADO` o `REEMBOLSADO`.
-- **Check-in y pase de abordar (fase 9).** Parten del pasajero (`reserva_detalle_pasajero`), su
-  asiento vigente en ese vuelo (`reserva_detalle_asiento`) y su cupón `EMITIDO` (`boleto_detalle`):
-  solo una reserva `CONFIRMADA` hace check-in.
-- Todas pasan sus cambios de estado por `EventosReserva` para que la fase 10 los notifique.
+`equipaje/`, `cambio-fecha/` y `cancelacion/` cuelgan de `bookings/:bookingId` (cada una con su
+`<entidad>.routes.ts`). Todas leen la reserva con `ReservaService.detalle` (404 si es de otro),
+exigen `CONFIRMADA` y vuelos sin despegar (`reserva/reglas-postventa.ts`, con la hora del `Reloj`),
+cobran con `Cobros`, escriben en la transacción auditada y pasan sus hechos por `EventosReserva`.
+Lo que queda en 202 lo completa `PendientesPostventa` (en `operaciones/`, porque usa las tres).
+
+**Equipaje.** Precio de una maleta: `precio_equipaje_adicional` de la tarifa de la familia vendida,
+sumado sobre los vuelos del itinerario (el de hoy; se congela en `precio_unitario`). Máximo:
+`maximo_equipaje_adicional` de la familia, por pasajero e itinerario; un infante no compra. La
+compra bloquea la fila del pasajero, cuenta lo ya comprado (aprobado o pendiente) y recién ahí
+reclama la clave: dos compras simultáneas nunca pasan el máximo. Un pago pendiente (`estado =
+PENDIENTE` en `reserva_detalle_pago`) ya cuenta para el máximo pero no para `grandTotal`
+(`vista_reserva_total` suma solo el equipaje aprobado).
+
+**Cambio de fecha.** Buscar reutiliza `BusquedaService.itinerariosConPrecio` (las mismas consultas
+y reglas de escala) para la misma ruta, aerolínea y familia en la nueva fecha; cada combinación se
+guarda `OFERTADO` (`cambio_cabecera` + `cambio_detalle`) con sus diferencias y el cargo
+(`cargo_cambio` de la tarifa original por pasajero con asiento). Confirmar bloquea la reserva, saca
+la oferta de `OFERTADO` con un UPDATE condicionado (una confirmación gana), mueve el cupo con
+`InventarioRepository.mover` (una sentencia ordenada: toma el de los vuelos nuevos y devuelve el
+de los viejos), asigna asientos con `asientos-reserva.ts` y agrega las líneas nuevas apagadas.
+Pagado: enciende las líneas nuevas y apaga las viejas, mueve las maletas a la línea nueva, libera
+los asientos viejos y vuelve a emitir los boletos (`ReservaService.reemitirBoletos`: los anteriores
+`ANULADO`). Pendiente: `CAMBIO_PENDIENTE` con los vuelos nuevos tomados; aprobado se aplica,
+rechazado se deshace (cupo y asientos nuevos vuelven, la oferta queda `FALLIDO`).
+
+**Cancelación.** La cotización devuelve, por itinerario, `(tarifa + impuestos + maletas aprobadas) ×
+(100 − porcentaje_penalidad_cancelacion) / 100`; la penalidad es el resto de `grandTotal` (con los
+cargos por cambio). Cancelar: una transacción acepta la cotización (vigente y una sola por reserva),
+libera asientos y cupo (`ReservaService.liberarAsientosYCupo`), anula los boletos y deja
+`CANCELACION_PENDIENTE`; después se pide el reembolso (`ServicioPagos.reembolsar`) y, aprobado,
+otra transacción la deja `CANCELADA` con los boletos `REEMBOLSADO`. El reembolso se pide recién con
+la cancelación confirmada: dos cancelaciones simultáneas nunca devuelven dos veces.
+
+**Limpieza.** Las ofertas de cambio `OFERTADO` y las cotizaciones sin aceptar ya vencidas se borran
+físicamente (como las ofertas de búsqueda) al buscar o cotizar y en cada corrida del proceso; las
+confirmadas, pendientes, fallidas o aceptadas son parte de la reserva y no se tocan.
+
+### Cómo se apoyan las fases 9 y 10
+
+- **Check-in y pase de abordar (fase 9).** Parten de una reserva `CONFIRMADA` (no
+  `CAMBIO_PENDIENTE` ni cancelada), del pasajero, de su asiento vigente en ese vuelo
+  (`reserva_detalle_asiento` sin `fecha_liberacion`, filtrado por los itinerarios vigentes) y de su
+  cupón `EMITIDO` del boleto `EMITIDO` (tras un cambio, el boleto nuevo; el viejo queda `ANULADO`).
+  `exigirConfirmada` y `exigirSinDespegar` sirven igual.
+- **Webhooks (fase 10).** Todo pasa por `EventosReserva.registrar`: `booking.baggage_added`,
+  `booking.changed` y `booking.cancelled` están en `tipo_evento`; los pendientes y rechazados
+  (`booking.*_pending`, `booking.baggage_rejected`, `booking.change_failed`) no, y la fase 10 decide
+  si se agregan. Ahí se inserta la bandeja de salida (`evento`) sin tocar a quien los emite.
 
 ## Cómo se agrega una entidad al catálogo
 

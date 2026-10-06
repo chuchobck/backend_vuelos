@@ -22,12 +22,13 @@ está en [docs/PLAN.md](docs/PLAN.md).
 | 5. Búsqueda y mapa de asientos        | Hecha                                  |
 | 6. Retenciones (hold)                 | Hecha                                  |
 | 7. Reservas y boletos                 | Hecha                                  |
-| 8 a 11                                | Pendiente                              |
+| 8. Postventa                          | Hecha                                  |
+| 9 a 11                                | Pendiente                              |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
 administración del catálogo en `/flights/v1/admin` y estas operaciones del contrato:
-`POST /search`, `GET /offers/{offerId}/seatmap`, el bloqueo de cupos en `/offers/hold` y las
-reservas con sus boletos en `/bookings`.
+`POST /search`, `GET /offers/{offerId}/seatmap`, el bloqueo de cupos en `/offers/hold`, las
+reservas con sus boletos en `/bookings` y su postventa (equipaje, cambio de fecha y cancelación).
 
 Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
 
@@ -85,6 +86,10 @@ Variables opcionales (todas documentadas en `.env.example`):
 | `HOLD_EXPIRY_JOB_INTERVAL_SECONDS` | Cada cuántos segundos corre ese proceso (de 5 a 3600)                                               | 60                |
 | `BOOKING_ISSUE_JOB_ENABLED` | Proceso que emite los boletos de las reservas con pago pendiente cuando se aprueba (`true` o `false`)      | `true`            |
 | `BOOKING_ISSUE_JOB_INTERVAL_SECONDS` | Cada cuántos segundos corre ese proceso (de 5 a 3600)                                             | 30                |
+| `CANCELLATION_QUOTE_TTL_MINUTES` | Minutos que vale una cotización de cancelación (de 1 a 60)                                          | 15                |
+| `CHANGE_OFFER_TTL_MINUTES`  | Minutos que vale una oferta de cambio de fecha (de 1 a 60)                                                 | 15                |
+| `POSTSALE_JOB_ENABLED`      | Proceso que completa maletas, cambios y cancelaciones con pago o reembolso pendiente (`true` o `false`)    | `true`            |
+| `POSTSALE_JOB_INTERVAL_SECONDS` | Cada cuántos segundos corre ese proceso (de 5 a 3600)                                                  | 30                |
 
 Si los puertos 5432 o 3000 ya están ocupados, cámbialos en `.env`: `DB_PORT` para la base
 (junto con el puerto de `DATABASE_URL`) y `PORT` para la API.
@@ -259,6 +264,37 @@ curl -X POST localhost:3000/flights/v1/bookings -H "Authorization: Bearer $TOKEN
   -H 'Content-Type: application/json' -H "Idempotency-Key: $(cat /proc/sys/kernel/random/uuid)" \
   -d '{"holdId":"<holdId>","payment":{"paymentReference":"PAY-OK-7F3A9C21"},"passengers":[{"passengerId":"PAX1","passengerType":"ADULT","firstName":"Ana","lastName":"Pérez","documentType":"NATIONAL_ID","documentNumber":"1710034065","nationality":"EC","birthDate":"1990-04-15","gender":"F","contact":{"email":"ana@example.com","phone":"+593991234567"}}]}'
 ```
+
+## Postventa
+
+Sobre una reserva `CONFIRMED` del usuario (otra reserva es 404; otro estado, o un vuelo que ya
+salió, 409):
+
+| Endpoint                                          | Scope            | Qué hace                                                    |
+| ------------------------------------------------- | ---------------- | ----------------------------------------------------------- |
+| `GET /bookings/{bookingId}/baggage-options`       | `flights:read`   | Precio de una maleta, máximo y ya comprado, por pasajero e itinerario |
+| `POST /bookings/{bookingId}/baggage`              | `flights:book`   | Compra maletas; `Idempotency-Key`; 200 o 202 si el pago queda pendiente |
+| `POST /bookings/{bookingId}/date-change/search`   | `flights:read`   | Opciones de la misma ruta, aerolínea y familia en la nueva fecha, con la diferencia |
+| `POST /bookings/{bookingId}/date-change`          | `flights:book`   | Confirma una opción; `Idempotency-Key`; 200 o 202 (CHANGE_PENDING) |
+| `GET /bookings/{bookingId}/cancellation-quote`    | `flights:read`   | Cotiza el reembolso (vigente 15 minutos)                    |
+| `POST /bookings/{bookingId}/cancel`               | `flights:cancel` | Cancela con la cotización; `Idempotency-Key`; 200 o 202 (CANCELLATION_PENDING) |
+
+- **Equipaje.** El precio es el `extraBagPrice` de la tarifa (sumado sobre los vuelos del
+  itinerario) y el máximo, el `maxExtraBags` de la familia; un infante no compra. Se cobra con
+  una `paymentReference` nueva, con la misma regla simulada que la reserva.
+- **Cambio de fecha.** `totalToPay = max(0, fareDifference + taxDifference) + changeFee`: lo que
+  baja la tarifa no se devuelve y el cargo (`changeFee` de la tarifa original, por pasajero con
+  asiento) se cobra siempre. La opción vence a los 15 minutos (410 después) y no toma cupo hasta
+  confirmarla; al confirmar, los asientos se reasignan y los boletos se vuelven a emitir (los
+  anteriores quedan `VOIDED`). Una familia no cambiable es 409 `FARE_NOT_CHANGEABLE`.
+- **Cancelación.** De lo pagado por cada itinerario (tarifa, impuestos y maletas) se devuelve
+  `100 − cancellationPenaltyPercent` de su familia; los cargos por cambio no se devuelven. Cancelar
+  libera asientos y cupo y anula los boletos; con el reembolso aprobado quedan `REFUNDED`. Una
+  cotización vencida es 409 `QUOTE_EXPIRED`.
+- El reembolso sigue al pago de la reserva en la Payment API simulada: pagada con `PAY-OK-…`, se
+  aprueba al pedirlo (200); con `PAY-PEND-…`, queda pendiente (202) y el proceso la completa.
+- Límites propios por minuto e IP: 10 compras de maletas, 20 búsquedas de cambio, 10 cambios y
+  10 cancelaciones.
 
 ## Catálogo de administración
 

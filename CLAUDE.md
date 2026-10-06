@@ -68,8 +68,9 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   azar, y al final lo dan de baja.
 - Ningún `.json` con el mismo nombre base que un `.ts`: Jest importaría el JSON.
 - SQL crudo solo con plantillas etiquetadas (`$queryRaw\`...\``), tablas calificadas `vuelos.` y los ENUM
-  comparados como `::text`. Solo ofertas, itinerarios y claves de idempotencia se borran físicamente
-  (las vencidas), con `deleteMany` para que pase por la extensión de bloqueo.
+  comparados como `::text`. Solo ofertas, itinerarios, claves de idempotencia, ofertas de cambio sin
+  confirmar y cotizaciones sin aceptar se borran físicamente (las vencidas), con `deleteMany` para
+  que pase por la extensión de bloqueo (`TABLAS_CON_BORRADO_FISICO`).
 - Las respuestas de las operaciones del contrato se validan contra sus esquemas en las pruebas
   (`test/utils/contrato.ts`, Ajv).
 

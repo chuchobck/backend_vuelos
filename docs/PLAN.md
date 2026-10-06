@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-05 (cierre de la fase 7) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-10-06 (cierre de la fase 8) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1.
 
@@ -16,7 +16,8 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | 5. Búsqueda | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (313 pruebas, 36 nuevas, contra la base real) pasan. Con la base recién cargada y la API en el puerto 3010, sin token: `curl` de UIO-GYE solo ida (8 ofertas), ida y vuelta con 2 adultos y 1 niño (20, el tope), multidestino UIO-GPS-GYE-CUE con un infante (9, con escala por GYE en el primer tramo), una búsqueda sin resultados (200 con la lista vacía) y una inválida (400 por fecha pasada), y el mapa de asientos de una de las ofertas (200). Las seis respuestas cumplen `SearchResponse`, `SeatMapResponse` y `ProblemDetails` del contrato según Ajv 8.20 con ajv-formats 3, y ninguna trae un campo que el contrato no declare. Con las 4012 salidas de la semilla: una búsqueda de un tramo hace 11 sentencias SQL (2 lecturas, la transacción de guardado y 2 DELETE de purga) y tarda una mediana de 35 ms; ida y vuelta, 51 ms. El mapa de asientos hace 6 lecturas. Repetir la misma búsqueda no acumula ofertas sin límite: cada búsqueda igual suma sus 8 ofertas (de 187 a 227 tras 5 repeticiones), y con todas vencidas la siguiente búsqueda las purga junto con sus itinerarios huérfanos y deja solo sus 8 ofertas nuevas: lo vivo queda acotado a las ofertas de los últimos 30 minutos |
 | 6. Retenciones | Hecha (2026-10-05) | `lint`, `format:check`, `build` y `test:e2e` (355 pruebas, 42 nuevas, contra la base real) pasan tres corridas seguidas. Con la base recién cargada y la API en el puerto 3010: un cliente recién registrado busca UIO-GYE (8 ofertas), retiene la primera (201, `lockedPrice` 73,92 igual al de la búsqueda, el cupo baja de 126 a 125), la consulta (HELD, 899 s), repite el POST con la misma clave (201 con la misma respuesta, `Idempotent-Replayed: true`, un solo hold en la base), la libera (204), la consulta (RELEASED, el cupo vuelve a 126, `fecha_cierre` puesta) y otro usuario recibe 404 en GET y DELETE. Las respuestas cumplen `HoldResponse`, `HoldStatusResponse` y `ProblemDetails` (400, 401, 404, 409, 422) según Ajv. Concurrencia contra la API real: una salida de la semilla con 5 cupos en económica, 20 holds simultáneos con claves distintas → 5 × 201 y 15 × 409 `OFFER_NO_LONGER_AVAILABLE` en 188 ms; en 194 muestras de la base tomadas durante la ráfaga el cupo nunca bajó de 0 y retenido + disponible fue siempre el total; liberar las 5 a la vez devolvió exactamente 5. El proceso periódico, con `HOLD_TTL_MINUTES=1` e intervalo de 5 s, venció un hold real y devolvió su cupo, con la auditoría sin usuario. Todo `UPDATE` de `inventario_cabina` corre dentro de `transaccionAuditada`; el borrado físico sigue solo en ofertas, itinerarios y claves de idempotencia, y la auditoría no tiene ninguna `ELIMINACION`. El log no tiene tokens, contraseñas ni claves de idempotencia |
 | 7. Reservas y boletos | Hecha (2026-10-05) | `lint`, `format:check` y `build` pasan; `test:e2e` (425 pruebas, 70 nuevas, contra la base real) pasó en la primera y la segunda de tres corridas seguidas y en la tercera tuvo una prueba fallida que no quedó registrada; en las 15 corridas completas siguientes no volvió a fallar (ver Hallazgos). Con la base recién cargada y la API en el puerto 3010 (`HOLD_TTL_MINUTES=1`, emisión cada 5 s), como un cliente recién registrado: busca UIO-GYE, retiene (73,92), reserva con pago aprobado (201 `CONFIRMED`, `grandTotal` igual al `lockedPrice`, boleto `045…` emitido, asiento 10A), consulta detalle, listado, tickets y un ticket; repite el POST con la misma clave (la misma reserva, `Idempotent-Replayed: true`, una sola reserva para el hold); pago pendiente (202 `PENDING_PAYMENT`, el proceso la confirma y emite el boleto en la corrida siguiente); pago rechazado (422 `PAYMENT_NOT_AUTHORIZED`, el hold sigue `RETENIDA` y sin reserva); hold vencido (410); otro usuario recibe 404 en detalle y tickets y 422 con el hold ajeno. Las respuestas de las cinco operaciones cumplen `BookingDetail`, `BookingListResponse`, `TicketListResponse`, `Ticket` y `ProblemDetails` (400, 404, 409, 410, 422) según Ajv. Concurrencia contra la API real: 10 POST simultáneos sobre el mismo hold con claves distintas → 1 × 201 y 9 × 409 (una reserva en la base); 5 reservas simultáneas por el mismo asiento → 1 × 201 y 4 × 409 `SEAT_TAKEN` (un pasajero en ese asiento, los otros holds siguen `RETENIDA`); en la salida, disponibles + retenidos = total y asientos asignados = holds consumidos; en toda la base, ningún hold con dos reservas ni asiento con dos pasajeros. Las escrituras de reserva y boleto van todas dentro de `transaccionAuditada` (la auditoría no tiene ninguna `ELIMINACION`); el borrado físico sigue solo en ofertas, itinerarios y claves vencidas. El log de la API (522 líneas) no tiene documentos, correos, teléfonos, nombres, referencias de pago, claves de idempotencia ni tokens |
-| 8 a 11 | Pendientes | |
+| 8. Postventa | Hecha (2026-10-06) | `lint`, `format:check` y `build` pasan. `test:e2e` (468 pruebas, 43 nuevas, contra la base real), con la salida completa guardada en cada corrida: una primera tanda de tres pasó entera; tras dos correcciones (el reembolso del boleto canjeado y el conteo de cupo de las pruebas), otra tanda tuvo un fallo en la corrida 1 (el límite de 20 búsquedas de cambio respondió 400 en vez de 429: la ventana del throttler venció antes, el salto del reloj de WSL) y pasó entera en las corridas 2 y 3; la tanda siguiente pasó entera las tres (cinco corridas seguidas limpias). Con la base recién cargada y la API en el puerto 3010 (procesos cada 5 s), un cliente recién registrado busca, retiene y reserva CLASSIC (`PAY-OK`, 79,20); consulta las opciones de equipaje y compra una maleta (200; 422 con `PAY-REJ`; 202 con `PAY-PEND` y el proceso la confirma: total 109,20); busca un cambio (4 opciones, cargo 13,20) y lo confirma (200, boleto nuevo y el viejo anulado, el cupo pasa de un vuelo al otro); la misma oferta otra vez, 409; cotiza (reembolso 70,98 y penalidad 51,42) y cancela (200, asientos libres, boletos reembolsados, historial completo); otro usuario recibe 404 en las tres consultas; cancelar de nuevo, 409. Cambio con `PAY-REJ` 422 y con `PAY-PEND` 202 que el proceso aplica; una reserva pagada con `PAY-PEND` se cancela con 202 y el proceso la completa. Las respuestas de las seis operaciones cumplen `BaggageOptionsResponse`, `BaggageAddedResponse`, `DateChangeSearchResponse`, `CancellationQuoteResponse`, `BookingDetail`, `TicketListResponse` y `ProblemDetails` según Ajv. Al final, de 7302 cabinas ninguna descuadra (disponible + holds + asientos asignados = total), ningún asiento tiene dos pasajeros y no queda ningún pago pendiente. Concurrencia contra la API real: 3 cancelaciones simultáneas → 1 × 200 y 2 × 409 `ALREADY_CANCELLED` (el cupo vuelve una vez, una cotización aceptada); 3 confirmaciones de la misma oferta → 1 × 200 y 2 × 409 (el cupo se mueve una vez, una línea vigente); dos reservas por el último cupo de un vuelo (cupo bajado por la API de administración) → 1 × 200 y 1 × 409 `OFFER_NO_LONGER_AVAILABLE` (disponible 0); la misma clave de maletas 3 veces → 3 × 200 y una maleta; 3 claves por el último lugar → 1 × 200 y 2 × 409 `BAGGAGE_LIMIT_EXCEEDED`; ningún cupo negativo en toda la base. Las escrituras van por `transaccionAuditada`; fuera de ella solo las purgas permitidas, y la auditoría tiene `ELIMINACION` solo de ofertas de cambio y cotizaciones vencidas. El log de la API no tiene documentos, correos, teléfonos, nombres, referencias de pago, motivos, claves ni tokens |
+| 9 a 11 | Pendientes | |
 
 ## Decisiones
 
@@ -80,6 +81,19 @@ La plantilla manda en lenguaje y framework; lo único que se reemplaza es el ORM
 | Equipaje al reservar | `extraBaggage` en POST /bookings debe ir vacío (422) | El hold no congela el precio de la maleta; se compra después con `POST /bookings/{bookingId}/baggage` (fase 8), con su propio pago |
 | Límite de POST /bookings | 10 por minuto e IP, aparte del global | Cada reserva consume un hold y bloquea el inventario de sus cabinas mientras elige asientos |
 | Propiedad de la reserva | El dueño es el de su hold (`retencion_cabecera.id_propietario`): una reserva ajena es 404 para todos, también para un administrador | El pedido de la fase 7: solo el dueño. `reserva_cabecera` no tiene columna de dueño (3FN) |
+| Estado del pago | `reserva_detalle_pago.estado` (`PENDIENTE`, `APROBADO`, `RECHAZADO`; nuevo en `esquema_vuelos.sql`) | Una maleta con pago pendiente no tenía dónde quedar: la tabla no tenía estado y no se puede borrar. Pendiente ya cuenta para el máximo; `vista_reserva_total` suma solo el equipaje aprobado. La reserva y el cambio de fecha también guardan el estado de su pago |
+| Precio y máximo del equipaje | Precio: `precio_equipaje_adicional` de la tarifa de la familia vendida, sumado sobre los vuelos del itinerario (el de hoy, congelado al comprar). Máximo: `maximo_equipaje_adicional` de la familia por pasajero e itinerario. Un infante no compra (máximo 0) | Los dos datos ya existían en el catálogo; el precio es el mismo `extraCheckedBaggagePrice` de la búsqueda. Pasar el máximo: 409 `BAGGAGE_LIMIT_EXCEEDED` |
+| Cargo y diferencia del cambio de fecha | `changeFee` = `cargo_cambio` de las tarifas del itinerario original × pasajeros con asiento; `totalToPay = max(0, fareDifference + taxDifference) + changeFee`. Misma ruta, aerolínea y familia (misma cabina); sin cercanía al vuelo | El catálogo ya trae el cargo por familia y vuelo (la semilla: % de la tarifa de un adulto). Lo que baja la tarifa no se devuelve; el cargo se cobra siempre. Familia no cambiable: 409 `FARE_NOT_CHANGEABLE` |
+| Política de reembolso | Por itinerario: `(tarifa + impuestos + maletas aprobadas) × (100 − porcentaje_penalidad_cancelacion) / 100`, redondeado al centavo; penalidad = `grandTotal` − reembolso (los cargos por cambio no se devuelven). Sin cercanía al vuelo; un vuelo que ya salió no se cancela | El porcentaje ya estaba en la familia (`isRefundable` es `porcentaje < 100`, según su COMMENT). `isRefundable` del contrato es `refundAmount > 0` |
+| Vigencias | Cotización de cancelación: `CANCELLATION_QUOTE_TTL_MINUTES` (15, de 1 a 60). Oferta de cambio: `CHANGE_OFFER_TTL_MINUTES` (15, de 1 a 60). Claves de idempotencia: 24 horas | Como el hold: lo que tarda una persona en decidir. Una oferta de cambio no toma cupo: el cupo se comprueba al confirmar |
+| Errores de cotización y oferta | Cotización inexistente o de otra reserva: 422 (POST .../cancel solo declara 409); vencida o ya usada: 409 `QUOTE_EXPIRED`. Oferta de cambio inexistente o de otra reserva: 422; vencida: 410 `CHANGE_OFFER_EXPIRED`; ya usada: 409 | El contrato del POST no declara 404: son datos del cuerpo, como el `holdId` de la reserva |
+| Cancelación y reembolso | Una transacción acepta la cotización, libera asientos y cupo, anula los boletos y deja `CANCELACION_PENDIENTE`; después se pide el reembolso y, aprobado, otra transacción deja `CANCELADA` y los boletos `REEMBOLSADO` (200). Pendiente: 202 y el proceso la completa | El reembolso se pide recién con la cancelación confirmada: dos cancelaciones simultáneas nunca reembolsan dos veces. La simulación aprueba el reembolso de un pago `PAY-OK-…` y deja pendiente el de uno `PAY-PEND-…` |
+| Cambio con pago pendiente | Toma el cupo y los asientos de los vuelos nuevos y agrega las líneas apagadas (`vigente = false`); la reserva queda `CAMBIO_PENDIENTE` (202). Aprobado: se aplica (líneas, asientos viejos, boletos). Rechazado: se deshace y la oferta queda `FALLIDO` | El cupo nuevo queda asegurado mientras se decide el pago, y nada se borra al deshacer |
+| Boletos tras un cambio | Los boletos `EMITIDO` pasan a `ANULADO` y cada pasajero recibe uno nuevo con los cupones de los itinerarios vigentes | `uq_boleto_cabecera_activo_por_pasajero` deja un boleto activo por pasajero; el contrato no tiene "reemisión" |
+| Postventa y estados | Equipaje, cambio y cancelación exigen la reserva `CONFIRMADA` (409 si no, con el estado en el detalle) y vuelos sin despegar (409 `FLIGHT_ALREADY_DEPARTED`); cotizar o cancelar con un pago de maleta pendiente es 409 | Lo pide la fase. Un pago pendiente que llegara después de cancelar no tendría a dónde ir |
+| Límites de la postventa | Por minuto e IP: 10 compras de maletas, 20 búsquedas de cambio (como /search), 10 confirmaciones de cambio y 10 cancelaciones | Cada una cobra o mueve cupo; la búsqueda de cambio hace las consultas de una búsqueda |
+| Proceso de postventa | `PendientesPostventa` cada `POSTSALE_JOB_INTERVAL_SECONDS` (30), apagable con `POSTSALE_JOB_ENABLED=false`: maletas, cambios y cancelaciones pendientes, una transacción por pendiente con `SKIP LOCKED`, sin usuario; además purga ofertas de cambio y cotizaciones vencidas | Hermano de `EmisionPendiente`, con las mismas garantías |
+| Limpieza de ofertas de cambio y cotizaciones | Las vencidas que nadie confirmó o aceptó se borran físicamente (`cambio_cabecera`, `cambio_detalle`, `cotizacion_cancelacion` entran a `TABLAS_CON_BORRADO_FISICO`) | Como las ofertas de búsqueda: cada búsqueda de cambio o cotización crea filas. Las aceptadas o confirmadas son parte de la reserva y no se tocan. La auditoría registra esas bajas (`ELIMINACION`) |
 
 ### Ajuste de estructura
 
@@ -180,7 +194,7 @@ quinde-vuelos-api/
 │       └── vuelos/
 │           ├── vuelos.module.ts  # ✓ junta los submódulos
 │           ├── vuelos.routes.ts  # ✓ cuelga las rutas de catálogo y operaciones
-│           ├── compartido/       # ✓ enums.ts, formatos-salida.ts, fechas.ts, errores.ts, pasajeros.ts, idempotencia.repository.ts, generador-codigos.ts, pagos/ (ServicioPagos), dto/
+│           ├── compartido/       # ✓ enums.ts, formatos-salida.ts, fechas.ts, errores.ts, pasajeros.ts, idempotencia.repository.ts, generador-codigos.ts, inventario.repository.ts, pagos/ (ServicioPagos, Cobros, PagosRepository), dto/
 │           ├── catalogo/         # ✓ CRUD de administrador en /admin/... (fase 4)
 │           │   ├── base/         # ✓ RepositorioCatalogo, ServicioCatalogo, paginación, errores, Swagger
 │           │   ├── pais/
@@ -199,9 +213,9 @@ quinde-vuelos-api/
 │               ├── retencion/    # ✓ /offers/hold y el vencimiento periódico (fase 6)
 │               ├── reserva/      # ✓ /bookings y la emisión periódica (fase 7)
 │               ├── boleto/       # ✓ /bookings/{bookingId}/tickets (fase 7)
-│               ├── equipaje/
-│               ├── cambio-fecha/
-│               ├── cancelacion/
+│               ├── equipaje/     # ✓ baggage-options y baggage (fase 8)
+│               ├── cambio-fecha/ # ✓ date-change/search y date-change (fase 8)
+│               ├── cancelacion/  # ✓ cancellation-quote y cancel (fase 8); pendientes-postventa.ts en operaciones/
 │               ├── checkin/
 │               ├── pase-abordar/
 │               ├── estado-vuelo/
@@ -253,12 +267,12 @@ Los 22 endpoints del contrato se reparten en 12 entidades de `operaciones/`. Tod
 | `POST /bookings` (hecho en la fase 7) | reserva | `flights:book`; 10 por minuto e IP | Sí | `reserva_cabecera` y sus detalles, `boleto_*`, `retencion_cabecera`, `clave_idempotencia` |
 | `GET /bookings/{bookingId}` (hecho en la fase 7) | reserva | `flights:read` | No | `reserva_*`, `boleto_*` |
 | `GET /bookings/{bookingId}/tickets` y `/tickets/{ticketId}` (hechos en la fase 7) | boleto | `flights:read` | No | `boleto_cabecera`, `boleto_detalle` |
-| `GET /bookings/{bookingId}/baggage-options` | equipaje | `flights:read` | No | `tarifa_*`, `familia_tarifa` |
-| `POST /bookings/{bookingId}/baggage` | equipaje | `flights:book` | Sí | `reserva_detalle_equipaje`, `reserva_detalle_pago` |
-| `POST /bookings/{bookingId}/date-change/search` | cambio-fecha | `flights:read` | No | `cambio_*` |
-| `POST /bookings/{bookingId}/date-change` | cambio-fecha | `flights:book` | Sí | `cambio_*`, `reserva_detalle_itinerario` |
-| `GET /bookings/{bookingId}/cancellation-quote` | cancelacion | `flights:read` | No | `cotizacion_cancelacion` |
-| `POST /bookings/{bookingId}/cancel` | cancelacion | `flights:cancel` | Sí | `reserva_cabecera`, `boleto_*`, `inventario_cabina` |
+| `GET /bookings/{bookingId}/baggage-options` (hecho en la fase 8) | equipaje | `flights:read` | No | `tarifa_*`, `familia_tarifa`, `reserva_detalle_equipaje` |
+| `POST /bookings/{bookingId}/baggage` (hecho en la fase 8) | equipaje | `flights:book`; 10 por minuto e IP | Sí | `reserva_detalle_equipaje`, `reserva_detalle_pago` |
+| `POST /bookings/{bookingId}/date-change/search` (hecho en la fase 8) | cambio-fecha | `flights:read`; 20 por minuto e IP | No | `cambio_*`, `itinerario_*` |
+| `POST /bookings/{bookingId}/date-change` (hecho en la fase 8) | cambio-fecha | `flights:book`; 10 por minuto e IP | Sí | `cambio_*`, `reserva_detalle_itinerario`, `reserva_detalle_asiento`, `boleto_*`, `inventario_cabina` |
+| `GET /bookings/{bookingId}/cancellation-quote` (hecho en la fase 8) | cancelacion | `flights:read` | No | `cotizacion_cancelacion` |
+| `POST /bookings/{bookingId}/cancel` (hecho en la fase 8) | cancelacion | `flights:cancel`; 10 por minuto e IP | Sí | `reserva_cabecera`, `cotizacion_cancelacion`, `boleto_*`, `reserva_detalle_asiento`, `inventario_cabina` |
 | `POST /bookings/{bookingId}/check-in` | checkin | `flights:book` | No | `checkin`, `pase_abordar` |
 | `GET /bookings/{bookingId}/boarding-passes` | pase-abordar | `flights:read` | No | `pase_abordar` |
 | `GET /flights/{flightNumber}/status` | estado-vuelo | Público | No | `vuelo`, `vuelo_programado` |
@@ -479,10 +493,22 @@ El commit 8 salió de las pruebas de concurrencia con la misma clave.
 
 ### Fase 8 · Postventa
 
-1. `feat(postventa): opciones y compra de equipaje`
-2. `feat(postventa): buscar y confirmar cambio de fecha`
-3. `feat(postventa): cotizar y cancelar la reserva`
-4. `test(postventa): e2e de oferta vencida y tarifa no cambiable`
+1. `feat(postventa): agregar los DTO, modelos y mappers de equipaje, cambio de fecha y cancelación`
+2. `feat(db): agregar el estado del pago para los cobros pendientes`
+3. `feat(equipaje): consultar opciones y comprar maletas adicionales`
+4. `feat(cancelacion): cotizar el reembolso de una reserva con vigencia`
+5. `feat(cancelacion): cancelar con una cotización vigente y pedir el reembolso`
+6. `feat(cambio-fecha): buscar opciones de cambio de fecha con su diferencia`
+7. `feat(cambio-fecha): confirmar el cambio de fecha moviendo cupo, asientos y boletos`
+8. `feat(postventa): completar periódicamente maletas, cambios y cancelaciones pendientes`
+9. `test(postventa): agregar e2e de equipaje, cambio de fecha y cancelación`
+10. `fix(cancelacion): reembolsar solo los boletos de los itinerarios vigentes`
+11. `test(retencion): contar el cupo ocupado por holds y asientos asignados`
+12. `docs: cerrar la fase 8 en el plan, los README y CLAUDE.md`
+
+El commit 2 cambia el esquema (ver Decisiones, "Estado del pago"). El orden del historial por id
+(commit 7) salió de la prueba manual: el reloj de WSL saltó hacia atrás. El commit 10 salió de la
+verificación contra la API real; el 11, de las corridas de verificación (ver Hallazgos).
 
 ### Fase 9 · Check-in y estado
 
@@ -620,9 +646,25 @@ Lo que se vio al probar Prisma 7 (adaptador de `pg`) contra PostgreSQL 18.6, con
 | `PassengerItem` sirve de entrada y de salida | El contrato usa el mismo esquema para el cuerpo y para `BookingDetail.passengers` | La respuesta devuelve los datos del pasajero al dueño (documento, correo, teléfono) tal como se guardaron. Ningún error ni log los repite |
 | `ticketId` sin formato en el contrato | El path de `/tickets/{ticketId}` es `string`, no `uuid` | Un `ticketId` que no es uuid no puede existir: 404, no 400. `bookingId` sí es uuid (400) |
 | Orden en el listado con el reloj quieto | Tres reservas creadas en el mismo instante (reloj de prueba) salen por id, no por orden de creación | Es el desempate previsto (creación e id descendentes); la prueba adelanta el reloj un minuto entre reservas |
-| Datos que dejan las pruebas | Las reservas confirmadas no se cancelan (fase 8): sus asientos y cupo quedan tomados, y las cadenas de catálogo con reservas no se pueden dar de baja | Las pruebas eligen asientos libres leyendo la base y toleran que la cadena quede activa; `./db/reset.sh` lo limpia todo |
+| Datos que dejan las pruebas | Las reservas confirmadas no se cancelaban: sus asientos y cupo quedaban tomados, y las cadenas de catálogo con reservas no se podían dar de baja | Resuelto en la fase 8: las pruebas de la cadena cancelan sus reservas (`cancelarReservasDe`) y la dan de baja de nuevo. Las de la semilla siguen eligiendo asientos libres leyendo la base |
 | Una corrida con un fallo que no se repitió | En la verificación, la tercera de tres corridas seguidas tuvo una prueba fallida; la salida solo mostró el resumen (1 de 425) y no qué prueba fue. 15 corridas completas más, con la salida guardada para atraparla, pasaron todas | No se sabe cuál fue. Lo más probable es un salto del reloj de WSL en una de las cuatro pruebas de límites que dependen de `Date.now()` (Hallazgos de las fases 5 y 6), pero no está comprobado. Si vuelve a pasar, guardar la salida completa de `test:e2e` |
 | Límite de POST /bookings en la verificación manual | Un script que hace 10 reservas en paralelo y luego otras 5 en el mismo minuto recibe 429 en las últimas | Es el límite de 10 por minuto funcionando; la prueba del asiento se corrió aparte, con la API reiniciada (los contadores están en memoria) |
+
+### Fase 8
+
+| Tema | Qué pasó | Qué implica |
+| --- | --- | --- |
+| Un pago pendiente sin lugar en el esquema | `reserva_detalle_equipaje` y `reserva_detalle_pago` no tenían estado: una maleta con pago pendiente (202) no se podía distinguir de una pagada, ni deshacer sin borrar | Se agregó `estado_pago` y `reserva_detalle_pago.estado` al esquema (fuente de verdad: `db/esquema_vuelos.sql`, más `prisma db pull`); `db/prueba_esquema.sql` sigue pasando. Es el único cambio de esquema de la fase |
+| Las respuestas 202 y el 200 de cancel no tienen esquema | El contrato declara `200 Cancelación exitosa`, `202` de baggage, date-change y cancel sin cuerpo | Se devuelve el BookingDetail (y BaggageAddedResponse en el 202 de equipaje); Ajv valida esos cuerpos contra BookingDetail y BaggageAddedResponse |
+| Los errores que el contrato no declara | GET baggage-options y cancellation-quote no declaran errores; POST baggage, cancel y date-change/search solo 409; date-change 409 y 410 | La API responde además 400, 401, 403, 404 (reserva ajena), 422 (datos del cuerpo que no corresponden, pago rechazado) y 429 |
+| `DateChangeRequest.assignedSeats` sin pasajero | El asiento pedido no dice de quién es | En cada vuelo nuevo, el primer asiento pedido es del primer pasajero con asiento de la reserva, el segundo del segundo; los demás se asignan como al reservar |
+| Eventos que no están en `tipo_evento` | Los de pendiente y rechazo (`booking.baggage_pending`, `booking.baggage_rejected`, `booking.change_pending`, `booking.change_failed`, `booking.cancellation_pending`) | Van solo al historial; `booking.baggage_added`, `booking.changed` y `booking.cancelled` sí están. La fase 10 decide |
+| El boleto no tiene maletas | El pedido decía que el equipaje "se refleja en el boleto"; `boleto_cabecera` y `boleto_detalle` no tienen columnas de equipaje | Se refleja en `BookingDetail.passengers[].extraBaggage`, en `grandTotal` y en el historial |
+| El reembolso no tiene dónde guardar su referencia | No hay concepto de pago para reembolsos ni columna para la referencia de la devolución | El registro es la cotización aceptada (`monto_reembolso`, `fecha_completada`) y el estado `REEMBOLSADO` de los boletos; la operación del reembolso en la Payment API es el `quoteId` |
+| Reloj de WSL hacia atrás | En la prueba manual del cambio, la reserva quedó con hora 12:51 y el cambio con 12:46; el historial, ordenado por hora, ponía el cambio antes | El historial se ordena por id (orden de escritura). La prueba del tiempo restante del hold (fase 6) dependía del tiempo real entre pruebas y falló con un salto de 318 s: ahora compara contra el reloj de prueba. La de límites de auth (fase 3) también falló una vez: depende de `Date.now()` en `@nestjs/throttler` (Hallazgos de la fase 5) |
+| Boleto canjeado y reembolsado | En la verificación contra la API, cancelar una reserva que había cambiado de fecha marcaba REFUNDED también el boleto anulado por el canje | Corregido: solo se reembolsa el boleto cuyos cupones son de los itinerarios vigentes; la prueba de la cadena lo comprueba |
+| El conteo de cupo de las pruebas de la fase 6 | Daba por ocupado el cupo de todo hold CONSUMIDA; una reserva cancelada o cambiada de vuelo devuelve el cupo pero su hold sigue CONSUMIDA. Falló en las tres corridas después de la verificación manual (que había cancelado una reserva en el mismo vuelo) | Lo ocupado es holds RETENIDA (y consumidos sin reserva) más asientos asignados; corregido en `cupo` de las pruebas del hold y en `cupoDe` |
+| Líneas apagadas de un cambio rechazado | Un cambio pendiente que se rechaza deja sus líneas nuevas con `vigente = false` y sus asientos liberados | No cuentan para nada (ni total, ni boletos, ni detalle); nada se borra |
 
 ## Pendientes
 
@@ -652,14 +694,18 @@ Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corr
 - [x] Fase 5: la búsqueda vende solo lo activo del catálogo: salidas `PROGRAMADO` o `DEMORADO` y futuras, con vuelo, aerolíneas, aeropuertos, tarifa, familia y moneda activos y cupo para los pasajeros.
 - [x] Fase 6: el hold exige una oferta vigente, una selección por cada itinerario de la oferta y una familia de su aerolínea vendible en todos los segmentos; el precio se congela desde la tarifa actual y el cupo se descuenta con un UPDATE condicionado.
 - [x] Fase 7: `POST /bookings` consume el hold con `RetencionService.consumir(holdId, sub, tx)` en su transacción, cobra `lockedPrice` y exige los pasajeros del hold.
-- [ ] Fase 8: cancelar o cambiar una reserva reutiliza `ReservaRepository.liberarAsientos` y `devolverCupo`, y pasa sus cambios por `EventosReserva` (ver `src/modules/vuelos/README.md`, "Cómo se apoyan las fases 8 y 9").
+- [x] Fase 8: cancelar y cambiar una reserva reutilizan la liberación de asientos y cupo de la reserva y pasan sus cambios por `EventosReserva`.
+- [ ] Fase 9: el check-in parte de una reserva `CONFIRMADA`, del asiento vigente y del cupón `EMITIDO` del boleto activo (ver `src/modules/vuelos/README.md`, "Cómo se apoyan las fases 9 y 10").
+- [ ] Equipo: confirmar el cambio de esquema `reserva_detalle_pago.estado` (`estado_pago`).
+- [ ] Equipo: el contrato no define el cuerpo de los 202 de postventa ni del 200 de cancel; la API devuelve el BookingDetail (y BaggageAddedResponse en el 202 de equipaje).
+- [ ] Límite conocido: un reembolso que la Payment API rechaza deja la reserva en `CANCELACION_PENDIENTE` y el proceso lo vuelve a consultar en cada corrida; con la Payment API real hará falta una salida manual.
 - [ ] Fase 10: insertar en `evento` desde `EventosReserva.registrar`; decidir qué hacer con `booking.created` y `booking.payment_pending`, que no están en `tipo_evento`.
 - [ ] RDA2: reemplazar `PagosSimulados` por el cliente de la Payment API real (ver "Cómo se reemplaza ServicioPagos").
 - [ ] Equipo: el contrato solo declara 400, 409, 410 y 422 en POST /bookings y 404 en las consultas; la API también responde 401, 403 y 429, y 400 a un `bookingId` que no es uuid. Una respuesta repetida lleva `Idempotent-Replayed: true`, una cabecera que el contrato no nombra.
 - [ ] Equipo: `clave_idempotencia.respuesta` dice "cuerpo de la respuesta original"; para POST /bookings guarda solo `{ bookingId }` para no duplicar datos personales (ver Decisiones).
 - [ ] Límite conocido: una reserva `PENDIENTE_PAGO` espera sin tope de tiempo a que la Payment API decida; con la real convendría darla por fallida después de un plazo.
 - [ ] Cuando se toque la búsqueda: pasar el vencimiento de las ofertas (`busqueda.service.ts`, `oferta.service.ts`, la purga) y `contarCompromisos` del catálogo al `Reloj`, como los holds. Hoy usan `Date.now()`; en producción es la misma hora, pero las pruebas no pueden adelantarla.
-- [ ] Fase 8: cancelar una reserva devuelve el cupo de sus itinerarios con el mismo orden de bloqueo (salida, cabina) que el hold.
+- [x] Fase 8: cancelar una reserva devuelve el cupo de sus itinerarios con el mismo orden de bloqueo (salida, cabina) que el hold.
 - [ ] Equipo: `DELETE /offers/hold/{holdId}` responde 409 si el hold ya se usó en una reserva; el contrato solo declara 204 y 404.
 - [ ] Equipo: las tres operaciones del hold responden 400 si un id o la `Idempotency-Key` no son uuid, 401, 403 y 429; el contrato no los declara (GET y DELETE tampoco el 400). La respuesta repetida lleva `Idempotent-Replayed: true`, una cabecera que el contrato no nombra.
 - [ ] Equipo: el contrato no fija formato a `offerId` ni a `itineraryId` en `HoldRequest`; la API exige uuid (400), porque así los genera la búsqueda.
