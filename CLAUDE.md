@@ -26,6 +26,8 @@ Los pagos y el GDS son simulados. El plan y el estado de las fases están en `do
 - Fuera de vuelos: `salud` y `auth`.
 - Una sola tabla de rutas: `src/routes/index.routes.ts`.
 - Las tablas de detalle no tienen controller: las maneja el service de su cabecera.
+- El catálogo extiende `catalogo/base/` (`RepositorioCatalogo` y `ServicioCatalogo`); el patrón está
+  en `src/modules/vuelos/README.md`. Rutas, query y JSON en inglés (`/reactivate`, `includeInactive`).
 - Todas las URLs cuelgan de `/flights/v1`. Swagger en `/api/docs` con las 7 etiquetas del contrato.
 
 ## Seguridad
@@ -42,7 +44,13 @@ Los pagos y el GDS son simulados. El plan y el estado de las fases están en `do
 - Eliminación lógica siempre; nada de `DELETE` físico en datos de negocio.
 - Las fechas van siempre en UTC (un `date` llega a medianoche UTC).
 - El dinero llega como `Decimal` y se convierte en el mapper; un `bigint` nunca sale al cliente.
-- Las pruebas e2e no borran: crean cuentas `@e2e.quinde.example` y al final las desactivan.
+  El id en una URL es un código natural (ISO, IATA, número de vuelo) o un uuid; una tabla sin
+  clave natural lleva `id_publico uuid` en el esquema.
+- El dinero que entra también es texto (`"35.00"`), validado con expresión regular; nunca `number`.
+- Una baja de catálogo es `activo = false` (una salida: estado `CANCELADO`) y responde 409 si otras
+  filas activas la usan. Las filas de detalle (asientos, cupos, precios) no se quitan.
+- Las pruebas e2e no borran: crean cuentas `@e2e.quinde.example` y catálogo con códigos libres al
+  azar, y al final lo dan de baja.
 - Ningún `.json` con el mismo nombre base que un `.ts`: Jest importaría el JSON.
 
 ## Git
@@ -50,7 +58,8 @@ Los pagos y el GDS son simulados. El plan y el estado de las fases están en `do
 - Commits en Conventional Commits y en español: `tipo(ámbito): verbo en infinitivo y qué cambia`.
 - Un commit por paso, y cada uno compila con `npm run lint`, `npm run format:check` y
   `npm run build` limpios.
-- No hacer push. Una rama por fase.
+- Una rama por fase. Push solo de esa rama, al cerrar la fase y ya verificada; nunca a `main`,
+  nunca `--force`, nunca reescribir commits subidos. El merge lo hace el dueño del repo.
 
 ## Verificación
 
