@@ -1,5 +1,6 @@
 import { Routes } from '@nestjs/core';
 import { busquedaRoutes } from './busqueda/busqueda.routes';
+import { cancelacionRoutes } from './cancelacion/cancelacion.routes';
 import { equipajeRoutes } from './equipaje/equipaje.routes';
 import { ofertaRoutes } from './oferta/oferta.routes';
 import { reservaRoutes } from './reserva/reserva.routes';
@@ -12,4 +13,5 @@ export const operacionesRoutes: Routes = [
   ...ofertaRoutes,
   ...reservaRoutes,
   ...equipajeRoutes,
+  ...cancelacionRoutes,
 ];

@@ -387,8 +387,7 @@ export class ReservaService {
     ahora: Date,
   ): Promise<void> {
     await this.boletos.fallar(tx, reservaId, motivo);
-    await this.repositorio.liberarAsientos(tx, reservaId, ahora);
-    await this.repositorio.devolverCupo(tx, reservaId);
+    await this.liberarAsientosYCupo(tx, reservaId, ahora);
     await this.evento(
       tx,
       reservaId,
@@ -402,8 +401,28 @@ export class ReservaService {
     });
   }
 
+  /**
+   * Bloquea la reserva hasta el fin de la transacción y devuelve su estado. Las operaciones de
+   * postventa (cancelación, cambio de fecha) la bloquean primero: dos sobre la misma reserva se
+   * esperan, y la segunda ve el estado que dejó la primera.
+   */
+  bloquear(tx: TransaccionVuelos, reservaId: string): Promise<estado_reserva> {
+    return this.repositorio.bloquear(tx, reservaId);
+  }
+
+  /** La bloquea si sigue en ese estado; SKIP LOCKED si otro proceso la tiene (procesos periódicos). */
+  tomarSiSigue(tx: TransaccionVuelos, reservaId: string, estado: estado_reserva): Promise<boolean> {
+    return this.repositorio.tomarSiSigue(tx, reservaId, estado);
+  }
+
+  /** Libera los asientos asignados y devuelve al inventario el cupo de sus itinerarios vigentes. */
+  async liberarAsientosYCupo(tx: TransaccionVuelos, reservaId: string, ahora: Date): Promise<void> {
+    await this.repositorio.liberarAsientos(tx, reservaId, ahora);
+    await this.repositorio.devolverCupo(tx, reservaId);
+  }
+
   /** Cambia el estado (UPDATE condicionado) y lo deja en el historial con su evento. */
-  private async transicion(
+  async transicion(
     tx: TransaccionVuelos,
     reservaId: string,
     desde: estado_reserva,
@@ -418,7 +437,8 @@ export class ReservaService {
     await this.evento(tx, reservaId, evento.tipo, evento.descripcion, ahora, [desde, hacia]);
   }
 
-  private evento(
+  /** Un evento sin cambio de estado (o con él), en el historial de la reserva. */
+  evento(
     tx: TransaccionVuelos,
     reservaId: string,
     tipo: TipoEventoReserva,

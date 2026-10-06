@@ -1,9 +1,11 @@
 import { Prisma } from '../../generated/prisma/client';
 
 /**
- * Tablas temporales que sí se borran físicamente al vencer (ofertas, itinerarios y claves
- * de idempotencia). Cualquier otra tabla, incluida una nueva, queda bloqueada: la baja de
- * un catálogo es `activo = false` y un documento de venta cambia de estado.
+ * Tablas temporales que sí se borran físicamente al vencer (ofertas de búsqueda, itinerarios,
+ * claves de idempotencia, y ofertas de cambio y cotizaciones de cancelación que nadie aceptó).
+ * Cualquier otra tabla, incluida una nueva, queda bloqueada: la baja de un catálogo es
+ * `activo = false` y un documento de venta cambia de estado. Una oferta de cambio confirmada o
+ * una cotización aceptada son parte de la reserva y no se borran nunca (la purga las excluye).
  *
  * `token_refresco` no está a propósito: el logout y la reutilización revocan (UPDATE de
  * fecha_revocacion) y un token rotado tiene que seguir en la tabla hasta vencer, porque es
@@ -16,6 +18,9 @@ export const TABLAS_CON_BORRADO_FISICO: ReadonlySet<Prisma.ModelName> = new Set<
   'itinerario_cabecera',
   'itinerario_detalle',
   'clave_idempotencia',
+  'cambio_cabecera',
+  'cambio_detalle',
+  'cotizacion_cancelacion',
 ]);
 
 export class BorradoFisicoProhibidoError extends Error {

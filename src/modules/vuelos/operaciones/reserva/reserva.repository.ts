@@ -468,6 +468,15 @@ export class ReservaRepository {
        LIMIT ${limite}`;
   }
 
+  /** Bloquea la reserva hasta el fin de la transacción y devuelve su estado. */
+  async bloquear(tx: TransaccionVuelos, reservaId: string): Promise<estado_reserva> {
+    const [fila] = await tx.$queryRaw<Array<{ estado: estado_reserva }>>`
+      SELECT estado::text AS estado FROM vuelos.reserva_cabecera
+       WHERE id = ${reservaId}::uuid
+         FOR UPDATE`;
+    return fila.estado;
+  }
+
   /**
    * Bloquea la reserva si sigue en ese estado; `SKIP LOCKED` hace que dos procesos que la
    * buscan a la vez no la procesen los dos. Devuelve si la tomó.

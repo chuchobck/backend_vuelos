@@ -133,6 +133,16 @@ export class VariablesEntorno {
   HOLD_TTL_MINUTES?: number;
 
   /**
+   * Minutos que vale una cotización de cancelación (GET .../cancellation-quote). Sin valor: 15.
+   * De 1 a 60: lo que tarda una persona en decidir, sin que el precio quede viejo.
+   */
+  @Max(60, { message: 'CANCELLATION_QUOTE_TTL_MINUTES debe estar entre 1 y 60' })
+  @Min(1, { message: 'CANCELLATION_QUOTE_TTL_MINUTES debe estar entre 1 y 60' })
+  @IsInt({ message: 'CANCELLATION_QUOTE_TTL_MINUTES debe ser un número entero' })
+  @IsOptional()
+  CANCELLATION_QUOTE_TTL_MINUTES?: number;
+
+  /**
    * Proceso periódico que vence los holds y borra las claves de idempotencia vencidas. Sin
    * valor: true. Con false solo quedan los vencimientos perezosos (las pruebas lo apagan).
    */
