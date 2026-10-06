@@ -96,7 +96,6 @@ export interface ReservaNueva {
   }>;
   pasajeros: PasajeroNuevo[];
   asientos: Array<{ codigoPasajero: string; salidaId: string; asientoId: bigint }>;
-  referenciaPago: string;
 }
 
 export interface CambioDeEstado {
@@ -281,15 +280,6 @@ export class ReservaRepository {
     return new Map(filas.map((f) => [f.codigo_iso2, f.id]));
   }
 
-  /** Si la referencia de pago ya acreditó otra operación (es única en todo el sistema). */
-  async referenciaUsada(referencia: string): Promise<boolean> {
-    return (
-      (await this.prisma.db.reserva_detalle_pago.count({
-        where: { referencia_pago: referencia },
-      })) > 0
-    );
-  }
-
   /**
    * Bloquea las filas de inventario de esas cabinas, en orden (salida, cabina), hasta el fin
    * de la transacción. Dos reservas que eligen asientos en la misma cabina de la misma salida
@@ -347,7 +337,7 @@ export class ReservaRepository {
 
   /**
    * Inserta la reserva PENDIENTE con un PNR nuevo, sus itinerarios con el precio del hold, los
-   * pasajeros (primero los que llevan a un infante), sus asientos y la referencia de pago. El
+   * pasajeros (primero los que llevan a un infante) y sus asientos. El
    * PNR se reclama con `ON CONFLICT DO NOTHING`: si ya existía, se prueba otro sin abortar la
    * transacción.
    */
@@ -418,14 +408,6 @@ export class ReservaRepository {
       });
     }
 
-    await tx.reserva_detalle_pago.create({
-      data: {
-        reserva_id: reservaId,
-        referencia_pago: nueva.referenciaPago,
-        concepto: 'EMISION',
-        fecha_registro: nueva.ahora,
-      },
-    });
     return creada;
   }
 
@@ -585,7 +567,9 @@ export class ReservaRepository {
           total: cabecera.total,
         },
         itinerarios,
-        pasajeros,
+        // Solo los asientos de los vuelos vigentes: un cambio de fecha con pago pendiente ya
+        // tomó asientos en los vuelos nuevos, pero todavía no los vuela
+        pasajeros: soloVuelosVigentes(pasajeros, itinerarios),
         historial: historial.map((h) => ({ fecha: h.fecha_evento, descripcion: h.descripcion })),
       },
     };
@@ -741,7 +725,9 @@ export class ReservaRepository {
             vuelo_programado: { select: { salida_programada: true } },
           },
         },
+        // Las maletas con pago rechazado no cuentan; las de pago pendiente, sí (ya ocupan cupo)
         reserva_detalle_equipaje: {
+          where: { reserva_detalle_pago: { estado: { not: 'RECHAZADO' } } },
           select: {
             cantidad: true,
             reserva_detalle_itinerario: { select: { itinerario_id: true } },
@@ -801,6 +787,17 @@ function aSalida(f: FilaSegmento): SalidaVendible {
     estado: f.estado,
     modelo: f.modelo,
   };
+}
+
+function soloVuelosVigentes(
+  pasajeros: PasajeroDeReserva[],
+  itinerarios: ItinerarioDeReserva[],
+): PasajeroDeReserva[] {
+  const vigentes = new Set(itinerarios.flatMap((it) => it.salidas.map((s) => s.id)));
+  return pasajeros.map((p) => ({
+    ...p,
+    asientos: p.asientos.filter((a) => vigentes.has(a.salidaId)),
+  }));
 }
 
 /** Las maletas compradas en varias veces para el mismo itinerario se suman. */

@@ -20,6 +20,7 @@ import {
   IdClave,
   IdempotenciaRepository,
 } from '../../compartido/idempotencia.repository';
+import { PagosRepository } from '../../compartido/pagos/pagos.repository';
 import { EstadoPago, SERVICIO_PAGOS, ServicioPagos } from '../../compartido/pagos/servicio-pagos';
 import { BoletoService } from '../boleto/boleto.service';
 import { RetencionService } from '../retencion/retencion.service';
@@ -97,6 +98,7 @@ export class ReservaService {
     private readonly boletos: BoletoService,
     private readonly eventos: EventosReserva,
     @Inject(SERVICIO_PAGOS) private readonly pagos: ServicioPagos,
+    private readonly pagosRegistrados: PagosRepository,
     private readonly reloj: Reloj,
   ) {}
 
@@ -210,7 +212,13 @@ export class ReservaService {
           })),
           pasajeros,
           asientos,
-          referenciaPago: referencia,
+        });
+        await this.pagosRegistrados.registrar(tx, {
+          reservaId: id,
+          referencia,
+          concepto: 'EMISION',
+          estado: pago === 'APROBADO' ? 'APROBADO' : 'PENDIENTE',
+          fecha: ahora,
         });
         await this.evento(tx, id, 'booking.created', 'Booking created from hold', ahora, [
           null,
@@ -303,6 +311,11 @@ export class ReservaService {
     return this.prisma.transaccionAuditada(
       async (tx) => {
         if (!(await this.repositorio.tomarSiSigue(tx, reservaId, 'PENDIENTE_PAGO'))) return null;
+        await this.pagosRegistrados.resolver(
+          tx,
+          await this.pagosRegistrados.deEmision(tx, reservaId),
+          pago,
+        );
         if (pago === 'RECHAZADO') {
           await this.fallar(
             tx,
@@ -425,7 +438,7 @@ export class ReservaService {
    * RETENIDA). Aprobada o pendiente, la reserva sigue.
    */
   private async autorizarPago(referencia: string, hold: HoldParaReservar): Promise<EstadoPago> {
-    if (await this.repositorio.referenciaUsada(referencia)) {
+    if (await this.pagosRegistrados.referenciaUsada(referencia)) {
       throw new ErrorNegocio(
         409,
         CodigoError.PAYMENT_REFERENCE_INVALID,
