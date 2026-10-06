@@ -13,10 +13,6 @@ export default tseslint.config(
       'node_modules/**',
       // Cliente generado por prisma generate.
       'src/generated/**',
-      // Módulos de los otros equipos: vienen de la plantilla y no se tocan aquí.
-      'src/modules/alojamientos/**',
-      'src/modules/atracciones/**',
-      'src/modules/autos/**',
     ],
   },
   js.configs.recommended,
