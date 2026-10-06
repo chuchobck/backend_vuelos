@@ -4,6 +4,23 @@
   "testRegex": "test/.*\\.e2e-spec\\.ts$",
   "setupFiles": ["<rootDir>/test/utils/entorno-pruebas.ts"],
   "moduleFileExtensions": ["js", "json", "ts"],
-  "transform": { "^.+\\.ts$": ["ts-jest", { "tsconfig": "tsconfig.json", "diagnostics": false }] },
-  "testTimeout": 20000
+  "transform": {
+    "^.+\\.ts$": [
+      "ts-jest",
+      {
+        "tsconfig": "tsconfig.json",
+        "diagnostics": false
+      }
+    ]
+  },
+  "testTimeout": 20000,
+  "collectCoverageFrom": [
+    "src/**/*.ts",
+    "!src/generated/**",
+    "!src/main.ts",
+    "!src/**/*.module.ts",
+    "!src/**/*.routes.ts"
+  ],
+  "coverageDirectory": "coverage",
+  "coverageReporters": ["text-summary", "json-summary", "text"]
 }
