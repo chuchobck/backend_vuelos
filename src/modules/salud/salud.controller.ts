@@ -24,7 +24,11 @@ export class SaludController {
   // El sondeo periódico de Render viene siempre de la misma IP: un 429 aquí daría el servicio por caído
   @SinLimiteDePeticiones()
   @Get()
-  @ApiOperation({ summary: 'Chequeo de vida: responde 200 solo si la base contesta' })
+  @ApiOperation({
+    summary: 'Chequeo de vida: responde 200 solo si la base contesta',
+    description:
+      'Público y sin límite de peticiones. En el plan gratuito de Render, la primera llamada tras 15 minutos sin tráfico puede tardar medio minuto en despertar el servicio.',
+  })
   @ApiOkResponse({ type: SaludRespuestaDto })
   @ApiServiceUnavailableResponse({
     description: 'La base no responde',

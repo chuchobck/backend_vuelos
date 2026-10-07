@@ -41,7 +41,11 @@ export class BoletoController {
   @Scopes('flights:read')
   @Get(':ticketId')
   @Header('Cache-Control', 'no-store')
-  @ApiOperation({ summary: 'Consultar un ticket' })
+  @ApiOperation({
+    summary: 'Consultar un ticket',
+    description:
+      'El ticketId sale de la lista de GET /bookings/{bookingId}/tickets o de POST /bookings (tickets[].ticketId). Uno que no existe o es de otra reserva responde 404.',
+  })
   @ApiParam({ name: 'bookingId', format: 'uuid' })
   @ApiParam({ name: 'ticketId', description: 'ticketId de la lista de tickets' })
   @ApiOkResponse({ type: BoletoDto, description: 'Detalle del ticket' })
