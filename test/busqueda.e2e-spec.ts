@@ -288,7 +288,7 @@ describe('POST /search con la semilla', () => {
 
   it('repetir búsquedas no acumula basura: las ofertas vencidas sin retención se purgan', async () => {
     const vencida = (
-      await buscar(app, { itineraries: [tramo('UIO', 'LOH', 10)], passengers: {} }).expect(200)
+      await buscar(app, { itineraries: [tramo('UIO', 'GYE', 10)], passengers: {} }).expect(200)
     ).body.offers[0] as Oferta;
     await prisma.db.$executeRaw`
       UPDATE vuelos.oferta_cabecera

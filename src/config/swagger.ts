@@ -97,6 +97,11 @@ export function configurarSwagger(app: INestApplication): void {
       ESQUEMA_OAUTH2,
     );
 
+  // Render define RENDER_EXTERNAL_URL (https://<servicio>.onrender.com): el documento publicado
+  // apunta al dominio de producción. En local no existe y Swagger UI usa el origen de la página.
+  const urlExterna = process.env.RENDER_EXTERNAL_URL;
+  if (urlExterna) constructor.addServer(urlExterna.replace(/\/$/, ''), 'Este despliegue');
+
   for (const [clave, nombre] of Object.entries(ETIQUETAS)) {
     const descripcion = clave.startsWith('admin')
       ? DESCRIPCION_ADMIN

@@ -47,7 +47,11 @@ export class AuthController {
   @Publico()
   @LimiteEstricto(LIMITES_AUTH.register.limite, LIMITES_AUTH.register.ventanaSegundos)
   @Post('register')
-  @ApiOperation({ summary: 'Crear una cuenta de cliente' })
+  @ApiOperation({
+    summary: 'Crear una cuenta de cliente',
+    description:
+      'Registro público: crea un usuario con el rol cliente (scopes de lectura, hold, reserva, cancelación y webhooks). Después, POST /auth/login entrega el token para el botón Authorize.',
+  })
   @ApiCreatedResponse({ type: UsuarioRespuestaDto })
   @ApiProblema(400, 'Correo inválido o contraseña fuera de 12 a 128 caracteres')
   @ApiProblema(409, 'Ya existe una cuenta con ese correo')
@@ -115,7 +119,10 @@ export class AuthController {
 
   @Get('me')
   @DocumentarAutenticacion()
-  @ApiOperation({ summary: 'Perfil, roles y scopes del usuario del token' })
+  @ApiOperation({
+    summary: 'Perfil, roles y scopes del usuario del token',
+    description: 'Sirve para comprobar que el token de Authorize funciona y qué scopes tiene.',
+  })
   @ApiOkResponse({ type: UsuarioRespuestaDto })
   async perfil(@UsuarioActual() usuario: UsuarioAutenticado): Promise<UsuarioRespuestaDto> {
     return aUsuarioRespuesta(await this.servicio.perfil(usuario.id));
