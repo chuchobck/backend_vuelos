@@ -231,6 +231,16 @@ describe('Swagger (/api/docs) contra el contrato', () => {
     expect(generado.info.description).toContain('v1.5.0.0');
   });
 
+  it('la raíz / redirige a /api/docs (no es un 404)', async () => {
+    const respuesta = await request(app.getHttpServer()).get('/');
+    expect(respuesta.status).toBe(302);
+    expect(respuesta.headers.location).toBe('/api/docs');
+  });
+
+  it('sin RENDER_EXTERNAL_URL el documento no fija servers (Swagger UI usa su origen)', () => {
+    expect(generado.servers ?? []).toEqual([]);
+  });
+
   it('el documento es OpenAPI 3 con las 7 etiquetas del contrato, en su orden', () => {
     expect(generado.openapi).toMatch(/^3\./);
     const contrato = documentoDelContrato() as Nodo;
@@ -314,7 +324,7 @@ describe('Swagger (/api/docs) contra el contrato', () => {
       .flatMap((capa) =>
         Object.keys(capa.route!.methods).map((m) => `${m.toUpperCase()} ${capa.route!.path}`),
       )
-      .filter((r) => !documentadas.has(r) && !r.includes('/api/docs'));
+      .filter((r) => !documentadas.has(r) && !r.includes('/api/docs') && r !== 'GET /');
     expect(sinDocumentar).toEqual([]);
   });
 });

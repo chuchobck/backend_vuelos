@@ -6,7 +6,7 @@ import { LoggerPorPeticion } from './common/logger/logger-por-peticion';
 import { crearPipeValidacion } from './common/pipes/validacion.pipe';
 import { parsearTrustProxy } from './config/proxy';
 import { configurarSeguridad } from './config/seguridad';
-import { configurarSwagger } from './config/swagger';
+import { configurarSwagger, RUTA_SWAGGER } from './config/swagger';
 import { PREFIJO_GLOBAL, VERSION_POR_DEFECTO } from './routes/index.routes';
 
 /**
@@ -33,5 +33,11 @@ export function configurarApp(app: NestExpressApplication): void {
 
   app.useGlobalPipes(crearPipeValidacion());
 
+  // La raíz no es una ruta de la API: lleva a la documentación (antes era un 404)
+  app
+    .getHttpAdapter()
+    .get('/', (_req: unknown, res: { redirect: (c: number, u: string) => void }) =>
+      res.redirect(302, `/${RUTA_SWAGGER}`),
+    );
   configurarSwagger(app);
 }
