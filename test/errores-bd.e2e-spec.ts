@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as dns from 'node:dns';
 import { CodigoError } from '../src/common/errores/codigo-error';
 import { traducirExcepcion } from '../src/common/errores/traducir-excepcion';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -243,21 +244,206 @@ describe('Errores de la base traducidos al contrato', () => {
     });
   });
 
-  it('con la base caída → 503 con Retry-After y sin detalles internos', async () => {
-    const caida = new PrismaService({
-      getOrThrow: () => 'postgresql://postgres:postgres@localhost:5999/booking_db?schema=vuelos',
-    } as unknown as ConfigService);
+  describe('con la base caída', () => {
+    const NADA_DE_RED = /5999|localhost|127\.0\.0\.1|::1/;
 
-    const error = await caida.db.pais.findFirst().catch((e: unknown) => e);
-    const { problema, cabeceras } = traducir(error);
+    /** Una Prisma apuntada a un puerto sin servidor; devuelve el error que entrega y lo traduce. */
+    const consultarBaseCaida = async (host: string) => {
+      const caida = new PrismaService({
+        getOrThrow: () => `postgresql://postgres:postgres@${host}:5999/booking_db?schema=vuelos`,
+      } as unknown as ConfigService);
+      try {
+        const error = await caida.db.pais.findFirst().catch((e: unknown) => e);
+        return { error, ...traducir(error) };
+      } finally {
+        await caida.onModuleDestroy();
+      }
+    };
 
-    expect(problema).toMatchObject({
-      status: 503,
-      detail: 'The database is temporarily unavailable',
+    const espera503 = (resultado: ReturnType<typeof traducir>) => {
+      expect(resultado.problema).toMatchObject({
+        status: 503,
+        detail: 'The database is temporarily unavailable',
+      });
+      expect(resultado.cabeceras['Retry-After']).toBe('5');
+      expect(JSON.stringify(resultado.problema)).not.toMatch(NADA_DE_RED);
+    };
+
+    it('503 con Retry-After y sin detalles internos (IPv4 explícito)', async () => {
+      espera503(await consultarBaseCaida('127.0.0.1'));
     });
-    expect(cabeceras['Retry-After']).toBe('5');
-    expect(JSON.stringify(problema)).not.toMatch(/5999|localhost|127\.0\.0\.1/);
-    await caida.onModuleDestroy();
+
+    it('503 también con IPv6 explícito', async () => {
+      espera503(await consultarBaseCaida('[::1]'));
+    });
+
+    it('503 si `localhost` resuelve a ::1 y 127.0.0.1, como en ubuntu-latest de GitHub', async () => {
+      // Node prueba las dos direcciones y, si ninguna responde, lanza un AggregateError sin
+      // syscall ni errno que el adaptador de pg no reconoce: Prisma lo entrega como
+      // PrismaClientKnownRequestError con code ECONNREFUSED y sin driverAdapterError
+      const original = dns.lookup;
+      const dos = [
+        { address: '::1', family: 6 },
+        { address: '127.0.0.1', family: 4 },
+      ];
+      (dns as { lookup: unknown }).lookup = (
+        host: string,
+        opciones: unknown,
+        devolver?: (...args: unknown[]) => void,
+      ) => {
+        const cb = (typeof opciones === 'function' ? opciones : devolver) as (
+          ...a: unknown[]
+        ) => void;
+        const todas = typeof opciones === 'object' && (opciones as { all?: boolean }).all;
+        if (host !== 'localhost') {
+          return (original as (...a: unknown[]) => void)(host, opciones, devolver);
+        }
+        process.nextTick(() => (todas ? cb(null, dos) : cb(null, dos[0].address, dos[0].family)));
+      };
+      try {
+        const resultado = await consultarBaseCaida('localhost');
+        expect((resultado.error as { code?: string }).code).toBe('ECONNREFUSED');
+        espera503(resultado);
+      } finally {
+        (dns as { lookup: unknown }).lookup = original;
+      }
+    });
+  });
+
+  describe('fallos de conexión que no llegan como DatabaseNotReachable', () => {
+    const NADA_DE_RED = /5999|localhost|127\.0\.0\.1|::1|10\.1\.2\.3/;
+    /** Un Error con `cause` (el `lib` del proyecto no trae el constructor de ES2022). */
+    const conCausa = (mensaje: string, cause: unknown) =>
+      Object.assign(new Error(mensaje), { cause });
+    const de = (codigo: string, extra: object = {}) =>
+      Object.assign(new Error(`connect ${codigo} 127.0.0.1:5999`), { code: codigo, ...extra });
+    const espera503 = (error: unknown) => {
+      const { problema, cabeceras } = traducir(error);
+      expect(problema).toMatchObject({
+        status: 503,
+        detail: 'The database is temporarily unavailable',
+      });
+      expect(cabeceras['Retry-After']).toBe('5');
+      // Ni el host ni el puerto del mensaje original salen hacia el cliente
+      expect(JSON.stringify(problema)).not.toMatch(NADA_DE_RED);
+    };
+    const espera500 = (error: unknown) => {
+      const { problema, cabeceras, esErrorInterno } = traducir(error);
+      expect(problema.status).toBe(500);
+      expect(esErrorInterno).toBe(true);
+      expect(cabeceras['Retry-After']).toBeUndefined();
+      expect(JSON.stringify(problema)).not.toMatch(NADA_DE_RED);
+    };
+
+    it.each([
+      'ECONNREFUSED',
+      'ETIMEDOUT',
+      'ENOTFOUND',
+      'ECONNRESET',
+      'EAI_AGAIN',
+      'EHOSTUNREACH',
+      'ENETUNREACH',
+    ])('un error simple con code %s → 503', (codigo) => {
+      espera503(de(codigo, { syscall: 'connect', errno: -111, address: '10.1.2.3', port: 5999 }));
+    });
+
+    it('un AggregateError con ECONNREFUSED dentro de errors[] → 503', () => {
+      const agregado = new AggregateError([de('ECONNREFUSED'), de('ECONNREFUSED')], '');
+      espera503(agregado);
+    });
+
+    it('un AggregateError con el code en sí mismo (como el de Node 22) → 503', () => {
+      espera503(Object.assign(new AggregateError([], ''), { code: 'ECONNREFUSED' }));
+    });
+
+    it('el error de Prisma tal como llega: PrismaClientKnownRequestError con code ECONNREFUSED y sin driverAdapterError → 503', () => {
+      const prisma = Object.assign(new Error('Invalid `db.pais.findFirst()` invocation'), {
+        name: 'PrismaClientKnownRequestError',
+        code: 'ECONNREFUSED',
+        meta: { modelName: 'pais' },
+        clientVersion: '7.10.0',
+      });
+      espera503(prisma);
+    });
+
+    it('un error con la causa anidada en `cause` → 503', () => {
+      const raiz = conCausa('capa 1', conCausa('capa 2', conCausa('capa 3', de('ETIMEDOUT'))));
+      espera503(raiz);
+    });
+
+    it('un error con el code dentro de meta.driverAdapterError.cause → 503', () => {
+      espera503(
+        Object.assign(new Error('x'), {
+          name: 'PrismaClientKnownRequestError',
+          meta: { driverAdapterError: { name: 'DriverAdapterError', cause: de('ECONNRESET') } },
+        }),
+      );
+    });
+
+    it('un AggregateError cuyas causas están anidadas en `cause` → 503', () => {
+      espera503(new AggregateError([conCausa('a', de('ENOTFOUND'))], ''));
+    });
+
+    it('una cadena con ciclos termina y no se traduce si no hay un fallo de red', () => {
+      const a: { cause?: unknown; errors?: unknown[] } = {};
+      const b = { cause: a };
+      a.cause = b;
+      a.errors = [a, b];
+      espera500(Object.assign(new Error('ciclo'), a));
+    });
+
+    it('un ciclo con un fallo de red adentro sí se traduce', () => {
+      const a = new Error('a') as Error & { cause?: unknown };
+      const b = conCausa('b', a) as Error & { cause?: unknown; errors?: unknown[] };
+      a.cause = b;
+      b.errors = [de('ECONNREFUSED')];
+      espera503(a);
+    });
+
+    it('la profundidad está acotada: a 5 niveles se traduce; a 7 no', () => {
+      const anidar = (niveles: number) => {
+        let error: Error = de('ECONNREFUSED');
+        for (let i = 0; i < niveles; i++) error = conCausa(`nivel ${i}`, error);
+        return error;
+      };
+      espera503(anidar(5));
+      espera500(anidar(7));
+    });
+
+    describe('lo que NO es un fallo de conexión sigue siendo 500', () => {
+      it.each([
+        ['un Error común', new Error('boom')],
+        ['un code que no es de red (EACCES)', de('EACCES')],
+        ['un code desconocido', de('ESOMETHING')],
+        [
+          'ECONNREFUSED solo en el mensaje, sin code',
+          new Error('connect ECONNREFUSED 127.0.0.1:5999'),
+        ],
+        ['un code ECONNREFUSED que no es texto', Object.assign(new Error('x'), { code: 111 })],
+        ['un TypeError', new TypeError('x is not a function')],
+        ['una cadena de causas sin red', conCausa('a', conCausa('b', de('EPERM')))],
+        ['un valor que no es un objeto', 'ECONNREFUSED'],
+        ['null', null],
+      ])('%s', (_nombre, error) => {
+        const { problema } = traducir(error);
+        expect(problema.status).toBe(500);
+        expect(problema.detail).toBeUndefined();
+        expect(JSON.stringify(problema)).not.toMatch(NADA_DE_RED);
+      });
+
+      it('un error de la base que no es de conexión conserva su traducción', () => {
+        const unico = Object.assign(new Error('x'), {
+          name: 'PrismaClientKnownRequestError',
+          code: 'P2002',
+          meta: {
+            driverAdapterError: {
+              cause: { originalCode: '23505', kind: 'UniqueConstraintViolation' },
+            },
+          },
+        });
+        expect(traducir(unico).problema.status).toBe(409);
+      });
+    });
   });
 
   it('las pruebas no dejaron datos', async () => {
