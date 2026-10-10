@@ -6,6 +6,7 @@ import { CommonModule } from './common/common.module';
 import { validarEntorno } from './config/entorno';
 import { PrismaModule } from './prisma/prisma.module';
 import { rutas } from './routes/index.routes';
+import { AdministradoresModule } from './modules/auth/administradores/administradores.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { SaludModule } from './modules/salud/salud.module';
 import { VuelosModule } from './modules/vuelos/vuelos.module';
@@ -25,6 +26,7 @@ import { VuelosModule } from './modules/vuelos/vuelos.module';
     CommonModule,
     SaludModule,
     AuthModule,
+    AdministradoresModule,
 
     VuelosModule,
 
