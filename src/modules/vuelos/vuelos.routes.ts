@@ -1,4 +1,5 @@
 import { Routes } from '@nestjs/core';
+import { administracionRoutes } from './administracion/administracion.routes';
 import { catalogoRoutes } from './catalogo/catalogo.routes';
 import { operacionesRoutes } from './operaciones/operaciones.routes';
 import { VuelosModule } from './vuelos.module';
@@ -8,5 +9,9 @@ import { VuelosModule } from './vuelos.module';
  * el catálogo bajo `admin` y las operaciones con las rutas del contrato (fases 4 a 10).
  */
 export const vuelosRoutes: Routes = [
-  { path: '/', module: VuelosModule, children: [...catalogoRoutes, ...operacionesRoutes] },
+  {
+    path: '/',
+    module: VuelosModule,
+    children: [...catalogoRoutes, ...administracionRoutes, ...operacionesRoutes],
+  },
 ];

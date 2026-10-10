@@ -151,7 +151,71 @@ export class CancelacionService {
     if (previa && previa.vence > ahora)
       return this.repetir(previa, huella, reservaId, idPropietario);
     if (previa) await this.claves.borrarVencidas(ahora, idClave);
+    return this.ejecutar({ reservaId, solicitud, idDueno: idPropietario, idClave, huella, ahora });
+  }
 
+  /**
+   * POST /admin/bookings/{bookingId}/cancel: la cancelación de la administración, con las
+   * mismas reglas, reembolso, auditoría y eventos que la del dueño. Como el administrador no
+   * pide una cotización antes, el servidor crea una a nombre del dueño y la acepta enseguida.
+   *
+   * La Idempotency-Key es del administrador (su `sub`, no el del dueño) y su huella no incluye
+   * el quoteId, que cambia en cada intento: reintentar con la misma clave repite el resultado.
+   * Una reserva ya cancelada (o con la cancelación en curso) es 409 ALREADY_CANCELLED, como
+   * para el dueño; con la misma clave de la cancelación original, se repite su respuesta.
+   */
+  async cancelarComoAdministrador(
+    reservaId: string,
+    idAdministrador: string,
+    clave: string,
+    motivo?: string,
+  ): Promise<ResultadoCancelacion> {
+    const ahora = this.reloj.ahora();
+    const { reserva, idPropietario } = await this.reservas.detalleAdministracion(reservaId);
+    const huella = huellaDeAdministracion(reservaId, motivo);
+    const idClave: IdClave = {
+      idPropietario: idAdministrador,
+      operacion: 'CANCELAR_RESERVA',
+      clave,
+    };
+    const previa = await this.claves.leer(idClave);
+    if (previa && previa.vence > ahora)
+      return this.repetir(previa, huella, reservaId, idPropietario);
+    if (previa) await this.claves.borrarVencidas(ahora, idClave);
+
+    if (reserva.estado === 'CANCELADA' || reserva.estado === 'CANCELACION_PENDIENTE') {
+      throw yaCancelada(reserva.id);
+    }
+    const cotizacion = await this.cotizar(reservaId, idPropietario);
+    return this.ejecutar({
+      reservaId,
+      solicitud: { quoteId: cotizacion.id, ...(motivo ? { reason: motivo } : {}) },
+      idDueno: idPropietario,
+      idClave,
+      huella,
+      ahora,
+    });
+  }
+
+  /**
+   * El cuerpo común de la cancelación (pasos 1 a 3 de `cancelar`). `idDueno` es el dueño de la
+   * reserva; `idClave` es de quien llama (el dueño o un administrador).
+   */
+  private async ejecutar({
+    reservaId,
+    solicitud,
+    idDueno: idPropietario,
+    idClave,
+    huella,
+    ahora,
+  }: {
+    reservaId: string;
+    solicitud: SolicitudCancelacionDto;
+    idDueno: string;
+    idClave: IdClave;
+    huella: string;
+    ahora: Date;
+  }): Promise<ResultadoCancelacion> {
     const reserva = await this.reservas.detalle(reservaId, idPropietario);
     const cotizacion = await this.repositorio.leer(solicitud.quoteId);
     try {
@@ -336,6 +400,12 @@ function validarCancelacion(
     );
   }
   exigirSinDespegar(reserva.itinerarios, ahora);
+}
+
+/** Sin quoteId: la administración crea una cotización nueva en cada intento. */
+function huellaDeAdministracion(reservaId: string, motivo: string | undefined): string {
+  const canonica = { bookingId: reservaId.toLowerCase(), reason: motivo ?? null, by: 'admin' };
+  return createHash('sha256').update(JSON.stringify(canonica)).digest('hex');
 }
 
 function huellaDe(reservaId: string, s: SolicitudCancelacionDto): string {
