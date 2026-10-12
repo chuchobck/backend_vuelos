@@ -6,7 +6,7 @@ contrato (`test/contrato.e2e-spec.ts`) lista las respuestas que el contrato no d
 `EXCEPCIONES`, con su motivo, y la comparación de Swagger (`test/swagger.e2e-spec.ts`) falla si
 aparece una diferencia nueva de rutas, etiquetas, scopes, parámetros o campos.
 
-Lo que la API hace **además** del contrato y no lo contradice (el catálogo de administración en
+Lo que la API hace **además** del contrato y no lo contradice (el catálogo, la auditoría, los administradores y las reservas de administración en
 `/admin`, `/auth`, `/health`) no se lista aquí: está en el README y en Swagger.
 
 ## 1. Identidad y seguridad

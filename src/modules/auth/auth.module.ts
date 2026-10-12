@@ -26,6 +26,6 @@ import { TokenAccesoService } from './seguridad/token-acceso.service';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: ScopesGuard },
   ],
-  exports: [TokenAccesoService],
+  exports: [TokenAccesoService, AuthRepository, ContrasenaService],
 })
 export class AuthModule {}

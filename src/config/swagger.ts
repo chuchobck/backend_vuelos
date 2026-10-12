@@ -31,11 +31,14 @@ export const ETIQUETAS = {
   adminVuelo: 'Admin · Vuelo',
   adminVueloProgramado: 'Admin · Vuelo programado',
   adminTarifa: 'Admin · Tarifa',
+  adminAuditoria: 'Admin · Auditoría',
+  adminUsuarios: 'Admin · Administradores',
+  adminReservas: 'Admin · Reservas',
 } as const;
 
 /** Descripción común de las etiquetas del catálogo: no son parte del contrato. */
 const DESCRIPCION_ADMIN =
-  'Fuera del contrato: CRUD de administración del catálogo (scope flights:admin). DELETE da de baja (activo = false), no borra.';
+  'Fuera del contrato: administración (scope flights:admin). DELETE da de baja (activo = false), no borra.';
 
 const DESCRIPCIONES_PROPIAS: Partial<Record<keyof typeof ETIQUETAS, string>> = {
   salud: 'Fuera del contrato: chequeo de vida para Render',
@@ -52,7 +55,8 @@ const SCOPES_OAUTH2 = {
   'flights:book': 'Comprar y alterar reserva',
   'flights:cancel': 'Cancelar reservas',
   'flights:webhooks': 'Gestionar webhooks',
-  'flights:admin': 'Administrar el catálogo (propio del proyecto, no está en el contrato)',
+  'flights:admin':
+    'Administrar catálogo, auditoría, administradores y reservas (propio del proyecto, no está en el contrato)',
 };
 
 /** Swagger UI en /api/docs y el OpenAPI en JSON en /api/docs-json. */

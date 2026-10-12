@@ -35,6 +35,9 @@ export const ROLES = ['cliente', 'administrador'] as const;
 
 export type CodigoRol = (typeof ROLES)[number];
 
+/** El rol de POST /admin/users y el único que tiene `flights:admin`. */
+export const ROL_ADMINISTRADOR: CodigoRol = 'administrador';
+
 /** El rol que recibe una cuenta creada con POST /auth/register. */
 export const ROL_DEL_REGISTRO: CodigoRol = 'cliente';
 

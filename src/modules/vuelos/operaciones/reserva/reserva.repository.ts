@@ -106,8 +106,13 @@ export interface CambioDeEstado {
 }
 
 export interface FiltrosReservas {
-  idPropietario: string;
+  /** El dueño; `null` solo lo pasa la administración, que lista las de todos los clientes. */
+  idPropietario: string | null;
   pnr?: string;
+  /** Solo administración: correo exacto (ya normalizado) del dueño. */
+  correoPropietario?: string;
+  /** Solo administración: número de vuelo con aerolínea (AV1234) en un itinerario vigente. */
+  numeroVuelo?: string;
   estado?: estado_reserva;
   /** Creadas desde ese instante (incluido) y antes de `hasta` (excluido). */
   desde?: Date;
@@ -117,8 +122,15 @@ export interface FiltrosReservas {
   limite: number;
 }
 
-/** La reserva de una pagina de GET /bookings, con lo que hace falta para el cursor. */
-export type FilaListado = ResumenReserva & { creada: Date };
+/**
+ * La reserva de una pagina de GET /bookings, con lo que hace falta para el cursor y, para la
+ * administración, quién es el dueño (el correo es null si el usuario ya no existe).
+ */
+export type FilaListado = ResumenReserva & {
+  creada: Date;
+  idPropietario: string;
+  correoPropietario: string | null;
+};
 
 /** El PNR no se pudo generar: todos los que salieron ya existían. */
 export class PnrAgotado extends Error {}
@@ -628,6 +640,8 @@ export class ReservaRepository {
         pnr: string;
         estado: estado_reserva;
         fecha_creacion: Date;
+        id_propietario: string;
+        correo_propietario: string | null;
         moneda: string;
         tarifa_base: Prisma.Decimal;
         impuestos: Prisma.Decimal;
@@ -638,11 +652,13 @@ export class ReservaRepository {
       }>
     >`
       SELECT rc.id, rc.pnr, rc.estado::text AS estado, rc.fecha_creacion,
+             r.id_propietario, u.correo AS correo_propietario,
              t.moneda, t.tarifa_base, t.impuestos, t.total,
              primero.origen, primero.destino, primero.fecha_salida
         FROM vuelos.reserva_cabecera rc
         JOIN vuelos.retencion_cabecera r  ON r.id = rc.retencion_id
         JOIN vuelos.vista_reserva_total t ON t.reserva_id = rc.id
+        LEFT JOIN vuelos.usuario u        ON u.id::text = r.id_propietario
         JOIN LATERAL (
           SELECT (SELECT po.codigo_iata FROM vuelos.itinerario_detalle i
                     JOIN vuelos.vuelo_programado vp ON vp.id = i.vuelo_programado_id
@@ -662,7 +678,17 @@ export class ReservaRepository {
            ORDER BY ri.orden
            LIMIT 1
         ) primero ON true
-       WHERE r.id_propietario = ${filtros.idPropietario}
+       WHERE (${filtros.idPropietario}::text IS NULL OR r.id_propietario = ${filtros.idPropietario})
+         AND (${filtros.correoPropietario ?? null}::text IS NULL OR u.correo = ${filtros.correoPropietario ?? null})
+         AND (${filtros.numeroVuelo ?? null}::text IS NULL OR EXISTS (
+               SELECT 1
+                 FROM vuelos.reserva_detalle_itinerario fi
+                 JOIN vuelos.itinerario_detalle fid ON fid.itinerario_id = fi.itinerario_id
+                 JOIN vuelos.vuelo_programado fvp   ON fvp.id = fid.vuelo_programado_id
+                 JOIN vuelos.vuelo fv               ON fv.id = fvp.vuelo_id
+                 JOIN vuelos.aerolinea fa           ON fa.id = fv.aerolinea_id
+                WHERE fi.reserva_id = rc.id AND fi.vigente
+                  AND fa.codigo_iata || fv.numero = ${filtros.numeroVuelo ?? null}))
          AND (${filtros.pnr ?? null}::text IS NULL OR rc.pnr = ${filtros.pnr ?? null})
          AND (${filtros.estado ?? null}::text IS NULL OR rc.estado::text = ${filtros.estado ?? null})
          AND (${filtros.desde ?? null}::timestamptz IS NULL OR rc.fecha_creacion >= ${filtros.desde ?? null})
@@ -676,6 +702,8 @@ export class ReservaRepository {
       pnr: f.pnr,
       estado: f.estado,
       creada: f.fecha_creacion,
+      idPropietario: f.id_propietario,
+      correoPropietario: f.correo_propietario,
       origen: f.origen,
       destino: f.destino,
       fechaSalida: f.fecha_salida,

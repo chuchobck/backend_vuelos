@@ -33,6 +33,8 @@ import { validarPasajeros } from './pasajeros-reserva';
 import { Reserva, ResumenReserva } from './reserva.modelo';
 import {
   AsientoDeSalida,
+  FilaListado,
+  FiltrosReservas,
   HoldParaReservar,
   PnrAgotado,
   ReservaRepository,
@@ -282,6 +284,24 @@ export class ReservaService {
     consulta: ConsultaReservasDto,
     idPropietario: string,
   ): Promise<{ filas: ResumenReserva[]; nextCursor?: string }> {
+    return this.pagina(consulta, { idPropietario });
+  }
+
+  /**
+   * GET /admin/bookings: lo mismo que `listar` pero de todos los clientes, y con el dueño de
+   * cada fila. `correoPropietario` y `numeroVuelo` son filtros de la administración.
+   */
+  async listarTodas(
+    consulta: ConsultaReservasDto,
+    filtros: { correoPropietario?: string; numeroVuelo?: string } = {},
+  ): Promise<{ filas: FilaListado[]; nextCursor?: string }> {
+    return this.pagina(consulta, { idPropietario: null, ...filtros });
+  }
+
+  private async pagina(
+    consulta: ConsultaReservasDto,
+    alcance: Pick<FiltrosReservas, 'idPropietario' | 'correoPropietario' | 'numeroVuelo'>,
+  ): Promise<{ filas: FilaListado[]; nextCursor?: string }> {
     const limite = consulta.limit ?? LIMITE_POR_DEFECTO;
     const desde = consulta.createdFrom ? fechaIsoAUtc(consulta.createdFrom) : undefined;
     const hasta = consulta.createdTo ? sumarDias(fechaIsoAUtc(consulta.createdTo)!, 1) : undefined;
@@ -289,7 +309,7 @@ export class ReservaService {
       throw cuerpoInvalido('createdTo', 'must not be before createdFrom');
     }
     const filas = await this.repositorio.listar({
-      idPropietario,
+      ...alcance,
       pnr: consulta.pnr,
       estado: consulta.status ? ESTADO_RESERVA.aBase(consulta.status) : undefined,
       desde,
@@ -302,6 +322,18 @@ export class ReservaService {
     return {
       filas: filas.slice(0, limite),
       nextCursor: codificarCursor(`${ultima.creada.toISOString()}|${ultima.id}`),
+    };
+  }
+
+  /** GET /admin/bookings/{bookingId}: la reserva de cualquier cliente y su dueño. */
+  async detalleAdministracion(
+    reservaId: string,
+  ): Promise<{ reserva: Reserva; idPropietario: string }> {
+    const encontrada = await this.repositorio.detalle(reservaId);
+    if (!encontrada) throw reservaNoExiste(reservaId);
+    return {
+      idPropietario: encontrada.idPropietario,
+      reserva: { ...encontrada.reserva, boletos: await this.boletos.deReserva(reservaId) },
     };
   }
 

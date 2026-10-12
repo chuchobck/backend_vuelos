@@ -30,7 +30,8 @@ con el contrato, en [docs/DISCREPANCIAS-CONTRATO.md](docs/DISCREPANCIAS-CONTRATO
 | 11. Calidad y entrega (v1.0.0)        | Hecha; el despliegue en Render queda para el dueño del repo |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
-administración del catálogo en `/flights/v1/admin` y estas operaciones del contrato:
+administración del catálogo, la auditoría, los administradores y las reservas de administración
+en `/flights/v1/admin` y estas operaciones del contrato:
 `POST /search`, `GET /offers/{offerId}/seatmap`, el bloqueo de cupos en `/offers/hold`, las
 reservas con sus boletos en `/bookings`, su postventa (equipaje, cambio de fecha y cancelación), el
 check-in con sus pases de abordar, el estado público de un vuelo y los webhooks: las 22
@@ -450,6 +451,61 @@ Cada una tiene `GET` (lista paginada), `GET /:id`, `POST`, `PATCH /:id` (parcial
 TOKEN=$(curl -s -X POST localhost:3000/flights/v1/auth/login -H 'Content-Type: application/json' \
   -d '{"email":"admin@quinde.example","password":"<SEED_ADMIN_PASSWORD>"}' | jq -r .access_token)
 curl "localhost:3000/flights/v1/admin/departures?flightNumber=AV1500&limit=5" -H "Authorization: Bearer $TOKEN"
+```
+
+## Auditoría, administradores y reservas de administración
+
+Tres grupos más bajo `/flights/v1/admin`, fuera del contrato y solo con `flights:admin`. En Swagger:
+`Admin · Auditoría`, `Admin · Administradores` y `Admin · Reservas`. Errores en ProblemDetails;
+las listas paginan con `?limit=` y `?cursor=` → `{ items, nextCursor }`.
+
+| Método y ruta                                | Qué hace                                                                                     | Respuestas                  |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------- |
+| `GET /admin/audit-log`                       | Eventos de `auditoria`, más recientes primero. Filtros: `table`, `operation` (INSERT, UPDATE, DELETE), `recordId`, `userId`, `from`, `to` (días UTC, incluidos). `limit` hasta 100 (20 por defecto) | 200, 400, 401, 403          |
+| `POST /admin/users`                          | Crea un administrador con `{ email, password }` (mismas reglas que `/auth/register`; no admite rol) | 201, 400, 401, 403, 409     |
+| `GET /admin/users`                           | Administradores (`?includeInactive=true` incluye los dados de baja)                          | 200, 400, 401, 403          |
+| `DELETE /admin/users/{id}`                   | Baja lógica (`usuario.activo = false`) y revoca sus refresh tokens                           | 204, 401, 403, 404, 409     |
+| `GET /admin/bookings`                        | Reservas de todos los clientes, con su dueño. Filtros: `pnr`, `status`, `createdFrom`, `createdTo`, `ownerEmail` (exacto), `flightNumber` | 200, 400, 401, 403          |
+| `GET /admin/bookings/{bookingId}`            | Detalle completo de cualquier reserva (`BookingDetail` más `owner`)                          | 200, 401, 403, 404          |
+| `POST /admin/bookings/{bookingId}/cancel`    | Cancela con las reglas de la cancelación normal. Exige `Idempotency-Key`; cuerpo `{ "reason"? }` | 200, 202, 400, 404, 409, 422 |
+
+Reglas que conviene saber:
+
+- **Auditoría**: `before` y `after` son las columnas afectadas. Todo valor sensible sale como
+  `"[REDACTED]"`: se censura por el **nombre de la clave** (cualquiera que contenga `hash_contrasena`,
+  `password`, `contrasena`, `hash_token`, `token`, `refresh`, `secret`, `secreto` o `authorization`, a
+  cualquier profundidad) y también todo texto que parezca un hash argon2 o un JWT. La lista está en
+  un solo lugar: `CLAVES_SENSIBLES` en `src/modules/vuelos/administracion/auditoria/censura.ts`. `id`
+  va como texto (es un `bigint`).
+- **Administradores**: no se puede dar de baja la propia cuenta ni al último administrador activo
+  (409 con un `detail` claro); repetir la baja responde 204. El access token ya emitido sirve hasta
+  que vence (15 minutos): lo que se revoca de inmediato es la renovación.
+- **Cancelar como administrador**: el servidor crea y acepta una cotización a nombre del dueño, así
+  que el reembolso, la penalidad, la liberación de asientos y cupo, los boletos, el historial, la
+  auditoría (a nombre del administrador) y los webhooks del dueño son los de siempre. La
+  `Idempotency-Key` es del administrador: la misma clave repite el resultado (`Idempotent-Replayed:
+  true`); otra clave sobre una reserva ya cancelada responde 409 `ALREADY_CANCELLED`, como para el
+  cliente; la misma clave con otro cuerpo, 422. 202 si el reembolso sigue pendiente.
+
+```bash
+TOKEN=$(curl -s -X POST localhost:3000/flights/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"admin@quinde.example","password":"<SEED_ADMIN_PASSWORD>"}' | jq -r .access_token)
+H="Authorization: Bearer $TOKEN"
+
+# Auditoría: los cambios de una aerolínea, de un día, hechos por un usuario
+curl "localhost:3000/flights/v1/admin/audit-log?table=aerolinea&operation=UPDATE&from=2026-10-01&to=2026-10-31&limit=20" -H "$H"
+
+# Crear, listar y dar de baja administradores
+curl -X POST localhost:3000/flights/v1/admin/users -H "$H" -H 'Content-Type: application/json' \
+  -d '{"email":"nuevo.admin@quinde.example","password":"una frase larga y fácil"}'
+curl "localhost:3000/flights/v1/admin/users?includeInactive=true" -H "$H"
+curl -X DELETE localhost:3000/flights/v1/admin/users/<id> -H "$H"
+
+# Reservas de todos los clientes, el detalle y la cancelación administrativa
+curl "localhost:3000/flights/v1/admin/bookings?ownerEmail=ana@example.com&status=CONFIRMED" -H "$H"
+curl localhost:3000/flights/v1/admin/bookings/<bookingId> -H "$H"
+curl -X POST localhost:3000/flights/v1/admin/bookings/<bookingId>/cancel -H "$H" \
+  -H "Idempotency-Key: $(uuidgen)" -H 'Content-Type: application/json' -d '{"reason":"Vuelo cancelado"}'
 ```
 
 ## Cómo se trabaja

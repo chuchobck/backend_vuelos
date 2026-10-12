@@ -64,6 +64,7 @@ ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
 [docs/PLAN.md](../../../docs/PLAN.md)):
 
 - `catalogo/<entidad>/`: CRUD de administrador en `/admin/...` con una clase base. Hecho en la fase 4.
+- `administracion/`: `/admin/audit-log` (auditoría con censura) y `/admin/bookings` (reservas de todos los clientes; cancela con `CancelacionService`). Los administradores (`/admin/users`) viven en `src/modules/auth/administradores/`.
 - `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10). Hechos: `busqueda/` (`POST /search`),
   `oferta/` (`GET /offers/{offerId}/seatmap`), `retencion/` (`/offers/hold`, fase 6), y `reserva/`
   y `boleto/` (`/bookings` y `/bookings/{bookingId}/tickets`, fase 7), y `equipaje/`, `cambio-fecha/`
