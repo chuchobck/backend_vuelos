@@ -12,6 +12,7 @@ import {
   Validate,
   ValidationArguments,
   ValidatorConstraint,
+  ValidateIf,
   ValidatorConstraintInterface,
   validateSync,
 } from 'class-validator';
@@ -83,6 +84,19 @@ export class VariablesEntorno {
   })
   @IsString({ message: 'JWT_SECRET es obligatoria' })
   JWT_SECRET: string;
+
+  /**
+   * Clave de la que se deriva la firma HMAC de los códigos de barras de los pases de abordar
+   * (CodigoPase). Sin valor: JWT_SECRET, de donde salía antes; con el mismo valor, los pases ya
+   * emitidos siguen verificando. Con otro, los pases ya emitidos dejan de verificar.
+   */
+  @MinLength(LARGO_MINIMO_JWT_SECRET, {
+    message: `BOARDING_PASS_SECRET debe tener al menos ${LARGO_MINIMO_JWT_SECRET} caracteres`,
+  })
+  @IsString({ message: 'BOARDING_PASS_SECRET debe ser texto' })
+  // Vacía cuenta como no definida (BOARDING_PASS_SECRET= en un .env): se usa JWT_SECRET
+  @ValidateIf((v: VariablesEntorno) => (v.BOARDING_PASS_SECRET ?? '') !== '')
+  BOARDING_PASS_SECRET?: string;
 
   /**
    * Clave con la que se cifra el secreto de cada webhook (AES-256-GCM, derivada con HKDF). Hace

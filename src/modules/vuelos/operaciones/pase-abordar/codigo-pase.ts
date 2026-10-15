@@ -34,18 +34,23 @@ const FORMATO =
  * El contenido es el PNR, el número de boleto, el vuelo, la fecha, la ruta, el asiento y la
  * posición del pasajero en la reserva (para que dos pasajeros del mismo vuelo no repitan el
  * código): nada personal. La firma son los primeros 12 caracteres hexadecimales de un
- * HMAC-SHA256 del resto con una clave derivada de JWT_SECRET para este uso solamente, así quien
- * lee el código en la puerta puede comprobar que lo emitió esta API (`verificar`) sin consultar
- * la base. Es determinista: los mismos datos dan el mismo código.
+ * HMAC-SHA256 del resto con una clave derivada para este uso solamente, así quien lee el código
+ * en la puerta puede comprobar que lo emitió esta API (`verificar`) sin consultar la base. Es
+ * determinista: los mismos datos dan el mismo código.
+ *
+ * La clave se deriva de BOARDING_PASS_SECRET o, si no está, de JWT_SECRET (de donde salía antes).
+ * La derivación no cambia: con el mismo valor, los pases ya emitidos siguen verificando. Separarla
+ * deja quitar JWT_SECRET cuando los tokens los verifica el servicio de identidad
+ * (AUTH_MODE=external) sin invalidar ningún pase: BOARDING_PASS_SECRET toma su valor.
  */
 @Injectable()
 export class CodigoPase {
   private readonly clave: Buffer;
 
   constructor(config: ConfigService) {
-    this.clave = createHmac('sha256', config.getOrThrow<string>('JWT_SECRET'))
-      .update('quinde-vuelos:codigo-pase-abordar')
-      .digest();
+    const secreto =
+      config.get<string>('BOARDING_PASS_SECRET') || config.getOrThrow<string>('JWT_SECRET');
+    this.clave = createHmac('sha256', secreto).update('quinde-vuelos:codigo-pase-abordar').digest();
   }
 
   generar(d: DatosCodigo): string {
