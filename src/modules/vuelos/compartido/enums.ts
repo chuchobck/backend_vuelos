@@ -174,3 +174,14 @@ export const TIPO_CODIGO_BARRAS = traduccion<tipo_codigo_barras, 'AZTEC' | 'PDF4
   QR: 'QR',
 });
 export type TipoCodigoBarrasContrato = (typeof TIPO_CODIGO_BARRAS.valores)[number];
+
+/**
+ * El valor de un enum del contrato con el nombre que tiene en el proto
+ * (contracts/proto/flights/v1/flights.proto): el prefijo del enum más el valor, y el 0
+ * `*_UNSPECIFIED` para un null. Los `<entidad>.grpc.ts` lo aplican a la salida del mapper.
+ *
+ *   aEnumProto('FLIGHT_STATUS', 'SCHEDULED')  // 'FLIGHT_STATUS_SCHEDULED'
+ */
+export function aEnumProto(prefijo: string, valor: string | null): string {
+  return `${prefijo}_${valor ?? 'UNSPECIFIED'}`;
+}

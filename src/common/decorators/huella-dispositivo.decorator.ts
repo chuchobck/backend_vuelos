@@ -1,4 +1,5 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { Metadata } from '@grpc/grpc-js';
 import { Request } from 'express';
 import { CODIGO_SIN_EQUIVALENTE } from '../errores/codigo-error';
 import { ErrorNegocio } from '../errores/error-negocio';
@@ -12,15 +13,16 @@ export const CABECERA_HUELLA = 'X-Device-Fingerprint';
 const FORMATO_HUELLA = /^[A-Za-z0-9._:+/=-]{8,128}$/;
 
 /**
- * La cabecera X-Device-Fingerprint, obligatoria en POST /search (contrato). Si falta o no
- * cumple el formato, 400 VALIDATION_FAILED. El valor nunca se repite en el error ni se
- * registra en el log: identifica un dispositivo.
+ * La cabecera X-Device-Fingerprint, obligatoria en POST /search (contrato); en gRPC, la
+ * metadata x-device-fingerprint de SearchFlights. Si falta, se repite o no cumple el formato,
+ * 400 VALIDATION_FAILED. El valor nunca se repite en el error ni se registra en el log:
+ * identifica un dispositivo.
  *
  *   buscar(@HuellaDispositivo() huella: string) {}
  */
 export const HuellaDispositivo = createParamDecorator(
   (_dato: unknown, contexto: ExecutionContext) => {
-    const valor = contexto.switchToHttp().getRequest<Request>().headers['x-device-fingerprint'];
+    const valor = leerHuella(contexto);
     if (typeof valor !== 'string' || !FORMATO_HUELLA.test(valor)) {
       const razon =
         valor === undefined
@@ -33,3 +35,12 @@ export const HuellaDispositivo = createParamDecorator(
     return valor;
   },
 );
+
+/** La cabecera en HTTP; en gRPC, los valores de la metadata (uno solo, o no es válida). */
+function leerHuella(contexto: ExecutionContext): unknown {
+  if (contexto.getType() !== 'rpc') {
+    return contexto.switchToHttp().getRequest<Request>().headers['x-device-fingerprint'];
+  }
+  const valores = contexto.switchToRpc().getContext<Metadata>().get('x-device-fingerprint');
+  return valores.length <= 1 ? valores[0] : valores;
+}
