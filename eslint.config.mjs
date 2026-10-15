@@ -40,6 +40,12 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
   {
+    // Transformador de Jest para jose (test/utils/transformar-jose.cjs): CommonJS sin compilar.
+    files: ['test/**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs' },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
     // Herramientas de prueba y verificación (scripts/): CommonJS que informa por consola.
     files: ['scripts/**/*.cjs'],
     languageOptions: { sourceType: 'commonjs' },

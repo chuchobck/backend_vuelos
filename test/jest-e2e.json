@@ -5,6 +5,7 @@
   "setupFiles": ["<rootDir>/test/utils/entorno-pruebas.ts"],
   "moduleFileExtensions": ["js", "json", "ts"],
   "transform": {
+    "/node_modules/jose/.+\\.js$": "<rootDir>/test/utils/transformar-jose.cjs",
     "^.+\\.ts$": [
       "ts-jest",
       {
@@ -13,6 +14,7 @@
       }
     ]
   },
+  "transformIgnorePatterns": ["/node_modules/(?!jose/)"],
   "testTimeout": 20000,
   "collectCoverageFrom": [
     "src/**/*.ts",
