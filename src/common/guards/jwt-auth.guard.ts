@@ -56,7 +56,7 @@ export class JwtAuthGuard implements CanActivate {
         idToken: identidad.jti,
         ...(identidad.clienteId === undefined ? {} : { clienteId: identidad.clienteId }),
       };
-      fijarUsuario(identidad.sub);
+      fijarUsuario(identidad.sub, identidad.clienteId);
       return true;
     } catch (error) {
       if (error instanceof JwksNoDisponibleError) throw servicioNoDisponible(error);

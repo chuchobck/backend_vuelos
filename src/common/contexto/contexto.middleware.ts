@@ -18,7 +18,11 @@ export function contextoDeLaPeticion(peticion: Request): ContextoPeticion | unde
 /**
  * Primer middleware de la app. Asigna el X-Request-Id y lo devuelve en la respuesta; como va
  * antes que helmet, CORS y el parser del cuerpo, también lo llevan los errores que esos
- * producen (413, JSON roto). Al terminar la respuesta deja una línea de log con el id.
+ * producen (413, JSON roto). Al terminar la respuesta deja una línea de log con el id:
+ *
+ *   LOG [HTTP] [8d1f...] POST /flights/v1/offers/hold 201 48.3ms ip=10.0.0.7 user=<sub> client=<client_id>
+ *
+ * `user` solo con un token válido y `client` solo si el token es de un cliente máquina a máquina.
  */
 export function middlewareRequestId(peticion: Request, respuesta: Response, next: NextFunction) {
   const contexto: ContextoPeticion = {
@@ -37,7 +41,8 @@ export function middlewareRequestId(peticion: Request, respuesta: Response, next
     ejecutarEnContexto(contexto, () =>
       logger.log(
         `${peticion.method} ${peticion.originalUrl.split('?')[0]} ${respuesta.statusCode} ` +
-          `${ms.toFixed(1)}ms ip=${contexto.ip ?? '-'}${contexto.usuario ? ` user=${contexto.usuario}` : ''}`,
+          `${ms.toFixed(1)}ms ip=${contexto.ip ?? '-'}${contexto.usuario ? ` user=${contexto.usuario}` : ''}` +
+          (contexto.cliente ? ` client=${contexto.cliente}` : ''),
       ),
     );
   });

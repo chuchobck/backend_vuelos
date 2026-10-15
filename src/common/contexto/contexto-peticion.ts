@@ -14,6 +14,12 @@ export interface ContextoPeticion {
    * Es el `id_propietario` de retenciones, reservas y webhooks.
    */
   usuario: string | null;
+  /**
+   * `client_id` del token, solo si es de un cliente máquina a máquina (AUTH_MODE=external,
+   * client_credentials). Ese `sub` es el id del cliente en el servicio de identidad, así que la
+   * auditoría ya lo identifica; esto es su código legible, que va a la línea de acceso.
+   */
+  cliente?: string;
 }
 
 const almacen = new AsyncLocalStorage<ContextoPeticion>();
@@ -30,12 +36,14 @@ export function ejecutarEnContexto<T>(contexto: ContextoPeticion, trabajo: () =>
 
 /**
  * Registra el usuario autenticado en el contexto. Lo llama JwtAuthGuard con el `sub` del
- * token (y el login, al verificar la contraseña); desde ahí PrismaService lo escribe en
- * `app.id_usuario` en cada escritura.
+ * token y, si lo trae, su `client_id` (y el login, al verificar la contraseña); desde ahí
+ * PrismaService escribe el `sub` en `app.id_usuario` en cada escritura.
  */
-export function fijarUsuario(usuario: string): void {
+export function fijarUsuario(usuario: string, cliente?: string): void {
   const contexto = almacen.getStore();
-  if (contexto) contexto.usuario = usuario;
+  if (!contexto) return;
+  contexto.usuario = usuario;
+  if (cliente !== undefined) contexto.cliente = cliente;
 }
 
 /** `::ffff:203.0.113.7` (IPv4 dentro de IPv6) → `203.0.113.7`; lo demás queda igual. */
