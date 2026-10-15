@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConditionalModule, ConfigModule } from '@nestjs/config';
 import { RouterModule } from '@nestjs/core';
 
 import { CommonModule } from './common/common.module';
@@ -11,6 +11,11 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AutenticacionModule } from './modules/auth/autenticacion.module';
 import { SaludModule } from './modules/salud/salud.module';
 import { VuelosModule } from './modules/vuelos/vuelos.module';
+
+/** AUTH_MODE sin definir o local (entorno.ts ya validó el valor). */
+function esModoLocal(entorno: NodeJS.ProcessEnv): boolean {
+  return entorno.AUTH_MODE !== 'external';
+}
 
 @Module({
   imports: [
@@ -27,8 +32,10 @@ import { VuelosModule } from './modules/vuelos/vuelos.module';
     CommonModule,
     SaludModule,
     AutenticacionModule,
-    AuthModule,
-    AdministradoresModule,
+    // El proveedor de identidad simulado (/auth) y /admin/users solo con AUTH_MODE=local. Con
+    // external los tokens los emite el servicio de identidad: esas rutas no existen (404).
+    ConditionalModule.registerWhen(AuthModule, esModoLocal, { debug: false }),
+    ConditionalModule.registerWhen(AdministradoresModule, esModoLocal, { debug: false }),
 
     VuelosModule,
 

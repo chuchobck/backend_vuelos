@@ -104,15 +104,18 @@ export class VariablesEntorno {
   NODE_ENV: Entorno;
 
   /**
-   * Clave HS256 de los tokens de acceso. Con menos de 32 caracteres (256 bits si es aleatoria)
-   * la firma se podría adivinar por fuerza bruta. Generar con:
+   * Clave HS256 de los tokens de acceso con AUTH_MODE=local (obligatoria ahí). Con menos de 32
+   * caracteres (256 bits si es aleatoria) la firma se podría adivinar por fuerza bruta. Con
+   * AUTH_MODE=external no firma ni verifica nada de los tokens: solo hace falta si de ella sale
+   * la firma de los pases (BOARDING_PASS_SECRET sin valor). Generar con:
    *   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
    */
   @MinLength(LARGO_MINIMO_JWT_SECRET, {
     message: `JWT_SECRET debe tener al menos ${LARGO_MINIMO_JWT_SECRET} caracteres`,
   })
-  @IsString({ message: 'JWT_SECRET es obligatoria' })
-  JWT_SECRET: string;
+  @IsString({ message: 'JWT_SECRET es obligatoria con AUTH_MODE=local' })
+  @ValidateIf((v: VariablesEntorno) => v.AUTH_MODE !== 'external' || v.JWT_SECRET !== undefined)
+  JWT_SECRET?: string;
 
   /**
    * Clave de la que se deriva la firma HMAC de los códigos de barras de los pases de abordar
@@ -122,9 +125,18 @@ export class VariablesEntorno {
   @MinLength(LARGO_MINIMO_JWT_SECRET, {
     message: `BOARDING_PASS_SECRET debe tener al menos ${LARGO_MINIMO_JWT_SECRET} caracteres`,
   })
-  @IsString({ message: 'BOARDING_PASS_SECRET debe ser texto' })
-  // Vacía cuenta como no definida (BOARDING_PASS_SECRET= en un .env): se usa JWT_SECRET
-  @ValidateIf((v: VariablesEntorno) => (v.BOARDING_PASS_SECRET ?? '') !== '')
+  @IsString({
+    message:
+      'BOARDING_PASS_SECRET es obligatoria con AUTH_MODE=external si no hay JWT_SECRET: de ella ' +
+      'sale la firma de los pases de abordar',
+  })
+  // Vacía cuenta como no definida (BOARDING_PASS_SECRET= en un .env): se usa JWT_SECRET. Con
+  // AUTH_MODE=external y sin JWT_SECRET, alguna de las dos tiene que estar.
+  @ValidateIf(
+    (v: VariablesEntorno) =>
+      (v.BOARDING_PASS_SECRET ?? '') !== '' ||
+      (v.AUTH_MODE === 'external' && v.JWT_SECRET === undefined),
+  )
   BOARDING_PASS_SECRET?: string;
 
   /**

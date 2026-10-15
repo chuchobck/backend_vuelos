@@ -1,8 +1,10 @@
 import { INestApplication, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ESQUEMA_BEARER, ESQUEMA_OAUTH2 } from '../common/decorators/documentacion.decorator';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { configuracionExterna, modoAuth } from './autenticacion';
 
 export const RUTA_SWAGGER = 'api/docs';
 /** Versión de la API (la de package.json); el contrato que implementa es el 1.5.0.0. */
@@ -59,21 +61,37 @@ const SCOPES_OAUTH2 = {
     'Administrar catálogo, auditoría, administradores y reservas (propio del proyecto, no está en el contrato)',
 };
 
-/** Swagger UI en /api/docs y el OpenAPI en JSON en /api/docs-json. */
+/** Etiquetas de las rutas que solo se montan con AUTH_MODE=local (src/app.module.ts). */
+const ETIQUETAS_SOLO_LOCAL: ReadonlySet<keyof typeof ETIQUETAS> = new Set([
+  'auth',
+  'adminUsuarios',
+]);
+
+/**
+ * Swagger UI en /api/docs y el OpenAPI en JSON en /api/docs-json. Refleja AUTH_MODE: con
+ * external no están /auth ni /admin/users (ni sus etiquetas), y el esquema bearer pide un token
+ * del servicio de identidad.
+ */
 export function configurarSwagger(app: INestApplication): void {
+  const config = app.get(ConfigService);
+  const externo = modoAuth(config) === 'external';
   const constructor = new DocumentBuilder()
     .setTitle(TITULO)
     .setDescription(
       `Implementación del contrato GDS Flight Core API v${VERSION_CONTRATO} para vuelos nacionales de Ecuador.`,
     )
     .setVersion(VERSION_API)
-    // El que funciona en el botón Authorize: el access_token de POST /flights/v1/auth/login
+    // El que funciona en el botón Authorize: el access_token de POST /flights/v1/auth/login o,
+    // con AUTH_MODE=external, uno del servicio de identidad
     .addBearerAuth(
       {
         type: 'http',
         scheme: 'bearer',
         bearerFormat: 'JWT',
-        description: 'Pega el access_token de POST /flights/v1/auth/login (vence en 15 minutos)',
+        description: externo
+          ? `Pega un access_token del servicio de identidad (${configuracionExterna(config).emisor}): ` +
+            'el de su login, o el de /oauth2/token para un cliente máquina a máquina'
+          : 'Pega el access_token de POST /flights/v1/auth/login (vence en 15 minutos)',
       },
       ESQUEMA_BEARER,
     )
@@ -107,6 +125,7 @@ export function configurarSwagger(app: INestApplication): void {
   if (urlExterna) constructor.addServer(urlExterna.replace(/\/$/, ''), 'Este despliegue');
 
   for (const [clave, nombre] of Object.entries(ETIQUETAS)) {
+    if (externo && ETIQUETAS_SOLO_LOCAL.has(clave as keyof typeof ETIQUETAS)) continue;
     const descripcion = clave.startsWith('admin')
       ? DESCRIPCION_ADMIN
       : DESCRIPCIONES_PROPIAS[clave as keyof typeof ETIQUETAS];
