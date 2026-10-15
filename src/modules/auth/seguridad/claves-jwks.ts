@@ -184,16 +184,27 @@ async function importarClaves(jwks: unknown): Promise<Map<string, CryptoKey>> {
   return claves;
 }
 
-/** Un motivo corto para el log, sin la URL ni el contenido de la respuesta. */
+/**
+ * Un motivo corto para el log, sin la URL ni el contenido de la respuesta. Mira `name` y no
+ * `instanceof`: los errores de fetch (DOMException, TypeError de undici) pueden venir de otro
+ * realm, y ahí `instanceof Error` da false.
+ */
 function motivoDelFallo(error: unknown): string {
-  if (error instanceof Error) {
-    if (error.name === 'TimeoutError') return `más de ${PLAZO_DESCARGA_MS} ms`;
-    if (error instanceof SyntaxError) return 'no es JSON';
-    const codigo = (error as { cause?: { code?: unknown } }).cause?.code;
-    if (typeof codigo === 'string') return codigo;
-    if (/^(HTTP \d{3}|respuesta demasiado grande|no es un JWKS)$/.test(error.message)) {
-      return error.message;
-    }
+  const { name, message, cause } = (error ?? {}) as {
+    name?: unknown;
+    message?: unknown;
+    cause?: { code?: unknown };
+  };
+  if (name === 'TimeoutError') return `más de ${PLAZO_DESCARGA_MS} ms`;
+  if (name === 'SyntaxError') return 'no es JSON';
+  if (typeof cause?.code === 'string' && /^[A-Z][A-Z0-9_]{1,40}$/.test(cause.code)) {
+    return cause.code;
+  }
+  if (
+    typeof message === 'string' &&
+    /^(HTTP \d{3}|respuesta demasiado grande|no es un JWKS)$/.test(message)
+  ) {
+    return message;
   }
   return 'error de red';
 }
