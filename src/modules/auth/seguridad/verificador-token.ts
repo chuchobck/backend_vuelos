@@ -4,6 +4,11 @@ export interface IdentidadToken {
   sub: string;
   scopes: string[];
   jti: string;
+  /**
+   * `client_id` del token, solo si lo emitió el servicio de identidad para un cliente máquina a
+   * máquina (client_credentials). Los tokens de personas no lo llevan.
+   */
+  clienteId?: string;
 }
 
 export type MotivoTokenInvalido = 'expirado' | 'invalido';

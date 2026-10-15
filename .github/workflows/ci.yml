@@ -45,6 +45,9 @@ jobs:
       WEBHOOK_SECRET_KEY: ci-solo-pruebas-webhooks-0123456789abcdefghij
       # gRPC apagado, como en Render: las pruebas de gRPC lo encienden con su propio puerto
       GRPC_ENABLED: 'false'
+      # Autenticación local, como en Render. La suite de AUTH_MODE=external fija su propio
+      # AUTH_MODE, JWT_ISSUER y JWT_AUDIENCE contra un servicio de identidad falso
+      AUTH_MODE: local
 
     steps:
       - uses: actions/checkout@v4

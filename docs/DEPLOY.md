@@ -88,7 +88,9 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | Variable | Por defecto | Para qué |
 | --- | --- | --- |
 | `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_SECONDS` | 100 y 60 | Peticiones por IP y ventana en toda la API |
-| `JWT_ISSUER`, `JWT_AUDIENCE` | `quinde-vuelos-api` | `iss` y `aud` de los tokens |
+| `AUTH_MODE` | `local` | `local`: la API emite y verifica sus tokens (HS256, `/auth`). `external`: verifica los del servicio de identidad con su JWKS y no monta `/auth` ni `/admin/users` (ver "Cambio de modo de autenticación") |
+| `JWT_ISSUER`, `JWT_AUDIENCE` | `quinde-vuelos-api` | `iss` y `aud` de los tokens. Con `AUTH_MODE=external` son obligatorias: el origen https del servicio de identidad, sin ruta (`iss` exacto de sus tokens), y `quinde-vuelos-api` |
+| `JWKS_URL` | `{JWT_ISSUER}/.well-known/jwks.json` | Solo con `AUTH_MODE=external`: de dónde se bajan las claves públicas (https en producción) |
 | `SEARCH_OFFER_TTL_MINUTES` | 30 | Vigencia de una oferta de búsqueda |
 | `HOLD_TTL_MINUTES` | 15 | Vigencia de un hold |
 | `CANCELLATION_QUOTE_TTL_MINUTES`, `CHANGE_OFFER_TTL_MINUTES` | 15 y 15 | Vigencia de una cotización de cancelación y de una oferta de cambio |

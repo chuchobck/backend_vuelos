@@ -16,6 +16,7 @@ import {
   ValidatorConstraintInterface,
   validateSync,
 } from 'class-validator';
+import { esOrigenEmisor, esUrlJwks, MODOS_AUTH, ModoAuth } from './autenticacion';
 import { esOrigenValido, listarOrigenes } from './origenes-cors';
 import { parsearTrustProxy } from './proxy';
 
@@ -36,6 +37,34 @@ class ListaDeOrigenes implements ValidatorConstraintInterface {
       'CORS_ORIGINS debe ser una lista de orígenes separados por coma, como ' +
       `https://app.example.com (sin ruta, sin barra final y sin "*"); inválidos: ${invalidos.join(', ')}`
     );
+  }
+}
+
+/** Con AUTH_MODE=external, JWT_ISSUER es un origen sin ruta (https en producción). */
+@ValidatorConstraint({ name: 'emisorExterno' })
+class EmisorExterno implements ValidatorConstraintInterface {
+  validate(valor: unknown, { object }: ValidationArguments): boolean {
+    const variables = object as VariablesEntorno;
+    if (variables.AUTH_MODE !== 'external') return true;
+    return esOrigenEmisor(valor, variables.NODE_ENV === 'production');
+  }
+
+  defaultMessage(): string {
+    return (
+      'JWT_ISSUER debe ser, con AUTH_MODE=external, el origen del servicio de identidad sin ruta ' +
+      'ni barra final, como https://identity.quinde.example (https con NODE_ENV=production)'
+    );
+  }
+}
+
+@ValidatorConstraint({ name: 'urlJwks' })
+class UrlJwks implements ValidatorConstraintInterface {
+  validate(valor: unknown, { object }: ValidationArguments): boolean {
+    return esUrlJwks(valor, (object as VariablesEntorno).NODE_ENV === 'production');
+  }
+
+  defaultMessage(): string {
+    return 'JWKS_URL debe ser una URL https (http solo fuera de producción) sin usuario, clave ni fragmento';
   }
 }
 
@@ -111,17 +140,44 @@ export class VariablesEntorno {
   @IsString({ message: 'WEBHOOK_SECRET_KEY es obligatoria' })
   WEBHOOK_SECRET_KEY: string;
 
-  /** `iss` de los tokens que emite y acepta la API. Sin valor: quinde-vuelos-api. */
+  /**
+   * Quién emite los tokens que la API acepta (src/config/autenticacion.ts). Sin valor: local, la
+   * propia API con /auth y HS256, como siempre. external: el servicio de identidad, por su JWKS.
+   */
+  @IsIn(MODOS_AUTH, { message: `AUTH_MODE debe ser uno de: ${MODOS_AUTH.join(', ')}` })
+  @IsOptional()
+  AUTH_MODE?: ModoAuth;
+
+  /**
+   * `iss` de los tokens. Con AUTH_MODE=local, el que emite y acepta la API; sin valor:
+   * quinde-vuelos-api. Con AUTH_MODE=external es obligatoria: el JWT_ISSUER del servicio de
+   * identidad, un origen sin ruta (https en producción), que se compara texto a texto.
+   */
+  @Validate(EmisorExterno)
   @Matches(/^\S+$/, { message: 'JWT_ISSUER no puede tener espacios' })
   @MaxLength(200, { message: 'JWT_ISSUER admite hasta 200 caracteres' })
-  @IsOptional()
+  @IsString({ message: 'JWT_ISSUER es obligatoria con AUTH_MODE=external' })
+  @ValidateIf((v: VariablesEntorno) => v.JWT_ISSUER !== undefined || v.AUTH_MODE === 'external')
   JWT_ISSUER?: string;
 
-  /** `aud` de los tokens que emite y acepta la API. Sin valor: quinde-vuelos-api. */
+  /**
+   * `aud` de los tokens. Con AUTH_MODE=local, el que emite y acepta la API; sin valor:
+   * quinde-vuelos-api. Con AUTH_MODE=external es obligatoria (quinde-vuelos-api, el `aud` que
+   * emite el servicio de identidad para el core).
+   */
   @Matches(/^\S+$/, { message: 'JWT_AUDIENCE no puede tener espacios' })
   @MaxLength(200, { message: 'JWT_AUDIENCE admite hasta 200 caracteres' })
-  @IsOptional()
+  @IsString({ message: 'JWT_AUDIENCE es obligatoria con AUTH_MODE=external' })
+  @ValidateIf((v: VariablesEntorno) => v.JWT_AUDIENCE !== undefined || v.AUTH_MODE === 'external')
   JWT_AUDIENCE?: string;
+
+  /**
+   * De dónde se bajan las claves públicas con AUTH_MODE=external. Sin valor:
+   * {JWT_ISSUER}/.well-known/jwks.json. Sirve si el JWKS se lee por otra ruta (una red interna).
+   */
+  @Validate(UrlJwks)
+  @IsOptional()
+  JWKS_URL?: string;
 
   /** Orígenes que pueden llamar desde un navegador. Sin valor: ninguno. */
   @Validate(ListaDeOrigenes)

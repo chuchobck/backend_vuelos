@@ -31,3 +31,14 @@ services:
       # Orígenes del frontend separados por coma (https://app.example.com), o vacía
       - key: CORS_ORIGINS
         sync: false
+      # Autenticación: en producción sigue AUTH_MODE=local (por defecto, sin la variable) hasta el
+      # despliegue en Azure. Para verificar los tokens del servicio de identidad (docs/DEPLOY.md,
+      # "Cambio de modo de autenticación"), agregar:
+      #   - key: AUTH_MODE
+      #     value: external
+      #   - key: JWT_ISSUER              # origen https del servicio de identidad, sin ruta
+      #     sync: false
+      #   - key: JWT_AUDIENCE
+      #     value: quinde-vuelos-api
+      #   - key: BOARDING_PASS_SECRET    # el valor de JWT_SECRET, para no invalidar los pases
+      #     sync: false

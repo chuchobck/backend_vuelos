@@ -3,7 +3,10 @@ import { Reflector } from '@nestjs/core';
 import { fijarUsuario } from '../contexto/contexto-peticion';
 import { ES_PUBLICO } from '../decorators/publico.decorator';
 import { PeticionAutenticada } from '../decorators/usuario-actual.decorator';
+import { CodigoError } from '../errores/codigo-error';
+import { ErrorNegocio } from '../errores/error-negocio';
 import { desafioBearer, noAutenticado } from '../../modules/auth/errores-auth';
+import { JwksNoDisponibleError } from '../../modules/auth/seguridad/claves-jwks';
 import {
   TokenInvalidoError,
   VerificadorToken,
@@ -18,6 +21,8 @@ const CABECERA_BEARER = /^Bearer[ ]+([A-Za-z0-9._~+/-]+=*)[ ]*$/i;
  *
  * - Sin cabecera Authorization, o con otro esquema: 401 con `WWW-Authenticate: Bearer realm=...`
  * - Token vencido, mal firmado, de otro emisor o audiencia: 401 con `error="invalid_token"`
+ * - Con AUTH_MODE=external, sin claves del servicio de identidad con que verificar (caído y sin
+ *   copia vigente del JWKS): 503 AUTH_UNAVAILABLE con Retry-After. Nunca 401 ni deja pasar.
  *
  * Con un token válido deja el usuario en la petición (@UsuarioActual) y en el contexto, para
  * que la auditoría registre su `sub`. El token nunca va al log ni a la respuesta.
@@ -45,12 +50,28 @@ export class JwtAuthGuard implements CanActivate {
 
     try {
       const identidad = await this.verificador.verificar(coincidencia[1]);
-      peticion.usuario = { id: identidad.sub, scopes: identidad.scopes, idToken: identidad.jti };
+      peticion.usuario = {
+        id: identidad.sub,
+        scopes: identidad.scopes,
+        idToken: identidad.jti,
+        ...(identidad.clienteId === undefined ? {} : { clienteId: identidad.clienteId }),
+      };
       fijarUsuario(identidad.sub);
       return true;
     } catch (error) {
+      if (error instanceof JwksNoDisponibleError) throw servicioNoDisponible(error);
       if (!(error instanceof TokenInvalidoError)) throw error;
       throw noAutenticado(error.message, desafioBearer('invalid_token', error.message));
     }
   }
+}
+
+/** 503 AUTH_UNAVAILABLE: no es culpa del cliente; que reintente cuando lo diga Retry-After. */
+function servicioNoDisponible(error: JwksNoDisponibleError): ErrorNegocio {
+  return new ErrorNegocio(
+    503,
+    CodigoError.AUTH_UNAVAILABLE,
+    'The identity service is not available to verify the access token; retry later',
+    { cabeceras: { 'Retry-After': String(error.reintentarEnSegundos) }, causa: error },
+  );
 }
