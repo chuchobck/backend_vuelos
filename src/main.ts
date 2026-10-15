@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { configurarApp } from './configurar-app';
+import { iniciarGrpc } from './config/grpc';
 import { habilitarBigIntEnJson } from './prisma/serializacion-bigint';
 
 async function bootstrap() {
@@ -13,6 +14,8 @@ async function bootstrap() {
     bufferLogs: true,
   });
   configurarApp(app);
+  // Servidor gRPC interno, solo con GRPC_ENABLED=true (src/config/grpc.ts)
+  await iniciarGrpc(app);
 
   await app.listen(app.get(ConfigService).getOrThrow<number>('PORT'));
 }

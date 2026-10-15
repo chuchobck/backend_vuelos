@@ -43,6 +43,8 @@ jobs:
       # Valores falsos, solo para CI: no son los de ningún entorno ni secretos del repositorio
       JWT_SECRET: ci-solo-pruebas-jwt-0123456789abcdefghijklmnop
       WEBHOOK_SECRET_KEY: ci-solo-pruebas-webhooks-0123456789abcdefghij
+      # gRPC apagado, como en Render: las pruebas de gRPC lo encienden con su propio puerto
+      GRPC_ENABLED: 'false'
 
     steps:
       - uses: actions/checkout@v4

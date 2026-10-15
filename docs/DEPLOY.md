@@ -97,6 +97,7 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `BOOKING_ISSUE_JOB_ENABLED`, `BOOKING_ISSUE_JOB_INTERVAL_SECONDS` | `true` y 30 | Emitir las reservas con pago pendiente cuando se aprueba |
 | `POSTSALE_JOB_ENABLED`, `POSTSALE_JOB_INTERVAL_SECONDS` | `true` y 30 | Completar maletas, cambios y cancelaciones pendientes |
 | `WEBHOOK_DELIVERY_JOB_ENABLED`, `WEBHOOK_DELIVERY_JOB_INTERVAL_SECONDS` | `true` y 10 | Enviar y reintentar los webhooks |
+| `GRPC_ENABLED`, `GRPC_PORT` | `false` y 50051 | Servidor gRPC interno para el BFF (`docs/GRPC.md`). En Render queda apagado: el tráfico público llega solo al puerto HTTP (`PORT`); el despliegue de gRPC es la fase de Azure |
 
 `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` y `DB_PORT` son solo para el entorno local
 (`./db/reset.sh` y docker compose); en Render no se usan.
