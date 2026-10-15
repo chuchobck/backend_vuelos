@@ -84,6 +84,6 @@ export class ProblemDetailsFilter implements ExceptionFilter {
 }
 
 /** Los errores de Prisma traen la invocación completa y saltos de línea; al log, una línea. */
-function resumir(error: Error): string {
+export function resumir(error: Error): string {
   return error.message.replace(/\s+/g, ' ').trim().slice(-300);
 }
