@@ -5,9 +5,9 @@ import { ES_PUBLICO } from '../decorators/publico.decorator';
 import { PeticionAutenticada } from '../decorators/usuario-actual.decorator';
 import { desafioBearer, noAutenticado } from '../../modules/auth/errores-auth';
 import {
-  TokenAccesoService,
   TokenInvalidoError,
-} from '../../modules/auth/seguridad/token-acceso.service';
+  VerificadorToken,
+} from '../../modules/auth/seguridad/verificador-token';
 
 /** `Bearer <token>`; el esquema no distingue mayúsculas (RFC 7235). */
 const CABECERA_BEARER = /^Bearer[ ]+([A-Za-z0-9._~+/-]+=*)[ ]*$/i;
@@ -21,15 +21,18 @@ const CABECERA_BEARER = /^Bearer[ ]+([A-Za-z0-9._~+/-]+=*)[ ]*$/i;
  *
  * Con un token válido deja el usuario en la petición (@UsuarioActual) y en el contexto, para
  * que la auditoría registre su `sub`. El token nunca va al log ni a la respuesta.
+ *
+ * Quién verifica el token lo decide AutenticacionModule (VerificadorToken); el guard es asíncrono
+ * porque la verificación puede necesitar la red.
  */
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly tokens: TokenAccesoService,
+    private readonly verificador: VerificadorToken,
   ) {}
 
-  canActivate(contexto: ExecutionContext): boolean {
+  async canActivate(contexto: ExecutionContext): Promise<boolean> {
     const esPublico = this.reflector.getAllAndOverride<boolean>(ES_PUBLICO, [
       contexto.getHandler(),
       contexto.getClass(),
@@ -41,7 +44,7 @@ export class JwtAuthGuard implements CanActivate {
     if (!coincidencia) throw noAutenticado('A bearer access token is required');
 
     try {
-      const identidad = this.tokens.verificar(coincidencia[1]);
+      const identidad = await this.verificador.verificar(coincidencia[1]);
       peticion.usuario = { id: identidad.sub, scopes: identidad.scopes, idToken: identidad.jti };
       fijarUsuario(identidad.sub);
       return true;

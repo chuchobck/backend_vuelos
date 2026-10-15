@@ -8,6 +8,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { rutas } from './routes/index.routes';
 import { AdministradoresModule } from './modules/auth/administradores/administradores.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { AutenticacionModule } from './modules/auth/autenticacion.module';
 import { SaludModule } from './modules/salud/salud.module';
 import { VuelosModule } from './modules/vuelos/vuelos.module';
 
@@ -20,11 +21,12 @@ import { VuelosModule } from './modules/vuelos/vuelos.module';
       validate: validarEntorno,
     }),
 
-    // Módulos Compartidos. CommonModule va antes que AuthModule: así el límite de peticiones
-    // es el primer guard global y corre antes que el de JWT (ver auth.module.ts).
+    // Módulos Compartidos. CommonModule va antes que AutenticacionModule: así el límite de
+    // peticiones es el primer guard global y corre antes que el de JWT (ver autenticacion.module.ts).
     PrismaModule,
     CommonModule,
     SaludModule,
+    AutenticacionModule,
     AuthModule,
     AdministradoresModule,
 
