@@ -80,6 +80,8 @@ ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
   `ServicioPagos`, el cobro común `Cobros` y las referencias guardadas `PagosRepository`).
 - Cada entidad lleva `<entidad>.routes.ts`, controller, service, repository (el único que usa Prisma),
   mapper y `dto/`; las rutas se cuelgan en `vuelos.routes.ts`.
+- `busqueda/`, `oferta/` y `estado-vuelo/` llevan además un `<entidad>.grpc.ts`: la misma operación
+  por el gRPC interno (fase R2-1, ver "gRPC" abajo y [docs/GRPC.md](../../../docs/GRPC.md)).
 
 Lo transversal ya lo da la API a cualquier controller nuevo, sin código extra:
 
@@ -307,6 +309,41 @@ y valida status y cuerpo contra el contrato; lo que el contrato no declara va en
 declara, hace fallar la prueba hasta que se implementa o se acepta (y se anota en
 `docs/DISCREPANCIAS-CONTRATO.md`). Las públicas son la búsqueda, el mapa de asientos y el estado
 de vuelo.
+
+## gRPC (fase R2-1)
+
+Las tres lecturas públicas también se sirven por gRPC (`SearchFlights`, `GetSeatMap`,
+`GetFlightStatus`; contrato en `contracts/proto/flights/v1/flights.proto`), solo con
+`GRPC_ENABLED=true`. Cada una es un `<entidad>.grpc.ts` junto a su entidad, registrado en los
+`controllers` del módulo:
+
+```ts
+@ControladorGrpc()                                   // guard, contexto, errores y validación de gRPC
+export class EstadoVueloGrpc {
+  constructor(private readonly servicio: EstadoVueloService) {}
+
+  @Publico()
+  @GrpcMethod(SERVICIO_GRPC, 'GetFlightStatus')
+  async estado(
+    @Payload('flightNumber', NumeroVueloPipe) flightNumber: string,   // los pipes de REST
+    @Payload('date', FechaPipe) date: Date,
+  ) {
+    const estado = aEstadoVuelo(await this.servicio.consultar(flightNumber, date));   // el mapper de REST
+    return { ...estado, status: aEnumProto('FLIGHT_STATUS', estado.status) };
+  }
+}
+```
+
+- Sin lógica ni consultas propias: el mismo DTO o pipes, el mismo service y el mismo mapper que REST.
+  Lo único que cambia son los enums (`aEnumProto` en `compartido/enums.ts`): en el proto llevan el
+  prefijo de su enum (`SCHEDULED` → `FLIGHT_STATUS_SCHEDULED`). Un nombre sin prefijo no falla:
+  protobufjs lo deja en el valor 0 sin avisar, por eso lo cubren las pruebas de paridad.
+- `@ControladorGrpc()` (`common/decorators`) pone lo que en HTTP es global y en gRPC no corre: solo
+  RPC con `@Publico()` (`GuardSoloPublicoGrpc`), el request id de la metadata en el contexto
+  (`InterceptorContextoGrpc`), los errores como status gRPC con el ProblemDetails de REST en la
+  metadata (`FiltroErroresGrpc`) y el pipe de validación.
+- La huella de `SearchFlights` llega en la metadata `x-device-fingerprint`: `@HuellaDispositivo()`
+  la lee de ahí en gRPC, con la misma regla y el mismo error.
 
 ## Webhooks (fase 10)
 

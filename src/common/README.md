@@ -46,6 +46,19 @@ con ese usuario, sin código extra.
 - El token de acceso no se revoca: vale hasta que vence (15 minutos) aunque la cuenta se
   desactive. Si una ruta necesita saberlo al instante, que consulte la base.
 
+## gRPC
+
+El servidor gRPC interno (`src/config/grpc.ts`, [docs/GRPC.md](../../docs/GRPC.md)) no hereda los
+guards, el filtro ni el pipe globales de HTTP. Un controlador gRPC lleva `@ControladorGrpc()`, que
+los pone para gRPC:
+
+| Pieza                     | Dónde                                     | Qué hace                                                                            |
+| ------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------- |
+| `GuardSoloPublicoGrpc`    | `guards/solo-publico-grpc.guard`          | Sin `@Publico()` responde UNAUTHENTICATED: gRPC todavía no acepta tokens            |
+| `InterceptorContextoGrpc` | `contexto/contexto-grpc.interceptor`      | `x-request-id` de la metadata al contexto, de vuelta en la respuesta y en el log    |
+| `FiltroErroresGrpc`       | `filters/errores-grpc.filter`             | El ProblemDetails de REST como status gRPC (`errores/codigo-grpc.ts`) y metadata    |
+| `crearPipeValidacion()`   | `pipes/validacion.pipe`                   | El mismo DTO y las mismas reglas que REST                                           |
+
 ## Idempotency-Key y hora
 
 ```ts

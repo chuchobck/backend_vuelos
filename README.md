@@ -9,8 +9,9 @@ Backend del dominio de **vuelos** del Booking Prototipo: implementa el contrato
 
 Es un backend NestJS 10 + TypeScript con PostgreSQL 18 (ver [Origen](#origen)), versión **1.0.0**
 ([CHANGELOG](CHANGELOG.md)). El plan completo, con decisiones, fases y commits, está en
-[docs/PLAN.md](docs/PLAN.md); el despliegue, en [docs/DEPLOY.md](docs/DEPLOY.md), y las diferencias
-con el contrato, en [docs/DISCREPANCIAS-CONTRATO.md](docs/DISCREPANCIAS-CONTRATO.md).
+[docs/PLAN.md](docs/PLAN.md); el despliegue, en [docs/DEPLOY.md](docs/DEPLOY.md); las diferencias
+con el contrato, en [docs/DISCREPANCIAS-CONTRATO.md](docs/DISCREPANCIAS-CONTRATO.md), y el servidor
+gRPC interno, en [docs/GRPC.md](docs/GRPC.md).
 
 ## Estado
 
@@ -28,6 +29,7 @@ con el contrato, en [docs/DISCREPANCIAS-CONTRATO.md](docs/DISCREPANCIAS-CONTRATO
 | 9. Check-in, pases y estado de vuelo  | Hecha                                  |
 | 10. Webhooks                          | Hecha                                  |
 | 11. Calidad y entrega (v1.0.0)        | Hecha; el despliegue en Render queda para el dueño del repo |
+| R2-1. gRPC interno (v1.1.0)           | Hecha en local; apagado por defecto, su despliegue es la fase de Azure |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
 administración del catálogo, la auditoría, los administradores y las reservas de administración
@@ -36,6 +38,11 @@ en `/flights/v1/admin` y estas operaciones del contrato:
 reservas con sus boletos en `/bookings`, su postventa (equipaje, cambio de fecha y cancelación), el
 check-in con sus pases de abordar, el estado público de un vuelo y los webhooks: las 22
 operaciones del contrato.
+
+Con `GRPC_ENABLED=true` abre además un servidor gRPC interno para el BFF
+([docs/GRPC.md](docs/GRPC.md)): `SearchFlights`, `GetSeatMap` y `GetFlightStatus`, las tres lecturas
+públicas, con el contrato en [contracts/proto/flights/v1/flights.proto](contracts/proto/flights/v1/flights.proto).
+Apagado (el valor por defecto) no abre ningún puerto.
 
 Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
 
@@ -122,6 +129,8 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | `npm run format:check`    | Verifica el formato sin cambiar archivos                    |
 | `npm run prisma:pull`     | Relee el esquema de la base y regenera el cliente de Prisma |
 | `npm run prisma:generate` | Regenera el cliente de Prisma (`npm ci` ya lo hace)         |
+| `npm run proto:lint`      | `buf lint` y `buf format` del contrato gRPC                 |
+| `npm run proto:breaking`  | `buf breaking` del contrato gRPC contra `main`              |
 | `./db/reset.sh`           | Borra, crea y carga la base (esquemas y semillas)           |
 
 ## Cómo probar
@@ -130,7 +139,8 @@ Todo corre contra la base local (`docker compose up -d` y `./db/reset.sh`).
 
 | Qué | Cómo | Dónde está el resultado |
 | --- | --- | --- |
-| Suite completa (26 suites, 723 pruebas) | `npm run test:e2e` | En la consola. También corre en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) |
+| Suite completa (32 suites, 893 pruebas) | `npm run test:e2e` | En la consola. También corre en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) |
+| gRPC: paridad con REST, errores, request id y el puerto apagado | `npx jest --config test/jest-e2e.json grpc` | `test/grpc.e2e-spec.ts`; a mano con grpcurl, ver [docs/GRPC.md](docs/GRPC.md#cómo-probarlo) |
 | Contrato: las 22 operaciones, caso feliz y de error, validadas con Ajv | `npx jest --config test/jest-e2e.json contrato` | `test/contrato.e2e-spec.ts` (con su lista de excepciones) |
 | Swagger contra el contrato | `npx jest --config test/jest-e2e.json swagger` | `test/swagger.e2e-spec.ts` |
 | Seguridad (401, 403, recurso ajeno, JWT, SQLi y XSS, 413, 415, helmet, CORS, producción) | `npx jest --config test/jest-e2e.json seguridad` | [docs/pruebas/seguridad.md](docs/pruebas/seguridad.md) |
@@ -189,6 +199,9 @@ docker build -t quinde-vuelos-api .
 docker run --rm -p 3000:3000 -e PORT=3000 -e NODE_ENV=production \
   -e DATABASE_URL="postgresql://...?schema=vuelos" -e JWT_SECRET="..." quinde-vuelos-api
 ```
+
+La imagen trae `contracts/proto` y declara `EXPOSE 3000 50051`: con `-e GRPC_ENABLED=true -p 50051:50051`
+abre también el gRPC interno. El `HEALTHCHECK` sigue siendo el de HTTP (`/flights/v1/health`).
 
 ## Autenticación
 
