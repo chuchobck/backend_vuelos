@@ -7,7 +7,8 @@ Reglas permanentes del proyecto. Léelas antes de tocar código.
 Quinde · API de Vuelos: backend NestJS 10 + TypeScript + Prisma 7 que implementa el contrato
 GDS Flight Core API v1.5.0.0 (`contracts/vuelos-openapi.yaml`), solo vuelos nacionales de Ecuador.
 Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`; las
-diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.1.0 (`CHANGELOG.md`).
+diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.1.0 (`CHANGELOG.md`),
+más la fase 4b (auth externa, `AUTH_MODE`) sin publicar.
 Además de REST, un servidor gRPC interno para el BFF (`docs/GRPC.md`), apagado por defecto.
 
 ## Alcance
@@ -45,6 +46,12 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 
 - Toda ruta exige JWT (guard global). Las públicas llevan `@Publico()`; las del contrato,
   `@Scopes(...)` con el scope que declara la operación en el contrato. Ver `src/common/README.md`.
+- Quién emite el JWT lo decide `AUTH_MODE`: `local` (por defecto, el core con `/auth` y HS256) o
+  `external` (identity_vuelos, RS256 por su JWKS; `/auth` y `/admin/users` no se montan). El guard
+  depende solo de `VerificadorToken`; el algoritmo se fija en el código, nunca se lee del token.
+  Sin claves con las que verificar, 503 `AUTH_UNAVAILABLE`, nunca 401 ni dejar pasar. El modo
+  local no se quita hasta que ya no haga falta volver a él (docs/DEPLOY.md, sección 6).
+- Ni un token ni el JWKS van al log: sí el `kid` y el motivo de un rechazo.
 - El usuario de la petición sale de `@UsuarioActual()`; su `id` es el `id_propietario`.
 - Nunca registrar ni devolver contraseñas, hashes ni tokens, tampoco en mensajes de error.
 - Los datos de un pasajero (nombre, documento, correo, teléfono) no van a logs ni a mensajes de

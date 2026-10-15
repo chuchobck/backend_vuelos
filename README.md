@@ -30,6 +30,7 @@ gRPC interno, en [docs/GRPC.md](docs/GRPC.md).
 | 10. Webhooks                          | Hecha                                  |
 | 11. Calidad y entrega (v1.0.0)        | Hecha; el despliegue en Render queda para el dueño del repo |
 | R2-1. gRPC interno (v1.1.0)           | Hecha en local; apagado por defecto, su despliegue es la fase de Azure |
+| 4b. Auth externa (`AUTH_MODE`)        | Hecha en local; `local` por defecto hasta el despliegue en Azure |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
 administración del catálogo, la auditoría, los administradores y las reservas de administración
@@ -54,7 +55,8 @@ Lo transversal ya está en su sitio y lo heredan todos los endpoints que vengan:
 - helmet, CORS por lista de orígenes, cuerpo máximo de 100 kB y límite de peticiones por IP (429 con `Retry-After`).
 - `X-Request-Id` en cada respuesta y en cada línea de log.
 - Toda ruta exige un JWT salvo las marcadas `@Publico()`, y `@Scopes(...)` exige permisos
-  ([cómo proteger un endpoint](src/common/README.md)).
+  ([cómo proteger un endpoint](src/common/README.md)). Quién emite ese JWT lo decide
+  `AUTH_MODE` (ver [Autenticación](#autenticación)).
 
 ## Requisitos
 
@@ -123,6 +125,7 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | `npm run build`           | Compila a `dist/`                                           |
 | `npm run test:e2e`        | Pruebas e2e (Jest + supertest); necesitan PostgreSQL arriba |
 | `npm run test:cov`        | Las mismas, con cobertura (resumen en `coverage/`)          |
+| `npm run test:mutaciones` | Rompe a propósito las defensas de la auth externa y exige que alguna prueba falle |
 | `npm run lint`            | Revisa el código con ESLint                                 |
 | `npm run lint:fix`        | Igual, corrigiendo lo que se pueda                          |
 | `npm run format`          | Aplica Prettier                                             |
@@ -132,6 +135,7 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | `npm run proto:lint`      | `buf lint` y `buf format` del contrato gRPC                 |
 | `npm run proto:breaking`  | `buf breaking` del contrato gRPC contra `main`              |
 | `./db/reset.sh`           | Borra, crea y carga la base (esquemas y semillas)           |
+| `npm run auth:exportar-usuarios -- <archivo>` | Exporta las cuentas a SQL para identity_vuelos (una sola vez, al pasar a `AUTH_MODE=external`; [docs/DEPLOY.md](docs/DEPLOY.md#6-cambio-de-modo-de-autenticación)) |
 
 ## Cómo probar
 
@@ -139,11 +143,12 @@ Todo corre contra la base local (`docker compose up -d` y `./db/reset.sh`).
 
 | Qué | Cómo | Dónde está el resultado |
 | --- | --- | --- |
-| Suite completa (32 suites, 893 pruebas) | `npm run test:e2e` | En la consola. También corre en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) |
+| Suite completa (36 suites, 971 pruebas) | `npm run test:e2e` | En la consola. También corre en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) |
 | gRPC: paridad con REST, errores, request id y el puerto apagado | `npx jest --config test/jest-e2e.json grpc` | `test/grpc.e2e-spec.ts`; a mano con grpcurl, ver [docs/GRPC.md](docs/GRPC.md#cómo-probarlo) |
 | Contrato: las 22 operaciones, caso feliz y de error, validadas con Ajv | `npx jest --config test/jest-e2e.json contrato` | `test/contrato.e2e-spec.ts` (con su lista de excepciones) |
 | Swagger contra el contrato | `npx jest --config test/jest-e2e.json swagger` | `test/swagger.e2e-spec.ts` |
 | Seguridad (401, 403, recurso ajeno, JWT, SQLi y XSS, 413, 415, helmet, CORS, producción) | `npx jest --config test/jest-e2e.json seguridad` | [docs/pruebas/seguridad.md](docs/pruebas/seguridad.md) |
+| Auth externa (`AUTH_MODE=external`) con un servicio de identidad falso: tokens válidos, 27 manipulados, JWKS caído, lento y rotado | `npx jest --config test/jest-e2e.json auth-externa auth-modos` | `test/auth-externa.e2e-spec.ts`; las mutaciones, con `npm run test:mutaciones` |
 | Cobertura | `npm run test:cov` | [docs/pruebas/cobertura.md](docs/pruebas/cobertura.md) |
 | A mano, desde Swagger | Ver [Probar desde Swagger](#probar-desde-swagger) | — |
 | A mano, con una colección | [docs/pruebas/vuelos.http](docs/pruebas/vuelos.http) (VS Code REST Client): el flujo completo, encadenado | — |
@@ -205,7 +210,22 @@ abre también el gRPC interno. El `HEALTHCHECK` sigue siendo el de HTTP (`/fligh
 
 ## Autenticación
 
-En RDA1 la API hace de proveedor de identidad (en RDA2 se cambia por el real):
+`AUTH_MODE` decide quién emite los tokens que la API acepta:
+
+- **`local`** (por defecto): la API hace de proveedor de identidad, con las rutas de abajo y
+  tokens HS256 firmados con `JWT_SECRET`. Es como funcionó siempre, y el respaldo hasta el
+  despliegue en Azure.
+- **`external`**: los emite el servicio de identidad,
+  [identity_vuelos](https://github.com/chuchobck/identity_vuelos) (`/identity/v1/auth/...` para
+  personas, `/oauth2/token` con `client_credentials` para sistemas). La API solo los verifica:
+  RS256 con la clave de su JWKS por `kid`, `typ` `at+jwt`, `iss` igual a `JWT_ISSUER`, `aud` con
+  `JWT_AUDIENCE` y `exp` con 30 s de tolerancia; los scopes salen del token. Las rutas de abajo y
+  `/admin/users` no existen (404). Si no puede bajar las claves y no tiene una copia vigente,
+  responde 503 `AUTH_UNAVAILABLE` con `Retry-After`, nunca 401 ni un 200. El log lleva el `kid`
+  y el motivo de cada rechazo, nunca el token. Variables, orden del cambio, sesiones abiertas y
+  cómo volver a local: [docs/DEPLOY.md](docs/DEPLOY.md#6-cambio-de-modo-de-autenticación).
+
+Con `AUTH_MODE=local`:
 
 | Endpoint                   | Para qué                                                                    |
 | -------------------------- | --------------------------------------------------------------------------- |

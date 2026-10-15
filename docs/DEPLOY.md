@@ -141,8 +141,134 @@ webhooks ni datos de pasajeros.
 | La primera petición tarda 30 s o más | El plan free de Render duerme el servicio tras 15 minutos sin tráfico, y Neon suspende la base inactiva: la primera petición los despierta |
 | Todas las peticiones cuentan como de la misma IP (429 enseguida) | Falta `TRUST_PROXY=1` |
 | Un webhook registrado no recibe nada | En producción solo se aceptan URL `https` públicas; las entregas se reintentan (1 min, 5 min, 30 min, 2 h) y el resultado queda en `vuelos.webhook_entrega` |
+| Con `AUTH_MODE=external`, todo da 503 `AUTH_UNAVAILABLE` | La API no puede bajar el JWKS y no tiene una copia vigente: el log dice `No se pudo bajar el JWKS (<motivo>)`. Revisar que `{JWT_ISSUER}/.well-known/jwks.json` (o `JWKS_URL`) responda desde el servidor de la API en menos de 3 s y sin redirección |
+| Con `AUTH_MODE=external`, todo token da 401 | El log dice el motivo: `Token rechazado: iss-check_failed` es un `JWT_ISSUER` que no es igual, texto a texto, al de identity (una barra final, http en vez de https); `aud-check_failed`, el `JWT_AUDIENCE`; `kid-desconocido`, un token de otro identity o una clave quitada |
+| `scripts/smoke.sh` falla en el login con `AUTH_MODE=external` | El smoke usa `/flights/v1/auth`, que en external no existe: sirve solo en local |
 
-## Qué se verificó en local (2026-10-06)
+## 6. Cambio de modo de autenticación
+
+`AUTH_MODE` decide quién emite los tokens de acceso que acepta la API:
+
+- `local` (por defecto, y lo que corre en Render): la API emite y verifica sus propios tokens
+  (HS256 con `JWT_SECRET`) y monta `/flights/v1/auth/*` y `/flights/v1/admin/users`. Es el
+  respaldo hasta el despliegue en Azure.
+- `external`: los emite el servicio de identidad
+  ([identity_vuelos](https://github.com/chuchobck/identity_vuelos)) y la API solo los verifica
+  con su JWKS. `/flights/v1/auth/*` y `/flights/v1/admin/users` no existen (404).
+
+### Qué verifica la API en external
+
+- RS256 y nada más (el algoritmo está fijo en el código: ni `none` ni HS256), con la clave del
+  `kid` de la cabecera y `typ` `at+jwt` (RFC 9068).
+- `iss` igual a `JWT_ISSUER` texto a texto, `aud` con `JWT_AUDIENCE`, y `exp`, `iat`, `jti` y
+  `sub` presentes. `sub` es un uuid, `scope` es texto (scopes separados por espacio) y
+  `client_id`, si viene, es el de un cliente máquina a máquina (`client_credentials`).
+- `exp` con 30 s de tolerancia por diferencia de reloj con el servicio de identidad.
+- Los scopes salen del token; `src/modules/auth/scopes.ts` queda como referencia. Un scope que la
+  API no conoce se ignora y se avisa una vez en el log.
+- El `sub` sigue siendo el `id_propietario` de retenciones, reservas y webhooks. Con un token de
+  cliente es el id del cliente en el servicio de identidad; la línea de acceso agrega
+  `client=<client_id>`.
+
+El JWKS (`{JWT_ISSUER}/.well-known/jwks.json`, o `JWKS_URL`) se guarda el `max-age` de su
+`Cache-Control` (identity publica 300 s; se acota entre 30 s y 1 h). Un `kid` que la copia no
+tiene la vuelve a bajar, como mucho una vez cada 10 s; cada descarga tiene 3 s de plazo y no sigue
+redirecciones. Con una copia vigente, un corte del servicio de identidad no se nota. Sin copia
+vigente y sin poder bajarla, la API responde **503** `AUTH_UNAVAILABLE` con `Retry-After`, nunca
+401 ni un 200; un token inválido sigue siendo 401 `invalid_token`. Al log van el `kid` y el motivo
+de cada rechazo, nunca el token ni el JWKS.
+
+### Variables
+
+| Variable | Valor en external |
+| --- | --- |
+| `AUTH_MODE` | `external` |
+| `JWT_ISSUER` | El `JWT_ISSUER` de identity tal cual: su origen, sin ruta ni barra final, `https` en producción (`https://identity.quinde.example`) |
+| `JWT_AUDIENCE` | `quinde-vuelos-api` (el `aud` que identity emite para el core) |
+| `JWKS_URL` | Opcional: solo si el JWKS se lee por otra URL (una red interna) |
+| `BOARDING_PASS_SECRET` | El valor actual de `JWT_SECRET`: así los pases de abordar ya emitidos siguen verificando. Obligatoria si se quita `JWT_SECRET` |
+| `JWT_SECRET` | Ya no firma tokens. Conviene dejarla mientras se pueda volver a local |
+
+### Orden del cambio
+
+1. Antes: identity desplegado con su `JWT_ISSUER` definitivo y su JWKS respondiendo con
+   `Cache-Control`; los frontends listos para hablar con identity (ver abajo); un respaldo de la
+   base del core. Avisar la ventana: las sesiones abiertas se cierran.
+2. En la base de identity, el esquema y la semilla (`./db/reset.sh` de identity_vuelos), que
+   crea los roles `cliente` y `administrador`.
+3. Exportar las cuentas del core (solo lee; no borra nada):
+
+   ```bash
+   DATABASE_URL='<URL del core con &schema=vuelos>' npm run auth:exportar-usuarios -- /ruta/fuera/del/repo/exportacion-usuarios.sql
+   ```
+
+   El archivo queda con permisos 600 y tiene correos y hashes: nunca dentro del repositorio
+   (el script se niega) ni en un chat o un ticket.
+4. Cargarlo en identity y leer el aviso:
+
+   ```bash
+   psql '<URL de la base de identity>' -v ON_ERROR_STOP=1 -f /ruta/fuera/del/repo/exportacion-usuarios.sql
+   # NOTICE:  Usuarios: 969 nuevos, 0 ya estaban con el mismo id, 0 con un correo que en identity tiene otro id (no se tocan)
+   ```
+
+   El último número tiene que ser 0. Si no, esa persona ya se registró en identity con otro id y,
+   al entrar por ahí, no vería sus reservas del core (son de su id viejo): se resuelve a mano antes
+   de seguir. Los mismos id y los hashes argon2id tal cual: cada cuenta entra con su contraseña.
+5. En el core: `BOARDING_PASS_SECRET` con el valor de `JWT_SECRET`, `AUTH_MODE=external`,
+   `JWT_ISSUER` y `JWT_AUDIENCE`, y reiniciar. El log dice
+   `AUTH_MODE=external: tokens RS256 de <emisor>, claves de <url del JWKS>`.
+6. Repetir 3 y 4: recoge las cuentas creadas en el core entre la exportación y el reinicio (la
+   carga es idempotente). Borrar el archivo (`shred -u`).
+7. Verificar: `/flights/v1/health` 200; `POST /flights/v1/auth/login` 404; login en identity y
+   `GET /flights/v1/bookings` con ese token, 200; en el log, `JWKS descargado: N claves (kid ...)`.
+8. Pasar los frontends a identity.
+
+### Sesiones abiertas
+
+- Los access tokens HS256 que emitió el core dejan de servir en el paso 5 (401 `invalid_token`).
+- Los refresh tokens del core (`token_refresco`) no se migran: cada persona inicia sesión de nuevo
+  en identity, con la misma contraseña.
+- Retenciones, reservas y webhooks no cambian de dueño: el `sub` es el mismo id.
+- Los clientes máquina a máquina son nuevos: se crean en identity (`npm run cliente:crear`).
+
+### Volver a local
+
+1. `AUTH_MODE=local` (o quitarla), con `JWT_SECRET` definida, y reiniciar. `/auth` y
+   `/admin/users` vuelven; los tokens de identity dan 401.
+2. Las cuentas siguen en la tabla `usuario` del core (la exportación no borró nada) y entran con
+   la contraseña que tenían. No vuelve lo que pasó en identity mientras tanto: las cuentas
+   creadas allí y los cambios de contraseña (no hay exportación de vuelta).
+3. Los frontends vuelven a `/flights/v1/auth`.
+
+### Qué cambia para los frontends
+
+- **e-commerce_vuelos**: registro, login, refresh, logout y perfil pasan a identity
+  (`/identity/v1/auth/register`, `/login`, `/refresh`, `/logout`, `/me`), con los mismos cuerpos
+  (`email`, `password`, `refresh_token`) y la misma respuesta (`access_token`, `token_type`,
+  `expires_in`, `refresh_token`). El `access_token` se sigue mandando al core como hoy. Un 503
+  `AUTH_UNAVAILABLE` del core se reintenta después de `Retry-After`; un 401 lleva a refrescar en
+  identity.
+- **backoffice_vuelos**: usa `/auth/login`, `/auth/refresh`, `/auth/me` y `/admin/users` del core.
+  Los tres primeros pasan a identity; `/admin/users` no tiene todavía un equivalente en identity
+  (los administradores son el rol `administrador` en su base). Es una dependencia del cambio.
+- **bff_vuelos**: no cambia (lecturas públicas, sin token).
+
+## Qué se verificó en local
+
+### Fase 4b (2026-10-15): AUTH_MODE=external con identity_vuelos
+
+- identity_vuelos (`main`) en el 3001 con su base `identity_db` (puerto 5433), y el core compilado
+  (`node dist/main`) con `AUTH_MODE=external`, sin `.env` ni `JWT_SECRET`.
+- La migración: 969 cuentas exportadas y cargadas; la segunda carga dijo `0 nuevos, 969 ya estaban`
+  y la huella (md5 de ids y hashes) es la misma en las dos bases. El administrador migrado entró
+  por identity con su contraseña del core y su token abrió `/flights/v1/admin/audit-log`.
+- Registro y login en identity, búsqueda pública, hold y reserva con `PAY-OK` en el core (201
+  `CONFIRMED`); un cliente `client_credentials` con `flights:read flights:hold` retuvo cupo (201)
+  y al reservar recibió 403 `insufficient_scope`; un token con el scope cambiado, 401; con
+  identity apagado el core siguió aceptando tokens (copia del JWKS vigente).
+- No se verificó: identity y el core desplegados (https, Azure).
+
+### Fases 1 a 11 (2026-10-06)
 
 - El comando de build de `render.yaml` sobre una copia limpia del repositorio (`git archive`) con
   `NODE_ENV=production`: compila; sin `--include=dev`, `@nestjs/cli` no se instala.
