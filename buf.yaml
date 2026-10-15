@@ -1,0 +1,25 @@
+# Contrato gRPC (contracts/proto): reglas de estilo y de compatibilidad de buf.
+#   npm run proto:lint       buf lint y buf format (sin diferencias)
+#   npm run proto:breaking   buf breaking contra main (scripts/proto-breaking.sh)
+version: v2
+modules:
+  - path: contracts/proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # El paquete es quinde.flights.v1 y la carpeta, flights/v1 (contracts/proto/flights/v1)
+    - PACKAGE_DIRECTORY_MATCH
+breaking:
+  # FILE, la más estricta (renumerar, renombrar, cambiar un tipo, quitar una RPC...), salvo que
+  # deja quitar un campo o un valor de enum si su número y su nombre quedan en `reserved`: la
+  # regla de evolución del encabezado de flights.proto.
+  use:
+    - FILE
+    - FIELD_NO_DELETE_UNLESS_NUMBER_RESERVED
+    - FIELD_NO_DELETE_UNLESS_NAME_RESERVED
+    - ENUM_VALUE_NO_DELETE_UNLESS_NUMBER_RESERVED
+    - ENUM_VALUE_NO_DELETE_UNLESS_NAME_RESERVED
+  except:
+    - FIELD_NO_DELETE
+    - ENUM_VALUE_NO_DELETE

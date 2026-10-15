@@ -14,7 +14,7 @@
 //   - Cada enum empieza en 0 con *_UNSPECIFIED; los demás valores son los del contrato con el
 //     prefijo del enum (SCHEDULED -> FLIGHT_STATUS_SCHEDULED).
 //
-// Reglas de evolución (se comprueban con `buf breaking` contra main):
+// Reglas de evolución (`npm run proto:breaking` las comprueba contra main con buf.yaml):
 //   - Nunca renumerar un campo ni cambiarle el tipo o el nombre.
 //   - Nunca reusar un número ni un nombre: al quitar un campo o un valor de enum, su número y
 //     su nombre pasan a `reserved` en el mismo cambio.

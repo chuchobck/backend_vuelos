@@ -77,5 +77,13 @@ jobs:
       - name: Compilación
         run: npm run build
 
+      # Contrato gRPC: estilo (buf lint y buf format) y compatibilidad hacia atrás con el de main
+      # (buf breaking con las reglas de buf.yaml). El clon de actions/checkout no trae main.
+      - name: Contrato gRPC
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          npm run proto:lint
+          npm run proto:breaking -- FETCH_HEAD
+
       - name: Pruebas e2e
         run: npm run test:e2e
