@@ -1,6 +1,13 @@
-import { Metadata, ServerUnaryCall, StatusObject } from '@grpc/grpc-js';
+import { Metadata, status as EstadoGrpc, StatusObject } from '@grpc/grpc-js';
 import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
 import { Observable, throwError } from 'rxjs';
+import {
+  contextoDeLlamada,
+  LlamadaGrpc,
+  METADATA_REQUEST_ID,
+  registrarLlamada,
+} from '../contexto/contexto-grpc';
+import { ejecutarEnContexto, obtenerContexto } from '../contexto/contexto-peticion';
 import { codigoGrpc } from '../errores/codigo-grpc';
 import { ErrorNegocio } from '../errores/error-negocio';
 import { traducirExcepcion } from '../errores/traducir-excepcion';
@@ -26,32 +33,39 @@ const TEXTO_METADATA = /^[\x20-\x7e]*$/;
  *
  * El `details` del status es el `detail` del ProblemDetails (o su título): nunca el mensaje
  * interno ni el stack, que en un 5xx se quedan en el log. Las cabeceras del error en REST
- * (Retry-After) van como metadata en minúsculas.
+ * (Retry-After) van como metadata en minúsculas, con el x-request-id de la llamada. Las líneas
+ * de log llevan ese id aunque el error ocurra antes del interceptor (en el guard).
  */
 @Catch()
 export class FiltroErroresGrpc implements ExceptionFilter {
   private readonly logger = new Logger('Errores');
 
   catch(excepcion: unknown, host: ArgumentsHost): Observable<never> {
-    const llamada = host.getArgByIndex<ServerUnaryCall<unknown, unknown> | undefined>(2);
-    const metodo = llamada?.getPath?.() ?? 'gRPC';
+    const llamada = contextoDeLlamada(host.getArgByIndex<LlamadaGrpc>(2));
     const { problema, cabeceras, esErrorInterno, causa } = traducirExcepcion(excepcion, {
       metodo: 'gRPC',
-      ruta: metodo,
+      ruta: llamada.metodo,
       metodosPermitidos: [],
     });
+    const codigo = codigoGrpc(problema.status);
 
-    if (esErrorInterno) {
-      // El stack se queda en el log; al cliente solo llega el código y el título.
-      const detalle = causa instanceof Error ? (causa.stack ?? causa.message) : String(causa);
-      this.logger.error(`${metodo} → ${problema.status}\n${detalle}`);
-    } else {
-      const origen =
-        causa instanceof Error && !(causa instanceof ErrorNegocio) ? ` (${resumir(causa)})` : '';
-      this.logger.debug(`${metodo} → ${problema.status} ${problema.code}${origen}`);
-    }
+    const registrar = () => {
+      if (esErrorInterno) {
+        // El stack se queda en el log; al cliente solo llega el código y el título.
+        const detalle = causa instanceof Error ? (causa.stack ?? causa.message) : String(causa);
+        this.logger.error(`${llamada.metodo} → ${problema.status}\n${detalle}`);
+      } else {
+        const origen =
+          causa instanceof Error && !(causa instanceof ErrorNegocio) ? ` (${resumir(causa)})` : '';
+        this.logger.debug(`${llamada.metodo} → ${problema.status} ${problema.code}${origen}`);
+      }
+    };
+    if (obtenerContexto() === undefined) ejecutarEnContexto(llamada.contexto, registrar);
+    else registrar();
+    registrarLlamada(llamada, EstadoGrpc[codigo]);
 
     const metadata = new Metadata();
+    metadata.set(METADATA_REQUEST_ID, llamada.contexto.requestId);
     metadata.set(METADATA_ERROR.codigo, problema.code);
     metadata.set(METADATA_ERROR.status, String(problema.status));
     metadata.set(METADATA_ERROR.problema, Buffer.from(JSON.stringify(problema), 'utf8'));
@@ -60,7 +74,7 @@ export class FiltroErroresGrpc implements ExceptionFilter {
     }
 
     const estado: StatusObject = {
-      code: codigoGrpc(problema.status),
+      code: codigo,
       details: problema.detail ?? problema.title,
       metadata,
     };
