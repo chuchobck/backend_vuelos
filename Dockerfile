@@ -5,6 +5,8 @@
 #   docker build -t quinde-vuelos-api .
 #   docker run --rm -p 3000:3000 -e PORT=3000 -e NODE_ENV=production \
 #     -e DATABASE_URL="postgresql://...?schema=vuelos" quinde-vuelos-api
+#
+# gRPC interno (docs/GRPC.md): agregar -e GRPC_ENABLED=true -p 50051:50051.
 
 ARG NODE_VERSION=22
 
@@ -37,9 +39,12 @@ RUN npm ci --omit=dev --omit=optional --ignore-scripts && npm cache clean --forc
 COPY --from=compilacion /app/dist ./dist
 # Ícono de Swagger (se lee al arrancar)
 COPY docs/logo-icono.svg ./docs/logo-icono.svg
+# Contrato gRPC: el servidor lo carga al arrancar con GRPC_ENABLED=true (src/config/grpc.ts)
+COPY contracts/proto ./contracts/proto
 
 USER node
-EXPOSE 3000
+# 3000: HTTP (PORT). 50051: gRPC interno (GRPC_PORT), abierto solo con GRPC_ENABLED=true
+EXPOSE 3000 50051
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://localhost:' + (process.env.PORT || 3000) + '/flights/v1/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
