@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { getStorageToken } from '@nestjs/throttler';
 import { AppModule } from '../../src/app.module';
 import { Reloj } from '../../src/common/reloj';
+import { iniciarGrpc } from '../../src/config/grpc';
 import { configurarApp } from '../../src/configurar-app';
 import { habilitarBigIntEnJson } from '../../src/prisma/serializacion-bigint';
 import { LimitesReiniciables } from './limites';
@@ -21,6 +22,8 @@ export interface OpcionesCrearApp {
   limites?: LimitesReiniciables;
   /** Otros providers reemplazados (por ejemplo SERVICIO_PAGOS por un pago de prueba). */
   reemplazos?: Array<{ proveedor: unknown; valor: unknown }>;
+  /** Enciende el servidor gRPC en este puerto, como main.ts con GRPC_ENABLED=true. */
+  grpc?: number;
 }
 
 /**
@@ -53,6 +56,9 @@ export async function crearApp(
   const app = modulo.createNestApplication<NestExpressApplication>();
   configurarApp(app);
   if (!opciones.logs) app.useLogger(false);
+  if (opciones.grpc !== undefined) {
+    await iniciarGrpc(app, { habilitado: true, puerto: opciones.grpc });
+  }
   await app.init();
   return app;
 }
