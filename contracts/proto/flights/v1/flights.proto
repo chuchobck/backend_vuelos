@@ -1,0 +1,302 @@
+// Contrato gRPC interno de Quinde · API de Vuelos (paquete quinde.flights.v1).
+//
+// Lo consume el BFF GraphQL. El contrato público para el Booking sigue siendo REST
+// (contracts/vuelos-openapi.yaml, GDS Flight Core API v1.5.0.0): cada RPC es una de sus
+// operaciones públicas, con los mismos servicios, datos y errores (ver docs/GRPC.md).
+//
+// Convenciones:
+//   - Campos en snake_case. @grpc/proto-loader con keepCase=false los entrega en camelCase,
+//     con los mismos nombres que el JSON del contrato (total_offers -> totalOffers).
+//   - Dinero como string decimal ("73.92"), nunca como número, igual que MoneyAmount.
+//   - Instantes como string ISO 8601 en UTC ("2026-10-20T12:30:00.000Z"); fechas locales
+//     como "2026-10-20".
+//   - Lo que en REST puede ser null es `optional`: sin valor, el campo no viene.
+//   - Cada enum empieza en 0 con *_UNSPECIFIED; los demás valores son los del contrato con el
+//     prefijo del enum (SCHEDULED -> FLIGHT_STATUS_SCHEDULED).
+//
+// Reglas de evolución (`npm run proto:breaking` las comprueba contra main con buf.yaml):
+//   - Nunca renumerar un campo ni cambiarle el tipo o el nombre.
+//   - Nunca reusar un número ni un nombre: al quitar un campo o un valor de enum, su número y
+//     su nombre pasan a `reserved` en el mismo cambio.
+//   - Agregar campos, mensajes, valores de enum y RPC es compatible. Cambiar lo que significa
+//     un campo existente no lo es: se agrega otro.
+//   - Un cambio incompatible va en otro paquete (quinde.flights.v2), en paralelo con v1.
+
+syntax = "proto3";
+
+package quinde.flights.v1;
+
+// Las tres lecturas públicas del contrato (las operaciones con `security: []`). No llevan
+// token: el puerto gRPC es interno y solo lo usa el BFF.
+//
+// Metadata que lee el servidor:
+//   x-request-id          Opcional, con el formato de la cabecera X-Request-Id (8 a 64 letras,
+//                         dígitos, punto, guion o guion bajo). Si falta o no es válido se genera
+//                         uno. Vuelve en la metadata de la respuesta y en la de un error.
+//   x-device-fingerprint  Obligatoria en SearchFlights: la cabecera X-Device-Fingerprint.
+//
+// Un error sale con el código gRPC que corresponde al status HTTP de REST y, en la metadata,
+// problem-code (el `code` de ProblemDetails), problem-status y problem-details-bin (el
+// ProblemDetails completo en JSON). Tabla en docs/GRPC.md.
+service FlightsService {
+  // POST /search: ofertas para uno a seis tramos (solo ida, ida y vuelta o multidestino).
+  rpc SearchFlights(SearchFlightsRequest) returns (SearchFlightsResponse);
+
+  // GET /offers/{offerId}/seatmap?segmentId=: mapa de asientos de un segmento de una oferta.
+  rpc GetSeatMap(GetSeatMapRequest) returns (GetSeatMapResponse);
+
+  // GET /flights/{flightNumber}/status?date=: estado operativo de un vuelo en su fecha local.
+  rpc GetFlightStatus(GetFlightStatusRequest) returns (GetFlightStatusResponse);
+}
+
+// ---------------------------------------------------------------------------------------------
+// SearchFlights
+// ---------------------------------------------------------------------------------------------
+
+// SearchRequest. Un tramo es solo ida; dos con los aeropuertos invertidos, ida y vuelta; hasta
+// seis, multidestino.
+message SearchFlightsRequest {
+  // De 1 a 6 tramos.
+  repeated SearchLeg itineraries = 1;
+  // Obligatorio.
+  PassengerBreakdown passengers = 2;
+}
+
+// Un tramo de SearchRequest.itineraries.
+message SearchLeg {
+  // Código IATA del aeropuerto: 3 letras mayúsculas.
+  string origin = 1;
+  string destination = 2;
+  // Fecha local de salida en el aeropuerto de origen: "YYYY-MM-DD".
+  string departure_date = 3;
+}
+
+// PassengerBreakdown. Un campo que no viene toma el valor por defecto del contrato.
+message PassengerBreakdown {
+  // Por defecto 1.
+  optional int32 adults = 1;
+  // Por defecto 0.
+  optional int32 youths = 2;
+  // Por defecto 0.
+  optional int32 children = 3;
+  // Por defecto 0. No más que los adultos.
+  optional int32 infants = 4;
+}
+
+// SearchResponse.
+message SearchFlightsResponse {
+  int32 total_offers = 1;
+  repeated FlightOffer offers = 2;
+}
+
+// FlightOffer: una opción por tramo pedido, de una sola aerolínea.
+message FlightOffer {
+  // uuid; vence a los SEARCH_OFFER_TTL_MINUTES.
+  string offer_id = 1;
+  Airline airline = 2;
+  // En el orden de los tramos pedidos.
+  repeated ItineraryOption itineraries = 3;
+  // Todos los pasajeros con la familia más barata de cada itinerario.
+  MoneyAmount grand_total = 4;
+}
+
+// FlightOffer.airline.
+message Airline {
+  string code = 1;
+  string name = 2;
+}
+
+// ItineraryOption: la opción elegida para un tramo pedido.
+message ItineraryOption {
+  // uuid; se usa en itinerarySelections del hold.
+  string itinerary_id = 1;
+  int32 total_duration_minutes = 2;
+  int32 stops_count = 3;
+  repeated FlightSegment segments = 4;
+  // De la más barata a la más cara.
+  repeated CabinPricing pricing_options = 5;
+}
+
+// FlightSegment: una salida programada.
+message FlightSegment {
+  // uuid de la salida; es el segment_id de GetSeatMap.
+  string segment_id = 1;
+  string flight_number = 2;
+  FlightEndpoint departure = 3;
+  FlightEndpoint arrival = 4;
+  // Espera desde el segmento anterior; no viene en el primero.
+  optional int32 layover_minutes = 5;
+  string marketing_carrier = 6;
+  string operating_carrier = 7;
+  optional string aircraft = 8;
+  optional int32 duration_minutes = 9;
+  // FLIGHT_STATUS_UNSPECIFIED si no se conoce (null en REST).
+  FlightStatus status = 10;
+}
+
+// FlightEndpoint.
+message FlightEndpoint {
+  string iata_code = 1;
+  // Instante en UTC.
+  string at = 2;
+  optional string terminal = 3;
+}
+
+// CabinPricing: una familia tarifaria con cupo en todos los segmentos del itinerario.
+message CabinPricing {
+  CabinClass cabin_class = 1;
+  string fare_brand = 2;
+  // El menor cupo disponible entre los segmentos.
+  int32 available_seats = 3;
+  FareRules fare_rules = 4;
+  BaggageAllowance baggage_allowance = 5;
+  // Por maleta adicional en el itinerario.
+  MoneyAmount extra_checked_baggage_price = 6;
+  // Solo los tipos de pasajero pedidos; el precio es de un pasajero de ese tipo.
+  repeated PassengerTypePrice price_per_passenger_type = 7;
+}
+
+// CabinPricing.fareRules.
+message FareRules {
+  bool is_refundable = 1;
+  bool is_changeable = 2;
+}
+
+// CabinPricing.baggageAllowance.
+message BaggageAllowance {
+  bool personal_item_included = 1;
+  int32 carry_on_included = 2;
+  int32 checked_baggage_included = 3;
+}
+
+// Un elemento de CabinPricing.pricePerPassengerType.
+message PassengerTypePrice {
+  PassengerType passenger_type = 1;
+  MoneyAmount price = 2;
+}
+
+// MoneyAmount: montos en texto decimal, nunca como número.
+message MoneyAmount {
+  // ISO 4217: 3 letras mayúsculas.
+  string currency = 1;
+  optional string base_fare = 2;
+  // IVA y tasas aeroportuarias.
+  optional string taxes = 3;
+  string total = 4;
+}
+
+// ---------------------------------------------------------------------------------------------
+// GetSeatMap
+// ---------------------------------------------------------------------------------------------
+
+// Parámetros de GET /offers/{offerId}/seatmap.
+message GetSeatMapRequest {
+  // uuid: offer_id de SearchFlights.
+  string offer_id = 1;
+  // uuid: segment_id de un segmento de esa oferta.
+  string segment_id = 2;
+}
+
+// SeatMapResponse: mapa básico, sin precios.
+message GetSeatMapResponse {
+  string segment_id = 1;
+  // En el orden de las filas.
+  repeated SeatMapCabin cabins = 2;
+}
+
+// Una cabina de SeatMapResponse.cabins.
+message SeatMapCabin {
+  CabinClass cabin_class = 1;
+  repeated SeatRow rows = 2;
+}
+
+// Una fila de una cabina.
+message SeatRow {
+  int32 row_number = 1;
+  repeated Seat seats = 2;
+}
+
+// Un asiento: su número es la fila y la letra (12A).
+message Seat {
+  string seat_number = 1;
+  // false si una reserva ya lo tiene o si su cabina no se vende en esta salida.
+  bool is_available = 2;
+  repeated SeatCharacteristic characteristics = 3;
+}
+
+// ---------------------------------------------------------------------------------------------
+// GetFlightStatus
+// ---------------------------------------------------------------------------------------------
+
+// Parámetros de GET /flights/{flightNumber}/status.
+message GetFlightStatusRequest {
+  // Aerolínea comercializadora (2) y número sin ceros a la izquierda: AV1234.
+  string flight_number = 1;
+  // Fecha local de salida en el aeropuerto de origen: "YYYY-MM-DD".
+  string date = 2;
+}
+
+// FlightStatus.
+message GetFlightStatusResponse {
+  string flight_number = 1;
+  // Fecha local de salida: "YYYY-MM-DD".
+  string date = 2;
+  string marketing_carrier = 3;
+  string operating_carrier = 4;
+  FlightStatusEndpoint departure = 5;
+  FlightStatusEndpoint arrival = 6;
+  optional string aircraft = 7;
+  FlightStatus status = 8;
+}
+
+// FlightStatus.departure y FlightStatus.arrival. Instantes en UTC.
+message FlightStatusEndpoint {
+  string iata_code = 1;
+  optional string terminal = 2;
+  string scheduled_at = 3;
+  optional string estimated_at = 4;
+  optional string actual_at = 5;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Enums del contrato
+// ---------------------------------------------------------------------------------------------
+
+// FlightSegment.status y FlightStatus.status.
+enum FlightStatus {
+  FLIGHT_STATUS_UNSPECIFIED = 0;
+  FLIGHT_STATUS_SCHEDULED = 1;
+  FLIGHT_STATUS_BOARDING = 2;
+  FLIGHT_STATUS_DEPARTED = 3;
+  FLIGHT_STATUS_DELAYED = 4;
+  FLIGHT_STATUS_ARRIVED = 5;
+  FLIGHT_STATUS_CANCELLED = 6;
+  FLIGHT_STATUS_DIVERTED = 7;
+}
+
+// CabinPricing.cabinClass.
+enum CabinClass {
+  CABIN_CLASS_UNSPECIFIED = 0;
+  CABIN_CLASS_ECONOMY = 1;
+  CABIN_CLASS_PREMIUM_ECONOMY = 2;
+  CABIN_CLASS_BUSINESS = 3;
+  CABIN_CLASS_FIRST = 4;
+}
+
+// pricePerPassengerType.passengerType.
+enum PassengerType {
+  PASSENGER_TYPE_UNSPECIFIED = 0;
+  PASSENGER_TYPE_ADULT = 1;
+  PASSENGER_TYPE_YOUTH = 2;
+  PASSENGER_TYPE_CHILD = 3;
+  PASSENGER_TYPE_INFANT = 4;
+}
+
+// SeatMapResponse ... seats.characteristics.
+enum SeatCharacteristic {
+  SEAT_CHARACTERISTIC_UNSPECIFIED = 0;
+  SEAT_CHARACTERISTIC_WINDOW = 1;
+  SEAT_CHARACTERISTIC_AISLE = 2;
+  SEAT_CHARACTERISTIC_EXTRA_LEGROOM = 3;
+  SEAT_CHARACTERISTIC_EMERGENCY_EXIT = 4;
+}

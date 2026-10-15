@@ -1,8 +1,8 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-06 (cierre de la fase 11) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-10-15 (cierre de la fase R2-1, gRPC) · Este archivo se actualiza al cerrar cada fase.
 
-El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1.
+El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1. Las fases de RDA2 (R2-...) la integran con el resto del Booking: la R2-1 agrega un servidor gRPC interno para el BFF GraphQL.
 
 ## Avance
 
@@ -20,6 +20,7 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | 9. Check-in y estado | Hecha (2026-10-06) | `lint`, `format:check` y `build` pasan. `test:e2e` (504 pruebas, 36 nuevas, contra la base real) pasó tres corridas seguidas, con la salida completa de cada una guardada. Antes, mientras se escribían las pruebas, hubo cuatro ajustes de las propias pruebas (crear las dos reservas antes de mover el reloj, elegir una hora que cae dentro de las dos ventanas, y una prueba que daba por hecho el asiento 10 que corridas anteriores ya habían tomado); ninguno tocó el código. Con la base recién cargada y la API en el puerto 3010, como un cliente recién registrado: reserva con un adulto y un infante en un vuelo de mañana (la semilla ya tiene salidas dentro de las 48 horas: no hizo falta cambiar ninguna variable ni dato), pases sin check-in (200, lista vacía), check-in (200 `COMPLETED`, asiento 10A para el adulto y `seat: null` para el infante), pases (un pase: grupo 3, posición 010, PDF417), repetir el check-in (200, mismo resultado, mismos pases, 2 registros y 1 pase en la base), estado público del vuelo sin token (200). Otro usuario recibe 404 en el check-in y en los pases; un vuelo a 14 días, 409 diciendo cuándo abre (2026-10-24T11:00:00.000Z); un vuelo al que se le movió la salida con SQL a 30 minutos desde ahora (la base local lo permite mientras la fecha local quede a un día de la salida), 409 "closed"; una reserva cancelada, 409 `CANCELLED`. Las respuestas de las tres operaciones cumplen `CheckInResponse`, `BoardingPassListResponse`, `FlightStatus` y `ProblemDetails` (400, 404, 409) según Ajv. Concurrencia contra la API real: ida y vuelta del mismo día con dos adultos y un infante, 8 check-in simultáneos → 8 × 200 `COMPLETED` con el mismo cuerpo; en la base 6 registros (3 pasajeros × 2 vuelos), ningún duplicado por pasajero y vuelo, 4 pases (los infantes no tienen), 2 eventos de check-in en el historial (uno por vuelo) y ningún código de barras repetido. Las escrituras de check-in y pase van por `transaccionAuditada` (la auditoría trae el usuario en sus 6 + 4 filas); fuera de ella solo las purgas permitidas de las fases anteriores, y la auditoría no tiene `ELIMINACION`. El log de la API (160 líneas) no tiene el contenido de ningún código de barras, ni PNR, documentos, correos, teléfonos, nombres, referencias de pago, claves ni tokens |
 | 10. Webhooks | Hecha (2026-10-06) | `lint`, `format:check` y `build` pasan en cada commit. `test:e2e` (637 pruebas, 133 nuevas, contra la base real) pasó tres corridas seguidas sobre el código final y otras tres sobre el penúltimo commit (la diferencia es una línea de SQL), con la salida completa de cada una guardada y sin una sola prueba fallida. Antes, al escribir las pruebas, hubo tres ajustes de las propias pruebas (un token firmado a mano sin `sub`, el estado esperado en el payload de `booking.ticket_issued` y un doble del HTTP que dejaba colgadas las entregas que no esperaba), y al correr las suites que validan el entorno se vio que el paso 2 las había roto (su base no traía `WEBHOOK_SECRET_KEY`): se corrigió en el commit de pruebas. Con la base recién cargada y la API en el puerto 3010 y un receptor local en el 4010: alta del webhook (201, secreto `****0001`), búsqueda, hold y reserva (201 `CONFIRMED`); en pocos segundos el receptor recibió dos POST (`booking.ticket_issued` y `booking.confirmed`) con las cinco cabeceras y la firma `sha256=` válida recalculada por el receptor con el secreto, y el cuerpo era el `WebhookPayload` con el PNR y sin datos del pasajero. Con el receptor apagado, otra reserva dio 201 igual; las dos entregas quedaron `PENDIENTE` con `ECONNREFUSED`, reintentadas a 1 minuto (intento 2) y, con el receptor de vuelta, entregadas en el intento 3 (`ENTREGADO`, 200). Las respuestas de las tres operaciones cumplen `WebhookSubscription` y los errores `ProblemDetails` (400 con `invalidParams`, 401, 404, 409) según Ajv, contra la API real. En producción (`NODE_ENV=production`) `http://localhost`, `https://localhost`, `https://127.0.0.1`, `http://example.com`, la metadata de la nube y `10.0.0.5` dan 400; con una `WEBHOOK_SECRET_KEY` de menos de 32 caracteres la API no arranca. La auditoría de `webhook_cabecera` trae el usuario y `***` en el secreto; el secreto guardado empieza con `v1.` y no está en claro; el log de la API (171 líneas) no tiene el secreto, la URL ni el puerto del receptor, la firma, PNR, ids de reserva, correos, nombres, referencias de pago ni tokens, y `webhook_entrega` no tiene datos del pasajero. En las pruebas, dos procesos a la vez (60 entregas, dos instancias de `EntregaWebhooks` contra un receptor real): cada `eventId` llegó exactamente una vez |
 | 11. Calidad y entrega | Hecha (2026-10-06), salvo el despliegue en Render (lo hace el dueño del repo con `docs/DEPLOY.md`) | `lint`, `format:check` y `build` pasan en cada commit. `test:e2e` (724 pruebas en 26 suites, 87 nuevas) pasó tres corridas seguidas sobre el código final con el reloj de WSL tal cual, con la salida guardada y sin una prueba fallida; antes, la suite completa también pasó contra una base nueva cargada como en CI (sin `.env`, solo las variables del workflow). Prueba de contrato: 22/22 operaciones con caso feliz y de error, 7 excepciones con motivo; una mutación (quitar una excepción) la hace fallar. Swagger contra el contrato: sin diferencias con la regla "las respuestas pueden marcar más obligatorios" (eran 15, todas de ese tipo); los ejemplos cumplen los esquemas y funcionan con la semilla. Swagger UI con Playwright (Chromium de la caché de Playwright): 11/11 pasos (health, registro, login, Authorize, búsqueda, hold, reserva con `PAY-OK-`, consulta, cotización y cancelación), con 4 capturas. Colección `.http`: 25/25 peticiones contra la API en desarrollo. Seguridad: 37 pruebas nuevas (19 operaciones del contrato y todas las propias sin token → 401; scope de menos → 403; recurso ajeno → 404 en 13 operaciones; JWT manipulado, vencido, `alg: none`; refresh reutilizado; SQLi y XSS en 9 entradas; 413; 415; helmet; CORS; errores en producción sin rastros) y `npm audit --omit=dev` (15 avisos, 0 críticos, 8 altos, todos en Nest y Prisma; ninguno forzado). Carga (autocannon, una instancia en producción): búsqueda p95 197 ms con 20 conexiones y 406 ms con 50; estado de vuelo p95 19 y 36 ms; 60 y 150 holds a la vez sobre 12 asientos ejecutivos → 12 ganadores, inventario 12 → 0 → 12, nunca negativo. Cobertura: 95,96 % de sentencias y 82,25 % de ramas (pagos simulados al 100 %). CI: `actionlint` sin observaciones. Producción local desde una carpeta sin `.env`: sin `WEBHOOK_SECRET_KEY`, sin `DATABASE_URL` y `JWT_SECRET` o con `JWT_SECRET` corta no arranca (código 1, nombra la variable sin su valor); con las mínimas arranca con los 4 procesos `Activo` y con `*_ENABLED=false` los 4 `Apagado`; `scripts/smoke.sh` 9/9 OK, también sobre una copia limpia compilada con el comando de `render.yaml`, y sale con 1 contra un puerto cerrado. Log de la API (202 líneas) y auditoría sin tokens, contraseñas, hashes, secretos de webhooks ni datos de pasajeros |
+| R2-1. gRPC | Hecha en local (2026-10-15); gRPC queda apagado por defecto y su despliegue es la fase de Azure | `lint`, `format:check` y `build` pasan en cada uno de los 12 commits. `test:e2e` con Node 22.22.0 (el de `.nvmrc`): 893 pruebas en 32 suites (42 nuevas en `grpc.e2e-spec.ts`), tres corridas seguidas con 891 que pasan y las mismas 2 que ya fallaban en esta máquina antes del primer commit (`errores-bd`, IPv6: el sandbox no tiene `::1` y `connect` da `EAFNOSUPPORT`; ver Hallazgos). Paridad con un cliente real de `@grpc/grpc-js` contra la semilla: `SearchFlights` (UIO-GYE con 2 adultos, un niño y un infante; ida y vuelta UIO-GPS con escala por GYE), `GetSeatMap` y `GetFlightStatus` dan lo mismo que REST con la misma entrada (sin los `null` y con los enums del proto), y la oferta de una búsqueda gRPC abre su mapa por REST; los errores 400 y 404 traen el mismo `ProblemDetails` que REST en `problem-details-bin`, con `problem-code` y `problem-status`. Una mutación (quitar la conversión del enum en `GetFlightStatus`) hace fallar la paridad con `FLIGHT_STATUS_UNSPECIFIED`. Con la API compilada (`node dist/main`): con `GRPC_ENABLED=true` el puerto abre, el log dice `[gRPC] Activo en 0.0.0.0:50061` y `/health` sigue en 200; sin la variable no abren ni 50061 ni 50051 y el log dice `Apagado (GRPC_ENABLED=false)`; con `GRPC_ENABLED=si` no arranca y nombra la variable. Con la base parada (`docker stop`): `GetFlightStatus` da `UNAVAILABLE` con `retry-after: 5` y `problem-status: 503`, como el 503 de REST. El `x-request-id` del cliente vuelve en las cabeceras y en los trailers del error y va en la línea `[gRPC]` y en la de `[Errores]`; uno inválido se cambia por un UUID. grpcurl 1.9.3 con el proto (sin reflection): `list`, `describe`, las tres RPC y un `NOT_FOUND` con sus trailers. Docker: la imagen (construida con una copia del Dockerfile que solo agrega la CA del proxy del sandbox) declara `EXPOSE 3000 50051` con el `HEALTHCHECK` sin cambios, trae `contracts/proto` y queda `healthy`; con `GRPC_ENABLED=true` responde por gRPC y sin la variable no abre el puerto. buf 1.73: `proto:lint` limpio; `proto:breaking` contra `main` (todavía sin proto: nada que comparar) y, contra `HEAD`, 7 cambios de prueba incompatibles dan código 100 (renumerar, quitar un campo sin `reserved` o solo con el número, renombrar, cambiar un tipo, quitar una RPC, quitar un valor de enum) y 2 compatibles dan 0 (quitar con número y nombre reservados, agregar un campo); el paso de CI corrió igual en un clon superficial. `actionlint` sin observaciones. `npm audit --omit=dev`: de 15 a 16 avisos, el nuevo es `@nestjs/microservices` (ver Hallazgos) |
 
 ## Decisiones
 
@@ -126,7 +127,18 @@ La plantilla manda en lenguaje y framework; lo único que se reemplaza es el ORM
 | Herramientas de prueba fuera de `package.json` | Playwright y autocannon se usan desde la caché de `npx` (`NODE_PATH`), no como dependencias | No pesan en `npm ci` ni en CI; los scripts dicen cómo correrlos |
 | Build en Render | `npm ci --include=dev && npx prisma generate && npm run build` | Con `NODE_ENV=production`, `npm ci` omite las devDependencies y `nest build` no existe (comprobado en una copia limpia) |
 | Procesos periódicos | Cada uno deja una línea al arrancar (`Activo: cada N s` o `Apagado (VARIABLE=false)`) | Se ve en el log de cada instancia qué corre, una vez por instancia |
-| Versión | `1.0.0` en `package.json` y en Swagger; el contrato (1.5.0.0) va en la descripción. El `apiVersion` de los webhooks sigue siendo `1.5.0` (el del contrato) | La versión de la API y la del contrato son cosas distintas |
+| Versión | `1.0.0` en `package.json` y en Swagger; el contrato (1.5.0.0) va en la descripción. El `apiVersion` de los webhooks sigue siendo `1.5.0` (el del contrato). Desde la fase R2-1, `1.1.0` | La versión de la API y la del contrato son cosas distintas. 1.1.0 es una versión menor: REST no cambia |
+| gRPC interno (R2-1) | Un servidor gRPC en la misma app (híbrida: `connectMicroservice` y `startAllMicroservices` antes de `listen`), en `0.0.0.0:GRPC_PORT` (50051), solo con `GRPC_ENABLED=true` | El BFF necesita un contrato tipado entre servicios; REST y el OpenAPI siguen siendo el contrato público. Apagado por defecto, Render y las pruebas no lo notan |
+| Qué expone | `SearchFlights`, `GetSeatMap` y `GetFlightStatus`: las tres operaciones públicas del contrato | Las de más tráfico y sin usuario; las de escritura necesitan autenticación en gRPC |
+| Contrato Protobuf | `contracts/proto/flights/v1/flights.proto`, paquete `quinde.flights.v1`, `XxxRequest` y `XxxResponse` por RPC; campos en snake_case que proto-loader (`keepCase: false`) entrega con el nombre del JSON del contrato; dinero y fechas como texto; lo que en REST es `null`, `optional`; cada enum con su prefijo y `*_UNSPECIFIED` en 0 | Un cliente en Node ve el mismo JSON que en REST; los nombres y el 0 son las reglas STANDARD de buf |
+| Controladores gRPC | Un `<entidad>.grpc.ts` junto a cada entidad, en los `controllers` de su módulo: el mismo DTO o pipes, el mismo service y el mismo mapper que REST; solo cambia los enums (`aEnumProto`) | Cero lógica ni consultas nuevas, como pedía la fase |
+| Huella de la búsqueda en gRPC | Metadata `x-device-fingerprint`, no un campo del mensaje; `@HuellaDispositivo()` la lee de ahí | En el contrato es una cabecera: el mensaje queda igual a `SearchRequest` y el error es el mismo |
+| Configuración de HTTP en gRPC | Sin `inheritAppConfig`: `@ControladorGrpc()` pone guard, interceptor, filtro y pipe para gRPC | Los guards globales de HTTP leen la petición de Express y el filtro HTTP relanza lo que no es HTTP; heredarlos habría pedido cambiarlos a todos |
+| Errores en gRPC | `FiltroErroresGrpc` usa `traducirExcepcion`: código gRPC por status (400 `INVALID_ARGUMENT`, 404 `NOT_FOUND`, 409/410/422 `FAILED_PRECONDITION`, 429 `RESOURCE_EXHAUSTED`, 503 `UNAVAILABLE`, 5xx `INTERNAL`) y metadata `problem-code`, `problem-status`, `problem-details-bin` (el `ProblemDetails` en JSON), `retry-after` y `x-request-id` | El BFF puede rehacer el error de REST tal cual. 410 y 422 no estaban en el pedido: son peticiones bien formadas que el estado no permite, como el 409 |
+| Request id en gRPC | `x-request-id` de la metadata con las reglas de `X-Request-Id`, en el mismo `AsyncLocalStorage`; vuelve en las cabeceras de la respuesta y en los trailers de un error; una línea `[gRPC]` por llamada | El log de una llamada se sigue igual que el de una petición HTTP |
+| Autenticación en gRPC | Sin token. `GuardSoloPublicoGrpc` responde `UNAUTHENTICATED` a toda RPC sin `@Publico()` | El puerto es interno y las tres son públicas en REST; niega por defecto, como el guard de JWT en HTTP |
+| Límite de peticiones en gRPC | Ninguno; solo un tope de 100 kB por mensaje (`RESOURCE_EXHAUSTED`) | Lo más simple: el único cliente es el BFF y un límite por IP lo frenaría entero. Los límites por usuario van en el BFF |
+| Compatibilidad del proto | `@bufbuild/buf` (devDependency): `proto:lint` (STANDARD salvo `PACKAGE_DIRECTORY_MATCH`, y `buf format`) y `proto:breaking` contra main (FILE, salvo que deja quitar un campo o un valor de enum con número y nombre en `reserved`), en CI | `PACKAGE_DIRECTORY_MATCH` choca con la ruta pedida (`flights/v1` para `quinde.flights.v1`). FILE solo no deja quitar nada, ni con `reserved`, y eso contradecía la regla del encabezado |
 
 ### Ajuste de estructura
 
@@ -179,6 +191,7 @@ Todo lo de vuelos queda dentro de `src/modules/vuelos`, como pide la plantilla, 
 ```text
 quinde-vuelos-api/
 ├── contracts/                    # vuelos-openapi.yaml, el contrato que se implementa
+│   └── proto/flights/v1/         # ✓ flights.proto: el contrato gRPC interno (fase R2-1)
 ├── db/                           # fuente de verdad de la base
 │   ├── esquema_vuelos.sql
 │   ├── esquema_seguridad.sql     # ✓ usuarios, roles y tokens de refresco
@@ -201,7 +214,8 @@ quinde-vuelos-api/
 │   │   ├── limite-peticiones.ts  # ✓ opciones de @nestjs/throttler
 │   │   ├── origenes-cors.ts      # ✓ lectura y validación de CORS_ORIGINS
 │   │   ├── proxy.ts              # ✓ lectura y validación de TRUST_PROXY
-│   │   └── swagger.ts            # ✓ título, versión, bearer, ETIQUETAS, ícono
+│   │   ├── swagger.ts            # ✓ título, versión, bearer, ETIQUETAS, ícono
+│   │   └── grpc.ts               # ✓ servidor gRPC: GRPC_ENABLED, GRPC_PORT, opciones del proto, iniciarGrpc (R2-1)
 │   ├── routes/
 │   │   └── index.routes.ts       # ✓ la única tabla de rutas de la API
 │   ├── generated/prisma/         # ✓ cliente generado (fuera de git)
@@ -212,12 +226,12 @@ quinde-vuelos-api/
 │   │   └── extensiones/          # ✓ bloqueo de delete físico, actor de auditoría
 │   ├── common/
 │   │   ├── reloj.ts              # ✓ hora de la aplicación, inyectable (fase 6)
-│   │   ├── decorators/           # ✓ @Publico, @Scopes, @UsuarioActual, @LimiteEstricto, @SinLimiteDePeticiones, @HuellaDispositivo, @ClaveIdempotencia
+│   │   ├── decorators/           # ✓ @Publico, @Scopes, @UsuarioActual, @LimiteEstricto, @SinLimiteDePeticiones, @HuellaDispositivo, @ClaveIdempotencia, @ControladorGrpc
 │   │   ├── dto/                  # de la plantilla: respuesta base y paginación
-│   │   ├── guards/               # ✓ limite-peticiones, jwt-auth y scopes (globales)
-│   │   ├── contexto/             # ✓ request id, IP y usuario de la petición en curso (AsyncLocalStorage)
-│   │   ├── errores/              # ✓ códigos del contrato, ErrorNegocio, traducción de errores de Prisma y de triggers
-│   │   ├── filters/              # ✓ problem-details.filter.ts
+│   │   ├── guards/               # ✓ limite-peticiones, jwt-auth y scopes (globales); solo-publico-grpc (gRPC)
+│   │   ├── contexto/             # ✓ request id, IP y usuario de la petición en curso (AsyncLocalStorage); contexto-grpc
+│   │   ├── errores/              # ✓ códigos del contrato, ErrorNegocio, traducción de errores de Prisma y de triggers; codigo-grpc
+│   │   ├── filters/              # ✓ problem-details.filter.ts; errores-grpc.filter.ts
 │   │   ├── logger/               # ✓ logger de Nest con el request id en cada línea
 │   │   ├── pipes/                # ✓ ValidationPipe global, uuid, fecha, código IATA
 │   │   └── sanitizacion/         # ✓ @TextoLimpio, @CorreoNormalizado y piezas sueltas (ver su README)
@@ -241,8 +255,8 @@ quinde-vuelos-api/
 │           │   ├── vuelo-programado/
 │           │   └── tarifa/
 │           └── operaciones/      # ✓ endpoints del contrato (operaciones.module.ts y .routes.ts)
-│               ├── busqueda/     # ✓ POST /search (fase 5)
-│               ├── oferta/       # ✓ GET /offers/{offerId}/seatmap (fase 5)
+│               ├── busqueda/     # ✓ POST /search (fase 5); SearchFlights en busqueda.grpc.ts (R2-1)
+│               ├── oferta/       # ✓ GET /offers/{offerId}/seatmap (fase 5); GetSeatMap en oferta.grpc.ts (R2-1)
 │               ├── retencion/    # ✓ /offers/hold y el vencimiento periódico (fase 6)
 │               ├── reserva/      # ✓ /bookings y la emisión periódica (fase 7)
 │               ├── boleto/       # ✓ /bookings/{bookingId}/tickets (fase 7)
@@ -251,10 +265,11 @@ quinde-vuelos-api/
 │               ├── cancelacion/  # ✓ cancellation-quote y cancel (fase 8); pendientes-postventa.ts en operaciones/
 │               ├── checkin/
 │               ├── pase-abordar/
-│               ├── estado-vuelo/
+│               ├── estado-vuelo/ # ✓ GET /flights/{flightNumber}/status (fase 9); GetFlightStatus en estado-vuelo.grpc.ts (R2-1)
 │               └── webhook/
 ├── test/                         # ✓ pruebas e2e (Jest + supertest) contra la base real; utils/ con crearApp y fixtures
-├── Dockerfile                    # ✓ multi-etapa para Render
+├── buf.yaml                      # ✓ reglas de buf lint y buf breaking para contracts/proto (R2-1)
+├── Dockerfile                    # ✓ multi-etapa para Render; trae contracts/proto y expone 3000 y 50051
 ├── docker-compose.yml            # ✓ PostgreSQL 18; puerto con DB_PORT
 └── .env.example                  # ✓
 ```
@@ -387,6 +402,7 @@ Las fases 0 a 3 son la base, la 4 fija el patrón de módulo y las 5 a 7 son el 
 | 9. Check-in y estado | `feat/f9-checkin-estado` | Check-in, pases de abordar, estado de vuelo | El check-in fuera de ventana se rechaza y el pase sale con su código de barras |
 | 10. Webhooks | `feat/f10-webhooks` | Suscripciones, eventos y entrega con reintentos | Una reserva confirmada llega firmada a una URL de prueba |
 | 11. Entrega | `chore/f11-entrega` | Prueba de contrato, CI, guía de despliegue, versión 1.0.0 | El OpenAPI generado coincide con el contrato y la URL de Render pasa el flujo completo |
+| R2-1. gRPC | `feat/r2-grpc` | Contrato Protobuf, servidor gRPC interno apagado por defecto, errores, request id, pruebas, buf, Docker, versión 1.1.0 | Las tres RPC dan lo mismo que REST con un cliente real, y con `GRPC_ENABLED=false` el puerto no abre |
 
 Si el tiempo aprieta antes de RDA1, lo primero que se recorta es la fase 10: se dejan alta, listado y baja de suscripciones y se pospone la entrega de eventos.
 
@@ -587,7 +603,42 @@ porque la fase 8 todavía no estaba mezclada y esta fase usa su código.
 
 El tag `v1.0.0` lo crea el dueño del repo después de mezclar.
 
+### Fase R2-1 · gRPC
+
+1. `feat(grpc): definir el contrato flights.proto con las tres lecturas públicas`
+2. `build(deps): agregar @nestjs/microservices, @grpc/grpc-js y @grpc/proto-loader`
+3. `feat(grpc): arrancar el servidor gRPC interno solo con GRPC_ENABLED=true`
+4. `feat(grpc): exponer SearchFlights, GetSeatMap y GetFlightStatus con controladores delgados`
+5. `feat(grpc): traducir los errores del dominio a códigos gRPC con el ProblemDetails en la metadata`
+6. `feat(grpc): llevar el x-request-id de la metadata al contexto y al log, y cerrar lo no público`
+7. `test(grpc): probar paridad con REST, errores, request id y el puerto apagado`
+8. `build(grpc): comprobar el contrato Protobuf con buf lint y buf breaking contra main`
+9. `build(docker): copiar contracts/proto a la imagen y exponer el puerto gRPC`
+10. `docs(grpc): documentar el servidor gRPC interno en docs/GRPC.md y los README`
+11. `chore(release): publicar la versión 1.1.0 con el gRPC interno`
+12. `docs: cerrar la fase R2-1 en el plan y en CLAUDE.md`
+
+El paso 10 del pedido (documentación, plan y CHANGELOG) quedó en tres commits, como en la fase 11:
+la documentación, la versión con su CHANGELOG y el cierre del plan. El tag `v1.1.0` lo crea el
+dueño del repo después de mezclar.
+
 ## Hallazgos
+
+### Fase R2-1
+
+| Tema | Qué pasó | Qué implica |
+| --- | --- | --- |
+| La suite tiene 851 pruebas, no 754 | El pedido hablaba de 754; con la fase de administración (auditoría, administradores y reservas) `main` ya tenía 851 en 31 suites | Esta fase suma 42: 893 en 32 |
+| 40 fallos con un `.env` completo | Antes de tocar nada, con un `.env` copiado entero de `.env.example`, fallaban 40 pruebas (límites, CORS, trust proxy, catálogo): la configuración validada al importar `AppModule` gana sobre lo que cada prueba fija en `process.env` | Con un `.env` solo con las obligatorias (como CI, que no tiene `.env`) quedan 2. Las pruebas de gRPC no dependen del `.env`: pasan su configuración explícita |
+| Sin IPv6 en esta máquina | 2 pruebas de `errores-bd` (base caída en `::1` y `localhost` con `::1`) fallan antes y después de la fase: `connect` a `::1` da `EAFNOSUPPORT` en vez de `ECONNREFUSED` | Es del sandbox de esta sesión; en ubuntu-latest (CI) pasan. Ninguna otra prueba falla |
+| Un enum sin prefijo se pierde sin error | protobufjs convierte un nombre que no existe en el enum (`SCHEDULED` en vez de `FLIGHT_STATUS_SCHEDULED`) en el valor 0 sin avisar | Por eso cada `.grpc.ts` pasa los enums por `aEnumProto` y las pruebas de paridad comparan campo por campo; la mutación lo comprobó |
+| `server.start()` deprecado | Nest 10 llama a `start()` de grpc-js, innecesario desde grpc-js 1.10: una `DeprecationWarning` al arrancar con gRPC encendido | Inofensivo; se va con Nest 11 |
+| Una línea de log por controlador gRPC | `RoutesResolver` registra `BusquedaGrpc {/flights/search}` al arrancar, aunque el controlador no tiene rutas HTTP y gRPC esté apagado | Solo ruido; las rutas y Swagger no cambian (la prueba de Swagger pasa) |
+| Pipes de varios parámetros en paralelo | Con un `GetFlightStatus` vacío el error que sale es el de `date` y no el de `flightNumber` | Nest corre los pipes de los parámetros a la vez; la prueba acepta cualquiera de los dos. En REST no pasa (un parámetro de ruta no puede faltar) |
+| grpcurl omite los valores por defecto | protojson no imprime `0` ni `false` (`stopsCount`, `fareRules`) | `-emit-defaults`; está en `docs/GRPC.md` |
+| `docker build` en este entorno | `npm ci` dentro de la imagen no llegaba al registro: el sandbox re-cifra el TLS y el contenedor no tiene su CA | Se verificó con una copia del Dockerfile (fuera del repo) que solo agrega la CA; el Dockerfile del repo no cambia por eso |
+| `npm audit --omit=dev` | De 15 a 16 avisos: `@nestjs/microservices` 10 trae tres (dos del transporte TCP y uno de patrones de mensaje anidados que manda el cliente) y `@nestjs/core` sube a alto por él. El arreglo es Nest 12 | Ninguno aplica a gRPC: el patrón de cada RPC sale del proto en el servidor y no se usa TCP. No se forzó nada; queda con el pendiente de Nest 11/12 |
+| Un commit de prueba rechazado | Para simular el paso de CI intenté un commit temporal con un mensaje que no era Conventional Commits; el hook lo rechazó y no se hizo nada | Se simuló después del commit real, en un clon superficial; el historial no tiene commits de más |
 
 ### Fase 1
 
@@ -827,4 +878,9 @@ Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corr
 - [ ] Dueño del repo: desplegar en Render con `render.yaml` y `docs/DEPLOY.md`, correr `scripts/smoke.sh` contra la URL y crear el tag `v1.0.0` después de mezclar.
 - [ ] Correr `npm audit fix` (sin `--force`) en una rama aparte con la suite completa, y planificar Nest 11/12 y Prisma 8 después de RDA1 (ver `docs/pruebas/seguridad.md`).
 - [ ] Equipo: responder las preguntas de `docs/DISCREPANCIAS-CONTRATO.md` (identidad, códigos de error, respuestas no declaradas, cuerpos de los 202, webhooks).
-- [ ] Probar la suite con Node 22 (el de `.nvmrc` y CI) en una máquina donde esté instalado: aquí se corrió con Node 24.
+- [x] Probar la suite con Node 22 (el de `.nvmrc` y CI): en la fase R2-1 corrió con Node 22.22.0 (893 pruebas; las 2 que fallan son de IPv6 del sandbox, ver Hallazgos).
+- [ ] Fase Azure: desplegar el gRPC interno en una red privada (o con TLS/mTLS si sale de ella) y verificarlo desde el BFF; en Render queda apagado.
+- [ ] BFF: aplicar por usuario los límites que REST pone por IP (20 búsquedas, 60 mapas y 60 estados por minuto); gRPC no tiene límite de peticiones.
+- [ ] Antes de una RPC con usuario (hold, reservas): aceptar el JWT en la metadata `authorization` en gRPC (hoy `GuardSoloPublicoGrpc` solo deja pasar las `@Publico()`).
+- [ ] BFF: decidir cómo obtiene `flights.proto` (copia, submódulo o paquete); `npm run proto:breaking` protege este lado.
+- [ ] Dueño del repo: crear el tag `v1.1.0` después de mezclar `feat/r2-grpc`.

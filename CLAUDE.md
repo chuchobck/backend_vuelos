@@ -7,7 +7,8 @@ Reglas permanentes del proyecto. Léelas antes de tocar código.
 Quinde · API de Vuelos: backend NestJS 10 + TypeScript + Prisma 7 que implementa el contrato
 GDS Flight Core API v1.5.0.0 (`contracts/vuelos-openapi.yaml`), solo vuelos nacionales de Ecuador.
 Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`; las
-diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.0.0 (`CHANGELOG.md`).
+diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.1.0 (`CHANGELOG.md`).
+Además de REST, un servidor gRPC interno para el BFF (`docs/GRPC.md`), apagado por defecto.
 
 ## Alcance
 
@@ -30,6 +31,10 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   retencion, reserva, boleto, equipaje, cambio-fecha, cancelacion, checkin, pase-abordar,
   estado-vuelo y webhook.
 - Fuera de vuelos: `salud` y `auth`.
+- gRPC: un `<entidad>.grpc.ts` junto a la entidad, con `@ControladorGrpc()`, que llama al mismo
+  service y usa el mismo DTO o pipes y el mismo mapper que REST (solo cambia los enums con
+  `aEnumProto`). El contrato es `contracts/proto/flights/v1/flights.proto`: nunca renumerar ni
+  reusar un campo, `reserved` al quitar, y `npm run proto:lint` y `npm run proto:breaking` limpios.
 - Una sola tabla de rutas: `src/routes/index.routes.ts`.
 - Las tablas de detalle no tienen controller: las maneja el service de su cabecera.
 - El catálogo extiende `catalogo/base/` (`RepositorioCatalogo` y `ServicioCatalogo`); el patrón está

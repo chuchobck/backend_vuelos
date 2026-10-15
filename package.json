@@ -1,6 +1,6 @@
 {
   "name": "quinde-vuelos-api",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Quinde · API de Vuelos: implementación del contrato GDS Flight Core API v1.5.0.0 para vuelos nacionales de Ecuador",
   "author": "",
   "private": true,
@@ -15,6 +15,8 @@
     "prepare": "husky || true",
     "prisma:generate": "prisma generate",
     "prisma:pull": "prisma db pull && prisma generate",
+    "proto:breaking": "bash scripts/proto-breaking.sh",
+    "proto:lint": "buf lint && buf format --diff --exit-code",
     "start": "nest start",
     "start:debug": "nest start --debug --watch",
     "start:dev": "nest start --watch",
@@ -23,9 +25,12 @@
     "test:cov": "jest --config test/jest-e2e.json --runInBand --coverage"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.6",
+    "@grpc/proto-loader": "^0.8.1",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.0.0",
     "@nestjs/core": "^10.0.0",
+    "@nestjs/microservices": "^10.4.22",
     "@nestjs/platform-express": "^10.0.0",
     "@nestjs/swagger": "^7.0.0",
     "@nestjs/throttler": "^6.7.1",
@@ -40,6 +45,7 @@
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
+    "@bufbuild/buf": "^1.73.0",
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
     "@eslint/js": "^10.0.1",

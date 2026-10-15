@@ -248,6 +248,21 @@ export class VariablesEntorno {
   @IsOptional()
   CHECKIN_CLOSES_MINUTES_BEFORE?: number;
 
+  /**
+   * Servidor gRPC interno (contracts/proto/flights/v1/flights.proto), además de REST. Sin
+   * valor: false. Con false el puerto no se abre y la API es la misma que sin gRPC.
+   */
+  @IsIn(['true', 'false'], { message: 'GRPC_ENABLED debe ser true o false' })
+  @IsOptional()
+  GRPC_ENABLED?: string;
+
+  /** Puerto del servidor gRPC, en 0.0.0.0; distinto de PORT. Sin valor: 50051. */
+  @Min(1, { message: 'GRPC_PORT debe estar entre 1 y 65535' })
+  @Max(65535, { message: 'GRPC_PORT debe estar entre 1 y 65535' })
+  @IsInt({ message: 'GRPC_PORT debe ser un número entero' })
+  @IsOptional()
+  GRPC_PORT?: number;
+
   /** Duración de la ventana del límite, en segundos. Sin valor: 60. */
   @Max(86_400, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
   @Min(1, { message: 'RATE_LIMIT_WINDOW_SECONDS debe estar entre 1 y 86400' })
