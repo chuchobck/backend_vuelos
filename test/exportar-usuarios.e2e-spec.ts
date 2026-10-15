@@ -235,12 +235,23 @@ describe('npm run auth:exportar-usuarios', () => {
   });
 
   describe('dónde escribe', () => {
+    // Las rutas dentro del repositorio que prueban el rechazo. Si el rechazo fallara (o con la
+    // mutación que lo quita), ahí quedarían correos y hashes: se borran antes y después.
+    const dentroDelRepositorio = [
+      join(RAIZ, 'exportacion-usuarios-e2e.sql'),
+      join(RAIZ, 'test', 'exportacion-usuarios-e2e.sql'),
+    ];
+    const quitarLasDelRepositorio = () => {
+      for (const ruta of dentroDelRepositorio) rmSync(ruta, { force: true });
+    };
+    beforeAll(quitarLasDelRepositorio);
+    afterAll(quitarLasDelRepositorio);
+
     it('no escribe dentro del repositorio', async () => {
-      const ruta = join(RAIZ, 'exportacion-usuarios-e2e.sql');
-      const corrida = await exportar(url, ruta);
+      const corrida = await exportar(url, dentroDelRepositorio[0]);
       expect(corrida.codigo).toBe(1);
       expect(corrida.salida).toContain('tiene que quedar fuera del repositorio');
-      expect(() => statSync(ruta)).toThrow();
+      expect(() => statSync(dentroDelRepositorio[0])).toThrow();
     });
 
     it('tampoco por un enlace simbólico que lleva al repositorio', async () => {
@@ -249,7 +260,7 @@ describe('npm run auth:exportar-usuarios', () => {
       const corrida = await exportar(url, join(enlace, 'exportacion-usuarios-e2e.sql'));
       expect(corrida.codigo).toBe(1);
       expect(corrida.salida).toContain('tiene que quedar fuera del repositorio');
-      expect(() => statSync(join(RAIZ, 'test', 'exportacion-usuarios-e2e.sql'))).toThrow();
+      expect(() => statSync(dentroDelRepositorio[1])).toThrow();
     });
 
     it('no pisa un archivo que ya existe', async () => {
