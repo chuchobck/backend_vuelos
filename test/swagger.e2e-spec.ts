@@ -227,7 +227,7 @@ describe('Swagger (/api/docs) contra el contrato', () => {
   it('la versión de Swagger es la de package.json y la descripción nombra el contrato', () => {
     const paquete = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
     expect(generado.info.version).toBe(paquete.version);
-    expect(generado.info.version).toBe('1.0.0');
+    expect(generado.info.version).toBe('1.1.0');
     expect(generado.info.description).toContain('v1.5.0.0');
   });
 

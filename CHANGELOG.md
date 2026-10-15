@@ -4,6 +4,32 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 [SemVer](https://semver.org/lang/es/). El detalle de cada fase (decisiones, hallazgos y commits)
 está en [docs/PLAN.md](docs/PLAN.md).
 
+## [1.1.0] - 2026-10-15
+
+Servidor gRPC interno para el BFF GraphQL, además de REST. REST y el contrato OpenAPI 1.5.0.0 no
+cambian; gRPC está apagado por defecto (`GRPC_ENABLED=false`) y así la API se comporta igual que
+en 1.0.0. Detalle en [docs/GRPC.md](docs/GRPC.md).
+
+### Fase R2-1 · gRPC
+
+- Contrato Protobuf `contracts/proto/flights/v1/flights.proto` (paquete `quinde.flights.v1`):
+  `FlightsService` con `SearchFlights`, `GetSeatMap` y `GetFlightStatus`, las tres lecturas
+  públicas del contrato, con mensajes que reflejan `SearchResponse`, `SeatMapResponse` y
+  `FlightStatus` (dinero y fechas como texto, enums con `*_UNSPECIFIED` en 0).
+- Servidor gRPC en `0.0.0.0:GRPC_PORT` (50051) solo con `GRPC_ENABLED=true`. Controladores
+  delgados (`<entidad>.grpc.ts`) que usan los mismos DTO, pipes, services y mappers que REST.
+- Errores como códigos gRPC (400 `INVALID_ARGUMENT`, 404 `NOT_FOUND`, 409 `FAILED_PRECONDITION`,
+  429 `RESOURCE_EXHAUSTED`, base caída `UNAVAILABLE`, 5xx `INTERNAL`) con el `code`, el status y
+  el `ProblemDetails` de REST en la metadata; nunca el stack ni datos de pasajeros.
+- `x-request-id` de la metadata en el mismo contexto y el mismo log que HTTP, y de vuelta en la
+  respuesta. Sin token (las tres RPC son públicas; una RPC sin `@Publico()` es `UNAUTHENTICATED`)
+  y sin límite de peticiones (el único cliente es el BFF); mensajes de hasta 100 kB.
+- 42 pruebas e2e con un cliente real de `@grpc/grpc-js`: paridad con REST, errores, request id y
+  el puerto cerrado con `GRPC_ENABLED=false`.
+- `buf lint` y `buf breaking` contra main (`npm run proto:lint`, `npm run proto:breaking`), también
+  en CI.
+- La imagen Docker trae el proto y expone el puerto 50051 (el `HEALTHCHECK` no cambia).
+
 ## [1.0.0] - 2026-10-06
 
 Primera versión completa para RDA1: las 22 operaciones del contrato GDS Flight Core API

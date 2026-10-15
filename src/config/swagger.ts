@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 export const RUTA_SWAGGER = 'api/docs';
 /** Versión de la API (la de package.json); el contrato que implementa es el 1.5.0.0. */
-export const VERSION_API = '1.0.0';
+export const VERSION_API = '1.1.0';
 const VERSION_CONTRATO = '1.5.0.0';
 const TITULO = 'Quinde · API de Vuelos';
 

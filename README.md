@@ -7,7 +7,7 @@
 Backend del dominio de **vuelos** del Booking Prototipo: implementa el contrato
 [GDS Flight Core API v1.5.0.0](contracts/vuelos-openapi.yaml) para vuelos nacionales de Ecuador.
 
-Es un backend NestJS 10 + TypeScript con PostgreSQL 18 (ver [Origen](#origen)), versión **1.0.0**
+Es un backend NestJS 10 + TypeScript con PostgreSQL 18 (ver [Origen](#origen)), versión **1.1.0**
 ([CHANGELOG](CHANGELOG.md)). El plan completo, con decisiones, fases y commits, está en
 [docs/PLAN.md](docs/PLAN.md); el despliegue, en [docs/DEPLOY.md](docs/DEPLOY.md); las diferencias
 con el contrato, en [docs/DISCREPANCIAS-CONTRATO.md](docs/DISCREPANCIAS-CONTRATO.md), y el servidor
