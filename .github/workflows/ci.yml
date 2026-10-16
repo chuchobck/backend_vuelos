@@ -93,3 +93,20 @@ jobs:
 
       - name: Pruebas e2e
         run: npm run test:e2e
+
+  eventos:
+    name: esquemas de eventos del notifier (informativo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Informa si la copia de contracts/notifier-eventos se quedó atrás del notifier; no bloquea
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Comparar con main del notifier
+        run: npm run eventos:check

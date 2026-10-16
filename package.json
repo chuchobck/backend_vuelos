@@ -8,7 +8,9 @@
   "scripts": {
     "auth:exportar-usuarios": "node scripts/exportar-usuarios.cjs",
     "build": "nest build",
+    "eventos:check": "node scripts/eventos-check.cjs",
     "eventos:reencolar": "node scripts/reencolar-eventos.cjs",
+    "eventos:sync": "node scripts/eventos-sync.cjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
