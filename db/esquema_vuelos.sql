@@ -1114,6 +1114,9 @@ CREATE INDEX ix_webhook_entrega_pendiente ON webhook_entrega (proximo_intento, i
 CREATE INDEX ix_webhook_entrega_webhook ON webhook_entrega (webhook_id, fecha_actualizacion DESC) WHERE estado <> 'PENDIENTE';
 CREATE INDEX ix_webhook_entrega_tipo_evento ON webhook_entrega (tipo_evento_id);
 CREATE INDEX ix_evento_saliente_pendiente ON evento_saliente (estado, proximo_intento) WHERE estado = 'PENDIENTE';
+-- Sirven a la purga de la bandeja: lo PUBLICADO por publicado_en y lo FALLIDO por cuándo falló
+CREATE INDEX ix_evento_saliente_publicado ON evento_saliente (publicado_en) WHERE estado = 'PUBLICADO';
+CREATE INDEX ix_evento_saliente_fallido ON evento_saliente (proximo_intento) WHERE estado = 'FALLIDO';
 CREATE INDEX ix_clave_idempotencia_fecha_expiracion ON clave_idempotencia (fecha_expiracion);
 
 
@@ -1351,6 +1354,7 @@ COMMENT ON COLUMN evento_saliente.id_evento IS 'eventId del sobre: el mismo en c
 COMMENT ON COLUMN evento_saliente.sobre IS 'Sobre de POST /internal/v1/events congelado al ocurrir el hecho; se envía tal cual, byte a byte.';
 COMMENT ON COLUMN evento_saliente.arrendamiento_hasta IS 'Hasta cuándo el relevo que tomó la fila la tiene apartada; vencido, otro proceso puede retomarla.';
 COMMENT ON COLUMN evento_saliente.reintentar_hasta IS 'Hasta cuándo se reintenta (48 h desde que se creó o se reencoló); después queda FALLIDO.';
+COMMENT ON COLUMN evento_saliente.proximo_intento IS 'Cuándo se vuelve a intentar publicar; de un evento FALLIDO es cuándo falló (la purga cuenta los días de retención desde ahí).';
 COMMENT ON TABLE evento_entrega             IS 'Intentos de entrega de un evento a un webhook.';
 COMMENT ON TABLE clave_idempotencia         IS 'Registro de las cabeceras Idempotency-Key ya procesadas y su respuesta.';
 COMMENT ON TABLE auditoria                  IS 'Log de cambios: una fila por cada alta, cambio o baja en las tablas de negocio. La escribe el disparador fn_auditar y es de solo inserción. No es el historial que ve el cliente: ese es reserva_detalle_historial.';

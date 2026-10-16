@@ -8,8 +8,8 @@ Quinde · API de Vuelos: backend NestJS 10 + TypeScript + Prisma 7 que implement
 GDS Flight Core API v1.5.0.0 (`contracts/vuelos-openapi.yaml`), solo vuelos nacionales de Ecuador.
 Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`; las
 diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.1.0 (`CHANGELOG.md`),
-más las fases 4b (auth externa, `AUTH_MODE`) y 5b (eventos al notifier, `WEBHOOKS_MODE`) sin
-publicar.
+más las fases 4b (auth externa, `AUTH_MODE`) y 5b (eventos al notifier, `WEBHOOKS_MODE`, con la
+purga de su bandeja) sin publicar.
 Además de REST, un servidor gRPC interno para el BFF (`docs/GRPC.md`), apagado por defecto.
 
 ## Alcance
@@ -104,6 +104,12 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   comparados como `::text`. Solo ofertas, itinerarios, claves de idempotencia, ofertas de cambio sin
   confirmar y cotizaciones sin aceptar se borran físicamente (las vencidas), con `deleteMany` para
   que pase por la extensión de bloqueo (`TABLAS_CON_BORRADO_FISICO`).
+- `evento_saliente` (la bandeja hacia el notifier) se purga con `PurgaBandeja` y `npm run eventos:purgar`:
+  `PUBLICADO` a los 7 días de `publicado_en`, `FALLIDO` a los 30 desde `proximo_intento` (cuándo
+  falló) y `PENDIENTE` jamás, ni con el arrendamiento vencido. Es SQL crudo (`DELETE` de a 1000 con
+  `FOR UPDATE SKIP LOCKED`, porque `deleteMany` no admite LIMIT ni SKIP LOCKED) y la tabla sigue fuera
+  de `TABLAS_CON_BORRADO_FISICO`: cualquier otro borrado de ella sigue bloqueado. La edad se cuenta con
+  el `Reloj`, no con `now()`.
 - `webhook_entrega` es la bandeja de salida: no se borra. Cada intento se anota con un UPDATE
   condicionado al intento tomado, y el log de un intento no lleva URL, secreto ni cuerpo.
 - Las respuestas de las operaciones del contrato se validan contra sus esquemas en las pruebas

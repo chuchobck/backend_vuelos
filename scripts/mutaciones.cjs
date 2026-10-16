@@ -30,6 +30,9 @@ const RELEVO = 'src/modules/vuelos/operaciones/webhook/relevo-eventos.ts';
 const TOKEN = 'src/modules/vuelos/operaciones/webhook/cliente-token-identity.ts';
 const PUBLICADOR = 'src/modules/vuelos/operaciones/webhook/publicador-eventos.ts';
 const NOTIFIER = 'test/eventos-notifier.e2e-spec.ts';
+const PURGA = 'src/modules/vuelos/operaciones/webhook/purga-bandeja.ts';
+const PURGAR = 'scripts/purgar-eventos.cjs';
+const PRUEBA_PURGA = 'test/purga-bandeja.e2e-spec.ts';
 
 /** [nombre, archivo, [[buscar, reemplazo], ...], archivo de pruebas, filtro -t (opcional)] */
 const MUTACIONES = [
@@ -333,6 +336,137 @@ const MUTACIONES = [
     ],
     NOTIFIER,
     '404',
+  ],
+  [
+    'la purga también borra los PENDIENTE',
+    BANDEJA,
+    [
+      ["WHERE estado = 'PUBLICADO' AND id_evento IN (", 'WHERE id_evento IN ('],
+      [
+        "WHERE estado = 'PUBLICADO' AND publicado_en < ${corte}::timestamptz",
+        "WHERE estado <> 'FALLIDO' AND creado_en < ${corte}::timestamptz",
+      ],
+    ],
+    PRUEBA_PURGA,
+    'PENDIENTE',
+  ],
+  [
+    'la purga de PUBLICADO ignora la edad',
+    BANDEJA,
+    [['AND publicado_en < ${corte}::timestamptz', '']],
+    PRUEBA_PURGA,
+    'PUBLICADO viejos',
+  ],
+  [
+    'la purga de FALLIDO ignora la edad',
+    BANDEJA,
+    [['AND proximo_intento < ${corte}::timestamptz', '']],
+    PRUEBA_PURGA,
+    'FALLIDO viejos',
+  ],
+  [
+    'la purga borra sin mirar el arrendamiento (PUBLICADO)',
+    BANDEJA,
+    [
+      [
+        'AND publicado_en < ${corte}::timestamptz\n                    AND (arrendamiento_hasta IS NULL OR arrendamiento_hasta <= ${ahora}::timestamptz)',
+        'AND publicado_en < ${corte}::timestamptz',
+      ],
+    ],
+    PRUEBA_PURGA,
+    'arrendamiento vigente',
+  ],
+  [
+    'la purga borra sin mirar el arrendamiento (FALLIDO)',
+    BANDEJA,
+    [
+      [
+        'AND proximo_intento < ${corte}::timestamptz\n                    AND (arrendamiento_hasta IS NULL OR arrendamiento_hasta <= ${ahora}::timestamptz)',
+        'AND proximo_intento < ${corte}::timestamptz',
+      ],
+    ],
+    PRUEBA_PURGA,
+    'arrendamiento vigente',
+  ],
+  [
+    'la purga no tiene tope de lote',
+    PURGA,
+    [
+      [
+        'const cupo = Math.min(REGLAS_PURGA.lote, REGLAS_PURGA.maximoPorCorrida - total);',
+        'const cupo = REGLAS_PURGA.maximoPorCorrida - total;',
+      ],
+    ],
+    PRUEBA_PURGA,
+    'lotes y tope',
+  ],
+  [
+    'la purga no tiene tope por corrida',
+    PURGA,
+    [
+      [
+        'const cupo = Math.min(REGLAS_PURGA.lote, REGLAS_PURGA.maximoPorCorrida - total);',
+        'const cupo = REGLAS_PURGA.lote;',
+      ],
+    ],
+    PRUEBA_PURGA,
+    'lotes y tope',
+  ],
+  [
+    'la purga espera las filas bloqueadas (sin SKIP LOCKED)',
+    BANDEJA,
+    [
+      [
+        'LIMIT ${limite}\n                    FOR UPDATE SKIP LOCKED)`\n      : db',
+        'LIMIT ${limite}\n                    FOR UPDATE)`\n      : db',
+      ],
+    ],
+    PRUEBA_PURGA,
+    'bloqueada',
+  ],
+  [
+    'la purga cuenta los días con la hora de la máquina, no con el Reloj',
+    PURGA,
+    [
+      [
+        'PUBLICADO: new Date(ahora.getTime() - this.retencionPublicadosDias * DIA_MS),',
+        'PUBLICADO: new Date(Date.now() - this.retencionPublicadosDias * DIA_MS),',
+      ],
+    ],
+    PRUEBA_PURGA,
+    'Reloj',
+  ],
+  [
+    'la purga da un estado por vacío si una sentencia borra menos de lo pedido',
+    PURGA,
+    [['if (n === 0) pendientes.delete(estado);', 'if (n < cupo) pendientes.delete(estado);']],
+    PRUEBA_PURGA,
+    'lotes y tope|dos instancias',
+  ],
+  [
+    'eventos:purgar --dry-run cuenta todo, sin mirar la edad',
+    PURGAR,
+    [
+      [
+        'FROM ${esquema}.evento_saliente\n            WHERE ${r.donde} AND ${sinArrendamiento}`,\n          [r.dias],',
+        "FROM ${esquema}.evento_saliente\n            WHERE estado = '${estado}'`,\n          [],",
+      ],
+    ],
+    PRUEBA_PURGA,
+    'dry-run',
+  ],
+  [
+    'eventos:purgar borra los PENDIENTE también',
+    PURGAR,
+    [
+      ["WHERE estado = '${estado}' AND id_evento IN (", 'WHERE id_evento IN ('],
+      [
+        "donde: `estado = 'PUBLICADO' AND publicado_en < now() - $1 * interval '1 day'`,",
+        "donde: `estado <> 'FALLIDO' AND creado_en < now() - $1 * interval '1 day'`,",
+      ],
+    ],
+    PRUEBA_PURGA,
+    'eventos:purgar',
   ],
 ];
 
