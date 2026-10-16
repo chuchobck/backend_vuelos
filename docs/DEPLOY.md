@@ -57,7 +57,7 @@ auditoría: `psql "$NEON_URL" -c "DROP SCHEMA vuelos CASCADE"` y repetir los pas
 
 **Una base que ya existe** se pone al día con `./db/migrar.sh` (usa `DATABASE_URL`; con
 `DATABASE_URL="$NEON_URL&schema=vuelos" ./db/migrar.sh` contra Neon): aplica `db/migraciones/*.sql`
-en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b.
+en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b y la 002 los índices de su purga.
 
 ## 3. Servicio en Render
 
@@ -293,6 +293,21 @@ El procedimiento del corte, el retroceso y cómo seguir la bandeja están en
   la segunda vez, 659 "ya existían"; las 35 rechazadas eran datos de prueba (secretos ficticios o
   fechas futuras puestas por pruebas con el reloj adelantado).
 - No se verificó: los tres servicios desplegados ni el gateway.
+
+### Purga de la bandeja (2026-10-16)
+
+- El core compilado con `WEBHOOKS_MODE=notifier` (relevo cada 1 s, purga cada 1 min), un identity y
+  un notifier de mentira (puertos 3001 y 3002; no los reales, la purga no depende de ellos) y
+  `scripts/smoke.sh` contra el core: una reserva real dejó `booking.confirmed`, `ticket_issuing`,
+  `ticket_issued` y `cancelled` en la bandeja, y el relevo los pasó a `PUBLICADO` (202).
+- Se envejecieron esos 4 eventos 8 días en la base y se sembraron un `PENDIENTE` de 100 días, otro con
+  el arrendamiento vencido, un `FALLIDO` de 40 días y otro de 10, y un `PUBLICADO` de 3.
+  `npm run eventos:purgar -- --dry-run` dijo «Borraría: 4 PUBLICADO y 1 FALLIDO» sin borrar nada; el
+  borrado real dijo «Borradas: 4 PUBLICADO y 1 FALLIDO» y los dos `PENDIENTE`, el `FALLIDO` de 10 días y
+  el `PUBLICADO` de 3 siguieron ahí.
+- El job (`PurgaBandeja`, cada 1 min) borró en su primera corrida 3 `PUBLICADO` de 9 días con
+  «Purga de la bandeja: 3 PUBLICADO y 0 FALLIDO borrados en 17 ms»; el log del core no tenía ningún
+  `eventId`, PNR ni sobre.
 
 ### Fase 4b (2026-10-15): AUTH_MODE=external con identity_vuelos
 

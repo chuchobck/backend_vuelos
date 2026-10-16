@@ -351,7 +351,9 @@ export class EstadoVueloGrpc {
 > `PublicadorEventos` guarda en cambio **un** sobre por hecho en `evento_saliente`
 > (`bandeja-eventos.repository.ts`) y `RelevoEventos` (`relevo-eventos.ts`, con
 > `ClienteTokenIdentity` y `ClienteNotifier`) lo publica en el notifier; `/webhooks`
-> (`WebhookApiModule`) no se monta. Ver [docs/MIGRACION-WEBHOOKS.md](../../../docs/MIGRACION-WEBHOOKS.md).
+> (`WebhookApiModule`) no se monta. `PurgaBandeja` (`purga-bandeja.ts`) borra de esa bandeja lo
+> `PUBLICADO` hace más de 7 días y lo `FALLIDO` hace más de 30; un `PENDIENTE` jamás. Ver
+> [docs/MIGRACION-WEBHOOKS.md](../../../docs/MIGRACION-WEBHOOKS.md).
 
 `webhook/` tiene las suscripciones (`GET` y `POST /webhooks`, `DELETE /webhooks/{id}`, scope
 `flights:webhooks`) y, aparte, la bandeja de salida y su envío. Las tablas son `webhook_cabecera`

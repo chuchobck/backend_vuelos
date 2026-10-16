@@ -6,6 +6,23 @@ está en [docs/PLAN.md](docs/PLAN.md).
 
 ## [Sin publicar]
 
+### Purga de la bandeja de eventos
+
+Con `WEBHOOKS_MODE=notifier`, `evento_saliente` ya no crece sin límite. Detalle en
+[docs/MIGRACION-WEBHOOKS.md](docs/MIGRACION-WEBHOOKS.md#purga-de-la-bandeja). En modo `local` no cambia nada.
+
+- Job `PurgaBandeja`: borra los `PUBLICADO` a los 7 días de `publicado_en` y los `FALLIDO` a los 30 de
+  haber fallado; un `PENDIENTE` jamás. Sentencias de 1000 filas con `FOR UPDATE SKIP LOCKED` (seguro con
+  varias instancias y con el relevo), hasta 20 000 por corrida, y en el log solo conteos.
+- Variables opcionales (solo con `notifier`): `EVENT_OUTBOX_PURGE_JOB_ENABLED` (`true`),
+  `EVENT_OUTBOX_PURGE_INTERVAL_MINUTES` (60), `EVENT_OUTBOX_RETENTION_DAYS` (7) y
+  `EVENT_OUTBOX_FAILED_RETENTION_DAYS` (30).
+- Migración `db/migraciones/002_purga_bandeja.sql` (y `db/esquema_vuelos.sql`): índices parciales por
+  `publicado_en` (`PUBLICADO`) y por `proximo_intento` (`FALLIDO`). Aplicar con `./db/migrar.sh`.
+- `npm run eventos:purgar -- [--dry-run]`: la misma purga a mano, con el conteo previo.
+- `npm run eventos:reencolar` solo encuentra un `FALLIDO` mientras la purga no lo haya borrado.
+- Pruebas contra PostgreSQL con `Reloj` inyectado y 12 mutaciones más en `npm run test:mutaciones`.
+
 ### Fase 5b · Eventos al notifier
 
 El core puede dejar de repartir los webhooks y publicar sus eventos al servicio

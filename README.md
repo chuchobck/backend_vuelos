@@ -137,7 +137,8 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | `npm run proto:breaking`  | `buf breaking` del contrato gRPC contra `main`              |
 | `./db/reset.sh`           | Borra, crea y carga la base (esquemas y semillas)           |
 | `npm run webhooks:exportar -- <archivo>` | Exporta las suscripciones a JSON Lines para el notifier (al pasar a `WEBHOOKS_MODE=notifier`; [docs/MIGRACION-WEBHOOKS.md](docs/MIGRACION-WEBHOOKS.md)) |
-| `npm run eventos:reencolar -- <eventId\|--todos-los-fallidos>` | Devuelve a PENDIENTE eventos FALLIDO de la bandeja hacia el notifier |
+| `npm run eventos:reencolar -- <eventId\|--todos-los-fallidos>` | Devuelve a PENDIENTE eventos FALLIDO de la bandeja hacia el notifier (mientras la purga no los haya borrado) |
+| `npm run eventos:purgar -- [--dry-run]` | Purga la bandeja `evento_saliente` (PUBLICADO a 7 días, FALLIDO a 30, PENDIENTE nunca); con `--dry-run` solo cuenta |
 | `npm run eventos:sync` / `eventos:check` | Trae o compara los esquemas de eventos del notifier ([contracts/notifier-eventos](contracts/notifier-eventos/)) |
 | `./db/migrar.sh` | Aplica `db/migraciones/*.sql` a una base que ya existe (idempotente, no borra) |
 | `npm run auth:exportar-usuarios -- <archivo>` | Exporta las cuentas a SQL para identity_vuelos (una sola vez, al pasar a `AUTH_MODE=external`; [docs/DEPLOY.md](docs/DEPLOY.md#6-cambio-de-modo-de-autenticación)) |
@@ -462,7 +463,8 @@ Eso es con `WEBHOOKS_MODE=local` (por defecto). Con `WEBHOOKS_MODE=notifier` los
 bandeja `evento_saliente`, dentro de la misma transacción, y `RelevoEventos` lo publica en
 `POST /internal/v1/events` con un token `client_credentials` de identity (`events:publish`),
 reintentando con espera creciente hasta 48 h si el notifier no responde. `/webhooks` da 404 en el
-core: lo sirve el notifier, detrás del gateway. Variables, orden del corte y retroceso:
+core: lo sirve el notifier, detrás del gateway. La bandeja se purga sola (`PUBLICADO` a los 7 días,
+`FALLIDO` a los 30, `PENDIENTE` nunca). Variables, orden del corte, retroceso y purga:
 [docs/MIGRACION-WEBHOOKS.md](docs/MIGRACION-WEBHOOKS.md). No se activa hasta tener el gateway.
 
 ## Catálogo de administración
