@@ -220,7 +220,11 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
   /** Si el pendiente más viejo lleva más de 15 minutos, lo dice (como mucho cada 5 minutos). */
   private async avisarSiHayAtraso(): Promise<void> {
     const ahora = this.reloj.ahora().getTime();
-    if (ahora - this.ultimoAvisoMs < REGLAS_RELEVO.avisoCadaMinutos * 60_000) return;
+    // Si el reloj volvió atrás (un aviso "en el futuro"), se puede avisar de nuevo
+    const reciente =
+      ahora >= this.ultimoAvisoMs &&
+      ahora - this.ultimoAvisoMs < REGLAS_RELEVO.avisoCadaMinutos * 60_000;
+    if (reciente) return;
     const desde = await this.bandeja.pendienteMasViejo();
     if (desde === null) return;
     const minutos = Math.floor((ahora - desde.getTime()) / 60_000);
