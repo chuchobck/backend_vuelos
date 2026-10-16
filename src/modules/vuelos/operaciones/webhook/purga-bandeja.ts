@@ -117,8 +117,10 @@ export class PurgaBandeja implements OnApplicationBootstrap, OnModuleDestroy {
           }
           const n = await this.bandeja.purgarLote(estado, cortes[estado], ahora, cupo);
           borrados[estado] += n;
-          // Menos de lo pedido: ya no queda nada vencido en ese estado
-          if (n < cupo) pendientes.delete(estado);
+          // Una sentencia que no borra nada: no queda vencido en ese estado. No basta con que
+          // borre menos de lo pedido: con otra instancia a la vez parte de las filas estaban
+          // tomadas por ella (SKIP LOCKED) y todavía quedan
+          if (n === 0) pendientes.delete(estado);
         }
       }
     } catch (error) {
