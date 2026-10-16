@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BandejaEventosRepository } from './bandeja-eventos.repository';
 import { CifradoSecreto } from './cifrado-secreto';
 import { ClienteWebhook } from './cliente-webhook';
 import { ClienteWebhookHttp } from './cliente-webhook-http';
@@ -22,6 +23,7 @@ import { WebhookService } from './webhook.service';
     WebhookRepository,
     CifradoSecreto,
     EntregaRepository,
+    BandejaEventosRepository,
     PublicadorEventos,
     EntregaWebhooks,
     { provide: ClienteWebhook, useClass: ClienteWebhookHttp },
