@@ -8,6 +8,9 @@
   "scripts": {
     "auth:exportar-usuarios": "node scripts/exportar-usuarios.cjs",
     "build": "nest build",
+    "eventos:check": "node scripts/eventos-check.cjs",
+    "eventos:reencolar": "node scripts/reencolar-eventos.cjs",
+    "eventos:sync": "node scripts/eventos-sync.cjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
@@ -24,7 +27,8 @@
     "start:prod": "node dist/main",
     "test:e2e": "jest --config test/jest-e2e.json --runInBand",
     "test:cov": "jest --config test/jest-e2e.json --runInBand --coverage",
-    "test:mutaciones": "node scripts/mutaciones.cjs"
+    "test:mutaciones": "node scripts/mutaciones.cjs",
+    "webhooks:exportar": "node scripts/exportar-webhooks.cjs"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.6",

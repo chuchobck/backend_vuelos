@@ -25,6 +25,11 @@ const GUARD = 'src/common/guards/jwt-auth.guard.ts';
 const EXTERNA = 'test/auth-externa.e2e-spec.ts';
 const EXPORTAR = 'scripts/exportar-usuarios.cjs';
 const PRUEBA_EXPORTAR = 'test/exportar-usuarios.e2e-spec.ts';
+const BANDEJA = 'src/modules/vuelos/operaciones/webhook/bandeja-eventos.repository.ts';
+const RELEVO = 'src/modules/vuelos/operaciones/webhook/relevo-eventos.ts';
+const TOKEN = 'src/modules/vuelos/operaciones/webhook/cliente-token-identity.ts';
+const PUBLICADOR = 'src/modules/vuelos/operaciones/webhook/publicador-eventos.ts';
+const NOTIFIER = 'test/eventos-notifier.e2e-spec.ts';
 
 /** [nombre, archivo, [[buscar, reemplazo], ...], archivo de pruebas, filtro -t (opcional)] */
 const MUTACIONES = [
@@ -215,6 +220,119 @@ const MUTACIONES = [
     [['if (candidata === raiz || candidata.startsWith(raiz + path.sep)) {', 'if (false) {']],
     PRUEBA_EXPORTAR,
     'repositorio',
+  ],
+  // Fase 5b: la bandeja y el relevo al notifier (WEBHOOKS_MODE=notifier)
+  [
+    'el evento se guarda fuera de la transacción del hecho',
+    BANDEJA,
+    [
+      [
+        '    return tx.$executeRaw`\n      INSERT INTO vuelos.evento_saliente\n             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)\n      SELECT ${eventId}::uuid, ${tipo}::text,',
+        '    return this.prisma.db.$executeRaw`\n      INSERT INTO vuelos.evento_saliente\n             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)\n      SELECT ${eventId}::uuid, ${tipo}::text,',
+      ],
+    ],
+    NOTIFIER,
+    'se deshace',
+  ],
+  [
+    'cada reintento regenera el eventId',
+    RELEVO,
+    [
+      [
+        'let envio = await this.enviar(e.sobre);',
+        "let envio = await this.enviar(JSON.stringify({ ...JSON.parse(e.sobre), eventId: require('node:crypto').randomUUID() }));",
+      ],
+    ],
+    NOTIFIER,
+    'MISMO cuerpo|mismo cuerpo|byte a byte',
+  ],
+  [
+    'cada reintento vuelve a serializar el sobre',
+    RELEVO,
+    [
+      [
+        'let envio = await this.enviar(e.sobre);',
+        'let envio = await this.enviar(JSON.stringify(JSON.parse(e.sobre)));',
+      ],
+    ],
+    NOTIFIER,
+    'byte a byte',
+  ],
+  [
+    'un 422 se reintenta',
+    RELEVO,
+    [['new Set([400, 409, 413, 415, 422])', 'new Set([400, 409, 413, 415])']],
+    NOTIFIER,
+    'error del publicador',
+  ],
+  [
+    'un 503 se marca PUBLICADO',
+    RELEVO,
+    [
+      [
+        'if (codigoHttp === 200 || codigoHttp === 202) {',
+        'if (codigoHttp === 200 || codigoHttp === 202 || codigoHttp === 503) {',
+      ],
+    ],
+    NOTIFIER,
+    'Retry-After|48 h',
+  ],
+  [
+    'sin FOR UPDATE SKIP LOCKED al tomar eventos',
+    BANDEJA,
+    [['           FOR UPDATE OF e SKIP LOCKED\n', '']],
+    NOTIFIER,
+    'SKIP LOCKED|dos relevos',
+  ],
+  [
+    'el token va al log',
+    TOKEN,
+    [['(vigente ${vigencia} s)`', '(vigente ${vigencia} s) ${cuerpo.access_token}`']],
+    NOTIFIER,
+    undefined,
+  ],
+  [
+    'un 401 no invalida el token',
+    RELEVO,
+    [
+      [
+        '      this.tokens.invalidar(envio.token);\n      envio = await this.enviar(e.sobre);',
+        '      envio = await this.enviar(e.sobre);',
+      ],
+    ],
+    NOTIFIER,
+    '401',
+  ],
+  [
+    'un campo de más en el data de booking.*',
+    BANDEJA,
+    [
+      [
+        "'bookingId', rc.id::text, 'pnr', rc.pnr,",
+        "'bookingId', rc.id::text, 'pnr', rc.pnr, 'extra', 1,",
+      ],
+    ],
+    NOTIFIER,
+    '12 tipos|UNA fila',
+  ],
+  [
+    'con notifier se sigue repartiendo en webhook_entrega',
+    PUBLICADOR,
+    [["this.alNotifier = modoWebhooks(config) === 'notifier';", 'this.alNotifier = false;']],
+    NOTIFIER,
+    'UNA fila',
+  ],
+  [
+    '/webhooks se monta también con notifier',
+    'src/modules/vuelos/operaciones/operaciones.module.ts',
+    [
+      [
+        'ConditionalModule.registerWhen(WebhookApiModule, (e) => !esModoNotifier(e), { debug: false })',
+        'WebhookApiModule',
+      ],
+    ],
+    NOTIFIER,
+    '404',
   ],
 ];
 

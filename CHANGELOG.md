@@ -6,6 +6,29 @@ está en [docs/PLAN.md](docs/PLAN.md).
 
 ## [Sin publicar]
 
+### Fase 5b · Eventos al notifier
+
+El core puede dejar de repartir los webhooks y publicar sus eventos al servicio
+[notifier_vuelos](https://github.com/chuchobck/notifier_vuelos) con `WEBHOOKS_MODE=notifier`. El
+valor por defecto es `local`, que se comporta igual que antes. El contrato OpenAPI no cambia.
+Procedimiento del corte en [docs/MIGRACION-WEBHOOKS.md](docs/MIGRACION-WEBHOOKS.md).
+
+- `WEBHOOKS_MODE` (`local` o `notifier`); con `notifier`, obligatorias `NOTIFIER_URL`,
+  `IDENTITY_TOKEN_URL`, `NOTIFIER_CLIENT_ID` y `NOTIFIER_CLIENT_SECRET`, y opcionales
+  `EVENT_RELAY_JOB_ENABLED` y `EVENT_RELAY_JOB_INTERVAL_SECONDS`.
+- Bandeja `evento_saliente` (en `db/esquema_vuelos.sql` y en `db/migraciones/001_evento_saliente.sql`
+  con `db/migrar.sh` para bases que ya existen): un sobre congelado por hecho, en la transacción del
+  hecho.
+- `RelevoEventos` publica la bandeja con un token `client_credentials` de identity: `FOR UPDATE SKIP
+  LOCKED` y arrendamiento, el sobre byte a byte, reintentos de 5 s a 1 h hasta 48 h y
+  `npm run eventos:reencolar`.
+- Con `notifier`, `/flights/v1/webhooks` responde 404; `EntregaWebhooks` solo drena lo que ya había.
+- Copia de los 12 esquemas de eventos del notifier en `contracts/notifier-eventos` con
+  `eventos:sync` y `eventos:check` (job informativo en CI).
+- `npm run webhooks:exportar`: las suscripciones en el JSON Lines que importa el notifier.
+- Pruebas con un notifier y un identity falsos y 11 mutaciones más en `npm run test:mutaciones`.
+- Corregido: el aviso de atraso de la bandeja vuelve a salir si el reloj retrocede.
+
 El core puede dejar de emitir sus propios tokens y verificar los del servicio de identidad
 ([identity_vuelos](https://github.com/chuchobck/identity_vuelos)) con `AUTH_MODE=external`. El
 valor por defecto es `local`, que se comporta igual que en 1.1.0. REST, gRPC y el contrato

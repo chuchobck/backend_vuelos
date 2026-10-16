@@ -814,6 +814,26 @@ model webhook_entrega {
   @@index([webhook_id, fecha_actualizacion(sort: Desc)], map: "ix_webhook_entrega_webhook", where: raw("(estado <> 'PENDIENTE'::estado_entrega_webhook)"))
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model evento_saliente {
+  id_evento           String                 @id(map: "pk_evento_saliente") @db.Uuid
+  tipo                String
+  id_propietario      String
+  sobre               String
+  estado              estado_evento_saliente @default(PENDIENTE)
+  intentos            Int                    @default(0) @db.SmallInt
+  proximo_intento     DateTime               @db.Timestamptz(6)
+  arrendamiento_hasta DateTime?              @db.Timestamptz(6)
+  reintentar_hasta    DateTime               @db.Timestamptz(6)
+  ultimo_codigo_http  Int?                   @db.SmallInt
+  ultimo_error        String?
+  creado_en           DateTime               @db.Timestamptz(6)
+  publicado_en        DateTime?              @db.Timestamptz(6)
+
+  @@index([estado, proximo_intento], map: "ix_evento_saliente_pendiente", where: raw("(estado = 'PENDIENTE'::estado_evento_saliente)"))
+}
+
 /// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 enum clase_cabina {
   ECONOMICA
@@ -961,5 +981,12 @@ enum estado_pago {
 enum estado_entrega_webhook {
   PENDIENTE
   ENTREGADO
+  FALLIDO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_evento_saliente {
+  PENDIENTE
+  PUBLICADO
   FALLIDO
 }

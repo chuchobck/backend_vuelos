@@ -109,6 +109,9 @@ COMMENT ON TYPE tipo_codigo_barras IS 'Contrato BoardingPass.barcodeType: mismos
 CREATE TYPE estado_entrega_webhook AS ENUM ('PENDIENTE', 'ENTREGADO', 'FALLIDO');
 COMMENT ON TYPE estado_entrega_webhook IS 'Ciclo de la entrega de un evento a un webhook: PENDIENTE (por enviar o por reintentar), ENTREGADO (el receptor respondió 2xx) o FALLIDO (se agotaron los intentos o la suscripción ya no está activa).';
 
+CREATE TYPE estado_evento_saliente AS ENUM ('PENDIENTE', 'PUBLICADO', 'FALLIDO');
+COMMENT ON TYPE estado_evento_saliente IS 'Ciclo de un evento en la bandeja hacia el notifier (WEBHOOKS_MODE=notifier): PENDIENTE (por publicar o por reintentar), PUBLICADO (el notifier respondió 200 o 202) o FALLIDO (el notifier lo rechazó o pasaron 48 h sin poder publicarlo).';
+
 CREATE TYPE operacion_auditoria AS ENUM ('INSERCION', 'ACTUALIZACION', 'ELIMINACION');
 COMMENT ON TYPE operacion_auditoria IS 'Operación registrada en la auditoría: INSERCION=INSERT, ACTUALIZACION=UPDATE (incluye la eliminación lógica), ELIMINACION=DELETE físico.';
 
@@ -802,6 +805,34 @@ CREATE TABLE webhook_entrega (
     CONSTRAINT ck_webhook_entrega_payload CHECK (jsonb_typeof(payload) = 'object')
 );
 
+-- Bandeja de salida hacia el notifier (WEBHOOKS_MODE=notifier): UNA fila por hecho, con el sobre
+-- de POST /internal/v1/events ya armado. Se guarda como text, no jsonb: el relevo lo manda byte a
+-- byte en cada reintento (el notifier compara la huella del contenido por eventId).
+CREATE TABLE evento_saliente (
+    id_evento            uuid                    NOT NULL,
+    tipo                 text                    NOT NULL,
+    id_propietario       text                    NOT NULL,
+    sobre                text                    NOT NULL,
+    estado               estado_evento_saliente  NOT NULL DEFAULT 'PENDIENTE',
+    intentos             smallint                NOT NULL DEFAULT 0,
+    proximo_intento      timestamptz             NOT NULL,
+    arrendamiento_hasta  timestamptz,
+    reintentar_hasta     timestamptz             NOT NULL,
+    ultimo_codigo_http   smallint,
+    ultimo_error         text,
+    creado_en            timestamptz             NOT NULL,
+    publicado_en         timestamptz,
+    CONSTRAINT pk_evento_saliente PRIMARY KEY (id_evento),
+    CONSTRAINT ck_evento_saliente_tipo CHECK (tipo ~ '^(booking|hold|flight)\.[a-z_]+$'),
+    CONSTRAINT ck_evento_saliente_propietario CHECK (btrim(id_propietario) <> ''),
+    CONSTRAINT ck_evento_saliente_sobre CHECK (sobre IS JSON OBJECT),
+    CONSTRAINT ck_evento_saliente_intentos CHECK (intentos >= 0),
+    CONSTRAINT ck_evento_saliente_codigo_http CHECK (ultimo_codigo_http IS NULL OR ultimo_codigo_http BETWEEN 100 AND 599),
+    -- Solo un código corto (HTTP_503, TIMEOUT, ECONNREFUSED...): ni URL, ni token, ni cuerpo
+    CONSTRAINT ck_evento_saliente_error CHECK (ultimo_error IS NULL OR ultimo_error ~ '^[A-Z0-9_]{1,60}$'),
+    CONSTRAINT ck_evento_saliente_publicado CHECK ((estado = 'PUBLICADO') = (publicado_en IS NOT NULL))
+);
+
 CREATE TABLE evento_entrega (
     id              bigint       GENERATED ALWAYS AS IDENTITY,
     evento_id       uuid         NOT NULL,
@@ -1082,6 +1113,7 @@ CREATE INDEX ix_evento_entrega_pendiente ON evento_entrega (fecha_intento) WHERE
 CREATE INDEX ix_webhook_entrega_pendiente ON webhook_entrega (proximo_intento, id) WHERE estado = 'PENDIENTE';
 CREATE INDEX ix_webhook_entrega_webhook ON webhook_entrega (webhook_id, fecha_actualizacion DESC) WHERE estado <> 'PENDIENTE';
 CREATE INDEX ix_webhook_entrega_tipo_evento ON webhook_entrega (tipo_evento_id);
+CREATE INDEX ix_evento_saliente_pendiente ON evento_saliente (estado, proximo_intento) WHERE estado = 'PENDIENTE';
 CREATE INDEX ix_clave_idempotencia_fecha_expiracion ON clave_idempotencia (fecha_expiracion);
 
 
@@ -1314,6 +1346,11 @@ COMMENT ON TABLE webhook_cabecera           IS 'Suscripción de un integrador a 
 COMMENT ON TABLE webhook_detalle            IS 'Tipos de evento a los que está suscrito un webhook.';
 COMMENT ON TABLE evento                     IS 'Hecho de negocio ocurrido que debe notificarse (bandeja de salida).';
 COMMENT ON TABLE webhook_entrega            IS 'Entrega de un evento a una suscripción (bandeja de salida con reintentos). La crea la misma transacción del hecho de negocio y la envía un proceso aparte. No se audita fila por fila: cada intento la actualiza y el resultado vive en la propia fila.';
+COMMENT ON TABLE evento_saliente            IS 'Bandeja de salida hacia el notifier (WEBHOOKS_MODE=notifier): un evento por hecho de negocio, guardado en la misma transacción del hecho y publicado por RelevoEventos. No se audita fila por fila ni se borra.';
+COMMENT ON COLUMN evento_saliente.id_evento IS 'eventId del sobre: el mismo en cada reintento de publicación (el notifier es idempotente por él).';
+COMMENT ON COLUMN evento_saliente.sobre IS 'Sobre de POST /internal/v1/events congelado al ocurrir el hecho; se envía tal cual, byte a byte.';
+COMMENT ON COLUMN evento_saliente.arrendamiento_hasta IS 'Hasta cuándo el relevo que tomó la fila la tiene apartada; vencido, otro proceso puede retomarla.';
+COMMENT ON COLUMN evento_saliente.reintentar_hasta IS 'Hasta cuándo se reintenta (48 h desde que se creó o se reencoló); después queda FALLIDO.';
 COMMENT ON TABLE evento_entrega             IS 'Intentos de entrega de un evento a un webhook.';
 COMMENT ON TABLE clave_idempotencia         IS 'Registro de las cabeceras Idempotency-Key ya procesadas y su respuesta.';
 COMMENT ON TABLE auditoria                  IS 'Log de cambios: una fila por cada alta, cambio o baja en las tablas de negocio. La escribe el disparador fn_auditar y es de solo inserción. No es el historial que ve el cliente: ese es reserva_detalle_historial.';

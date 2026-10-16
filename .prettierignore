@@ -8,3 +8,6 @@ package-lock.json
 db
 docs
 *.md
+
+# Copia de los esquemas del notifier (npm run eventos:sync): se guardan tal cual llegan
+contracts/notifier-eventos

@@ -31,6 +31,7 @@ gRPC interno, en [docs/GRPC.md](docs/GRPC.md).
 | 11. Calidad y entrega (v1.0.0)        | Hecha; el despliegue en Render queda para el dueño del repo |
 | R2-1. gRPC interno (v1.1.0)           | Hecha en local; apagado por defecto, su despliegue es la fase de Azure |
 | 4b. Auth externa (`AUTH_MODE`)        | Hecha en local; `local` por defecto hasta el despliegue en Azure |
+| 5b. Eventos al notifier (`WEBHOOKS_MODE`) | Hecha en local; `local` por defecto hasta tener el gateway |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
 administración del catálogo, la auditoría, los administradores y las reservas de administración
@@ -135,6 +136,10 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | `npm run proto:lint`      | `buf lint` y `buf format` del contrato gRPC                 |
 | `npm run proto:breaking`  | `buf breaking` del contrato gRPC contra `main`              |
 | `./db/reset.sh`           | Borra, crea y carga la base (esquemas y semillas)           |
+| `npm run webhooks:exportar -- <archivo>` | Exporta las suscripciones a JSON Lines para el notifier (al pasar a `WEBHOOKS_MODE=notifier`; [docs/MIGRACION-WEBHOOKS.md](docs/MIGRACION-WEBHOOKS.md)) |
+| `npm run eventos:reencolar -- <eventId\|--todos-los-fallidos>` | Devuelve a PENDIENTE eventos FALLIDO de la bandeja hacia el notifier |
+| `npm run eventos:sync` / `eventos:check` | Trae o compara los esquemas de eventos del notifier ([contracts/notifier-eventos](contracts/notifier-eventos/)) |
+| `./db/migrar.sh` | Aplica `db/migraciones/*.sql` a una base que ya existe (idempotente, no borra) |
 | `npm run auth:exportar-usuarios -- <archivo>` | Exporta las cuentas a SQL para identity_vuelos (una sola vez, al pasar a `AUTH_MODE=external`; [docs/DEPLOY.md](docs/DEPLOY.md#6-cambio-de-modo-de-autenticación)) |
 
 ## Cómo probar
@@ -143,11 +148,12 @@ Todo corre contra la base local (`docker compose up -d` y `./db/reset.sh`).
 
 | Qué | Cómo | Dónde está el resultado |
 | --- | --- | --- |
-| Suite completa (36 suites, 971 pruebas) | `npm run test:e2e` | En la consola. También corre en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) |
+| Suite completa (38 suites, 1014 pruebas) | `npm run test:e2e` | En la consola. También corre en CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) |
 | gRPC: paridad con REST, errores, request id y el puerto apagado | `npx jest --config test/jest-e2e.json grpc` | `test/grpc.e2e-spec.ts`; a mano con grpcurl, ver [docs/GRPC.md](docs/GRPC.md#cómo-probarlo) |
 | Contrato: las 22 operaciones, caso feliz y de error, validadas con Ajv | `npx jest --config test/jest-e2e.json contrato` | `test/contrato.e2e-spec.ts` (con su lista de excepciones) |
 | Swagger contra el contrato | `npx jest --config test/jest-e2e.json swagger` | `test/swagger.e2e-spec.ts` |
 | Seguridad (401, 403, recurso ajeno, JWT, SQLi y XSS, 413, 415, helmet, CORS, producción) | `npx jest --config test/jest-e2e.json seguridad` | [docs/pruebas/seguridad.md](docs/pruebas/seguridad.md) |
+| Eventos al notifier (`WEBHOOKS_MODE=notifier`) con un notifier y un identity falsos: bandeja, sobres de los 12 tipos contra los esquemas del notifier, relevo, reintentos y 48 h | `npx jest --config test/jest-e2e.json eventos-notifier exportar-webhooks` | `test/eventos-notifier.e2e-spec.ts`; las mutaciones, con `npm run test:mutaciones` |
 | Auth externa (`AUTH_MODE=external`) con un servicio de identidad falso: tokens válidos, 27 manipulados, JWKS caído, lento y rotado | `npx jest --config test/jest-e2e.json auth-externa auth-modos` | `test/auth-externa.e2e-spec.ts`; las mutaciones, con `npm run test:mutaciones` |
 | Cobertura | `npm run test:cov` | [docs/pruebas/cobertura.md](docs/pruebas/cobertura.md) |
 | A mano, desde Swagger | Ver [Probar desde Swagger](#probar-desde-swagger) | — |
@@ -450,6 +456,14 @@ pública (fuera de producción también `http://localhost`); el secreto se guard
 devuelve enmascarado. Cada entrega es un POST con el `WebhookPayload` del contrato, firmado
 (`X-Webhook-Signature: sha256=<HMAC-SHA256 de "timestamp.cuerpo">`), y se reintenta a 1 min,
 5 min, 30 min y 2 h. Detalle en [src/modules/vuelos/README.md](src/modules/vuelos/README.md#webhooks-fase-10).
+
+Eso es con `WEBHOOKS_MODE=local` (por defecto). Con `WEBHOOKS_MODE=notifier` los reparte el
+[notifier](https://github.com/chuchobck/notifier_vuelos): el core guarda un evento por hecho en la
+bandeja `evento_saliente`, dentro de la misma transacción, y `RelevoEventos` lo publica en
+`POST /internal/v1/events` con un token `client_credentials` de identity (`events:publish`),
+reintentando con espera creciente hasta 48 h si el notifier no responde. `/webhooks` da 404 en el
+core: lo sirve el notifier, detrás del gateway. Variables, orden del corte y retroceso:
+[docs/MIGRACION-WEBHOOKS.md](docs/MIGRACION-WEBHOOKS.md). No se activa hasta tener el gateway.
 
 ## Catálogo de administración
 

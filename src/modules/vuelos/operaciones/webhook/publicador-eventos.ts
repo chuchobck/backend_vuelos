@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
+import { modoWebhooks } from '../../../../config/eventos';
 import { TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { ESTADO_RESERVA } from '../../compartido/enums';
+import { BandejaEventosRepository } from './bandeja-eventos.repository';
 import { EntregaRepository } from './entrega.repository';
 import { EVENTOS_WEBHOOK } from './webhook.modelo';
 
@@ -23,13 +26,27 @@ const ESTADOS_DEL_CONTRATO: Record<string, string> = Object.fromEntries(
 
 /**
  * El punto por donde los hechos de negocio llegan a los webhooks. Cada método se llama DENTRO de
- * la transacción del hecho (así el evento y su entrega confirman o se deshacen juntos) y solo
- * escribe filas PENDIENTE en webhook_entrega: el envío HTTP lo hace EntregaWebhooks, aparte.
- * Un evento que no es de los 12 suscribibles se ignora.
+ * la transacción del hecho (así el evento y su entrega confirman o se deshacen juntos) y nunca
+ * hace HTTP. Un evento que no es de los 12 suscribibles se ignora. Según WEBHOOKS_MODE:
+ *
+ * - local (por defecto): escribe una fila PENDIENTE en webhook_entrega por cada suscripción del
+ *   dueño que escucha el evento; las envía EntregaWebhooks, aparte.
+ * - notifier: escribe UNA fila en evento_saliente con el sobre congelado; la publica
+ *   RelevoEventos al notifier, que reparte a las suscripciones.
+ *
+ * Las firmas son las mismas en los dos modos: quien publica no sabe cuál está activo.
  */
 @Injectable()
 export class PublicadorEventos {
-  constructor(private readonly entregas: EntregaRepository) {}
+  private readonly alNotifier: boolean;
+
+  constructor(
+    private readonly entregas: EntregaRepository,
+    private readonly bandeja: BandejaEventosRepository,
+    config: ConfigService,
+  ) {
+    this.alNotifier = modoWebhooks(config) === 'notifier';
+  }
 
   /** Un evento de la reserva (booking.*), a las suscripciones de su dueño. */
   async deReserva(
@@ -39,6 +56,17 @@ export class PublicadorEventos {
     ahora: Date,
   ): Promise<void> {
     if (!esSuscribible(tipo)) return;
+    if (this.alNotifier) {
+      await this.bandeja.guardarDeReserva(
+        tx,
+        reservaId,
+        tipo,
+        ahora,
+        randomUUID(),
+        ESTADOS_DEL_CONTRATO,
+      );
+      return;
+    }
     await this.entregas.encolarDeReserva(
       tx,
       reservaId,
@@ -51,6 +79,10 @@ export class PublicadorEventos {
 
   /** hold.expired, al dueño del hold. */
   async deRetencionVencida(tx: TransaccionVuelos, retencionId: string, ahora: Date): Promise<void> {
+    if (this.alNotifier) {
+      await this.bandeja.guardarDeRetencion(tx, retencionId, ahora, randomUUID());
+      return;
+    }
     await this.entregas.encolarDeRetencion(tx, retencionId, ahora, randomUUID());
   }
 
@@ -61,6 +93,10 @@ export class PublicadorEventos {
     tipo: 'flight.schedule_changed' | 'flight.cancelled',
     ahora: Date,
   ): Promise<void> {
+    if (this.alNotifier) {
+      await this.bandeja.guardarDeVuelo(tx, salidaId, tipo, ahora, ESTADOS_DEL_CONTRATO);
+      return;
+    }
     await this.entregas.encolarDeVuelo(tx, salidaId, tipo, ahora, ESTADOS_DEL_CONTRATO);
   }
 }

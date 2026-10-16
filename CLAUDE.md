@@ -8,7 +8,8 @@ Quinde · API de Vuelos: backend NestJS 10 + TypeScript + Prisma 7 que implement
 GDS Flight Core API v1.5.0.0 (`contracts/vuelos-openapi.yaml`), solo vuelos nacionales de Ecuador.
 Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`; las
 diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.1.0 (`CHANGELOG.md`),
-más la fase 4b (auth externa, `AUTH_MODE`) sin publicar.
+más las fases 4b (auth externa, `AUTH_MODE`) y 5b (eventos al notifier, `WEBHOOKS_MODE`) sin
+publicar.
 Además de REST, un servidor gRPC interno para el BFF (`docs/GRPC.md`), apagado por defecto.
 
 ## Alcance
@@ -67,6 +68,12 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 - El secreto de un webhook se guarda cifrado (AES-256-GCM, clave `WEBHOOK_SECRET_KEY`) y nunca se
   devuelve ni se registra: las respuestas lo enmascaran (`****` y los últimos 4) y la auditoría
   guarda `***`.
+- Quién reparte los webhooks lo decide `WEBHOOKS_MODE`: `local` (por defecto, el core con
+  `webhook_entrega` y `EntregaWebhooks`) o `notifier` (el core guarda un evento por hecho en
+  `evento_saliente` y `RelevoEventos` lo publica al notifier; `/webhooks` no se monta). Los que
+  publican usan siempre `PublicadorEventos`, con las mismas firmas en los dos modos. El sobre se
+  congela al guardarlo y se manda byte a byte; su forma es la de `contracts/notifier-eventos` (no se
+  edita a mano: `npm run eventos:sync`). Ni el `client_secret` ni el token del notifier van al log.
 - Un webhook solo se envía desde `EntregaWebhooks` y por `ClienteWebhook`; nunca una llamada HTTP
   dentro de una transacción de negocio. Un evento nuevo se encola con `PublicadorEventos` en la
   misma transacción del hecho. Su URL se valida (https, sin redes internas) al registrar y otra vez
@@ -74,7 +81,9 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 
 ## Datos
 
-- La base es la fuente de verdad (`db/*.sql`); no se usa `prisma migrate`.
+- La base es la fuente de verdad (`db/*.sql`); no se usa `prisma migrate`. Un cambio de esquema va
+  en `db/esquema_vuelos.sql` y, para las bases que ya existen, en una migración idempotente de
+  `db/migraciones/` que aplica `./db/migrar.sh`.
 - Eliminación lógica siempre; nada de `DELETE` físico en datos de negocio.
 - Las fechas van siempre en UTC (un `date` llega a medianoche UTC).
 - El dinero llega como `Decimal` y se convierte en el mapper; un `bigint` nunca sale al cliente.
