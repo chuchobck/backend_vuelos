@@ -44,3 +44,8 @@ lerna-debug.log*
 # Exportación de cuentas para el servicio de identidad (npm run auth:exportar-usuarios): tiene
 # correos y hashes de contraseñas. El script ya se niega a escribirla dentro del repositorio.
 *exportacion-usuarios*.sql
+
+# Exportación de suscripciones para el notifier (npm run webhooks:exportar): URLs y secretos
+# cifrados. El script ya se niega a escribirla dentro del repositorio.
+*exportacion-webhooks*.jsonl
+*suscripciones*.jsonl
