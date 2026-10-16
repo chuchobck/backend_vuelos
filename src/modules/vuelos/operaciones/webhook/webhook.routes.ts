@@ -1,4 +1,4 @@
 import { Routes } from '@nestjs/core';
-import { WebhookModule } from './webhook.module';
+import { WebhookApiModule } from './webhook-api.module';
 
-export const webhookRoutes: Routes = [{ path: 'webhooks', module: WebhookModule }];
+export const webhookRoutes: Routes = [{ path: 'webhooks', module: WebhookApiModule }];
