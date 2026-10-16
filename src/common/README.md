@@ -22,12 +22,18 @@ Los guards globales corren en este orden:
 | Guard                   | Dónde                            | Si falla                                                                 |
 | ----------------------- | -------------------------------- | ------------------------------------------------------------------------ |
 | `GuardLimitePeticiones` | `guards/limite-peticiones.guard` | 429 `RATE_LIMIT_EXCEEDED` con `Retry-After`. Cuenta también los 401      |
-| `JwtAuthGuard`          | `guards/jwt-auth.guard`          | 401 con `WWW-Authenticate: Bearer` (y `error="invalid_token"` si falla)  |
+| `JwtAuthGuard`          | `guards/jwt-auth.guard`          | 401 con `WWW-Authenticate: Bearer` (y `error="invalid_token"` si falla); 503 `AUTH_UNAVAILABLE` si no hay claves con las que verificar (solo `AUTH_MODE=external`) |
 | `ScopesGuard`           | `guards/scopes.guard`            | 403 con los scopes que faltan y `error="insufficient_scope"`             |
 
 Con un token válido, `JwtAuthGuard` deja el usuario para `@UsuarioActual()` y llama a
 `fijarUsuario(sub)`: toda escritura con `PrismaService.transaccionAuditada` queda en `auditoria`
 con ese usuario, sin código extra.
+
+`JwtAuthGuard` no verifica el token él mismo: depende de `VerificadorToken`
+(`modules/auth/seguridad/`), que según `AUTH_MODE` es `VerificadorLocal` (HS256, los tokens del
+propio `/auth`) o `VerificadorJwks` (RS256, los del servicio de identidad, con su JWKS). Para un
+endpoint no cambia nada: `usuario.id` es el `sub` en los dos modos, y `usuario.clienteId` trae el
+`client_id` cuando el token es de un cliente máquina a máquina (solo en external).
 
 ## Reglas
 

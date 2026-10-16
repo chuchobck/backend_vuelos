@@ -25,6 +25,7 @@ Lo que la API hace **además** del contrato y no lo contradice (el catálogo, la
 | 2.1 | `code` es una lista cerrada, sin códigos para 401, 403, 404, 405, 413, 415 ni 5xx | Esos errores salen con `VALIDATION_FAILED` (el único "la petición no es válida" de la lista) y el `status` dice qué pasó. Un único lugar lo decide: `codigo-error.ts` | Agregar `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE` e `INTERNAL_ERROR` |
 | 2.2 | El `type` es una URI | La API usa `https://api.booking-hub.com/errors/<código>` (el dominio del contrato, que no resuelve); un 401 o 403 sale con `.../errors/validation-failed` por 2.1 | Confirmar el dominio de los `type`, o usar `about:blank` para los que no tienen código propio |
 | 2.3 | Errores que no declara, por operación (los demás que sí declara se respetan) | Ver la tabla de abajo | Declararlos en el contrato |
+| 2.4 | `code` es una lista cerrada | Con `AUTH_MODE=external`, si el servicio de identidad no responde y no hay una copia vigente de sus claves (JWKS), una operación protegida responde **503** con `code: AUTH_UNAVAILABLE` (propio del proyecto) y `Retry-After`. No es un 401: el token puede ser válido y el cliente no hizo nada mal. Con `AUTH_MODE=local` (por defecto) no ocurre | Agregar `AUTH_UNAVAILABLE` (o un código general de servicio no disponible) a la lista |
 
 | Operación | Respuestas de la API que el contrato no declara |
 | --- | --- |

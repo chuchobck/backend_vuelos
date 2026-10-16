@@ -28,6 +28,12 @@ export enum CodigoError {
   BOARDING_PASS_NOT_AVAILABLE = 'BOARDING_PASS_NOT_AVAILABLE',
   SEAT_CABIN_MISMATCH = 'SEAT_CABIN_MISMATCH',
   FLIGHT_STATUS_NOT_AVAILABLE = 'FLIGHT_STATUS_NOT_AVAILABLE',
+  /**
+   * Propio del proyecto, no está en el contrato (ver docs/DISCREPANCIAS-CONTRATO.md): 503 cuando,
+   * con AUTH_MODE=external, no hay claves del servicio de identidad con las que verificar el
+   * token. No es un 401: el cliente no hizo nada mal y debe reintentar (Retry-After).
+   */
+  AUTH_UNAVAILABLE = 'AUTH_UNAVAILABLE',
 }
 
 /**

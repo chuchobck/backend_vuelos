@@ -8,6 +8,11 @@ export interface UsuarioAutenticado {
   scopes: string[];
   /** `jti` del token de acceso. */
   idToken: string;
+  /**
+   * Solo si el token es de un cliente máquina a máquina (claim `client_id`, AUTH_MODE=external):
+   * el actor es una aplicación, no una persona. `id` sigue siendo el dueño de lo que crea.
+   */
+  clienteId?: string;
 }
 
 export type PeticionAutenticada = Request & { usuario?: UsuarioAutenticado };

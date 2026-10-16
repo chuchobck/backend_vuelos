@@ -6,6 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "auth:exportar-usuarios": "node scripts/exportar-usuarios.cjs",
     "build": "nest build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -22,7 +23,8 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
     "test:e2e": "jest --config test/jest-e2e.json --runInBand",
-    "test:cov": "jest --config test/jest-e2e.json --runInBand --coverage"
+    "test:cov": "jest --config test/jest-e2e.json --runInBand --coverage",
+    "test:mutaciones": "node scripts/mutaciones.cjs"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.6",
@@ -40,7 +42,9 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
     "helmet": "^8.3.0",
+    "jose": "^6.2.12",
     "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.1",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1"
   },
@@ -57,6 +61,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.3.1",
+    "@types/pg": "^8.23.1",
     "@types/supertest": "^6.0.3",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
