@@ -55,6 +55,10 @@ La semilla cubre **90 días desde el día en que se carga**. Para volver a sembr
 entrega, por ejemplo) hay que borrar el esquema, lo que borra también usuarios, reservas y
 auditoría: `psql "$NEON_URL" -c "DROP SCHEMA vuelos CASCADE"` y repetir los pasos 3 y 4.
 
+**Una base que ya existe** se pone al día con `./db/migrar.sh` (usa `DATABASE_URL`; con
+`DATABASE_URL="$NEON_URL&schema=vuelos" ./db/migrar.sh` contra Neon): aplica `db/migraciones/*.sql`
+en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b.
+
 ## 3. Servicio en Render
 
 1. En Render: *New* → *Blueprint* → el repositorio. Render lee `render.yaml` y propone el
@@ -259,7 +263,32 @@ de cada rechazo, nunca el token ni el JWKS.
   (los administradores son el rol `administrador` en su base). Es una dependencia del cambio.
 - **bff_vuelos**: no cambia (lecturas públicas, sin token).
 
+## 7. Webhooks: core o notifier
+
+`WEBHOOKS_MODE` (por defecto `local`) decide si los webhooks los reparte el core o el
+[notifier](https://github.com/chuchobck/notifier_vuelos). Con `notifier` son obligatorias
+`NOTIFIER_URL`, `IDENTITY_TOKEN_URL`, `NOTIFIER_CLIENT_ID` y `NOTIFIER_CLIENT_SECRET` (tabla de
+variables arriba), el core no monta `/flights/v1/webhooks` y `RelevoEventos` publica cada evento.
+El procedimiento del corte, el retroceso y cómo seguir la bandeja están en
+[MIGRACION-WEBHOOKS.md](MIGRACION-WEBHOOKS.md). **No se activa hasta tener el gateway (fase 6).**
+
 ## Qué se verificó en local
+
+### Fase 5b (2026-10-16): WEBHOOKS_MODE=notifier con identity_vuelos y notifier_vuelos
+
+- identity (`main`, 3001, `./db/migrar.sh` aplicado), notifier (`main`, 3002, su base en el 5434),
+  un receptor local en el 4010 y el core compilado con `WEBHOOKS_MODE=notifier` y
+  `AUTH_MODE=external`, con el cliente `core-vuelos` (`events:publish`) creado en identity.
+- Una persona de identity se suscribió en el notifier y reservó en el core: la bandeja dejó tres
+  eventos (cero en `webhook_entrega`), el relevo los publicó (202) con un solo token y el receptor
+  recibió los dos suscritos con la firma válida (recalculada con el secreto de la suscripción) y
+  `X-Webhook-Id` igual al `eventId` de la bandeja.
+- Con el notifier apagado, otra reserva dejó sus eventos `PENDIENTE` (`ECONNREFUSED`); al volver se
+  publicaron al segundo intento y el receptor recibió cada uno una sola vez.
+- `webhooks:exportar` sobre la base local y `suscripciones:importar` del notifier: 659 importadas y,
+  la segunda vez, 659 "ya existían"; las 35 rechazadas eran datos de prueba (secretos ficticios o
+  fechas futuras puestas por pruebas con el reloj adelantado).
+- No se verificó: los tres servicios desplegados ni el gateway.
 
 ### Fase 4b (2026-10-15): AUTH_MODE=external con identity_vuelos
 
