@@ -101,6 +101,10 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `NOTIFIER_CLIENT_ID` / `NOTIFIER_CLIENT_SECRET` | — | Obligatorias con `WEBHOOKS_MODE=notifier`: el cliente `core-vuelos` de identity con `events:publish`. El secreto nunca se registra |
 | `EVENT_RELAY_JOB_ENABLED` | `true` | Solo con `WEBHOOKS_MODE=notifier`: el relevo que publica la bandeja `evento_saliente` |
 | `EVENT_RELAY_JOB_INTERVAL_SECONDS` | `5` | Cada cuántos segundos corre el relevo (1 a 3600) |
+| `EVENT_OUTBOX_PURGE_JOB_ENABLED` | `true` | Solo con `WEBHOOKS_MODE=notifier`: la purga que borra de `evento_saliente` lo ya publicado o fallido hace tiempo |
+| `EVENT_OUTBOX_PURGE_INTERVAL_MINUTES` | `60` | Cada cuántos minutos corre la purga (1 a 1440) |
+| `EVENT_OUTBOX_RETENTION_DAYS` | `7` | Días que un evento `PUBLICADO` se conserva desde `publicado_en` (1 a 365) |
+| `EVENT_OUTBOX_FAILED_RETENTION_DAYS` | `30` | Días que un evento `FALLIDO` se conserva desde que falló, para diagnosticar y usar `eventos:reencolar` (7 a 365). Un `PENDIENTE` no se borra nunca |
 | `SEARCH_OFFER_TTL_MINUTES` | 30 | Vigencia de una oferta de búsqueda |
 | `HOLD_TTL_MINUTES` | 15 | Vigencia de un hold |
 | `CANCELLATION_QUOTE_TTL_MINUTES`, `CHANGE_OFFER_TTL_MINUTES` | 15 y 15 | Vigencia de una cotización de cancelación y de una oferta de cambio |
