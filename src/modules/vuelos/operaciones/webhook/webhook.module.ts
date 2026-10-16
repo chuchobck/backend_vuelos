@@ -28,6 +28,6 @@ import { WebhookService } from './webhook.service';
     EntregaWebhooks,
     { provide: ClienteWebhook, useClass: ClienteWebhookHttp },
   ],
-  exports: [CifradoSecreto, PublicadorEventos, EntregaRepository],
+  exports: [CifradoSecreto, PublicadorEventos, EntregaRepository, BandejaEventosRepository],
 })
 export class WebhookModule {}
