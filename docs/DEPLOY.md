@@ -91,6 +91,12 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `AUTH_MODE` | `local` | `local`: la API emite y verifica sus tokens (HS256, `/auth`). `external`: verifica los del servicio de identidad con su JWKS y no monta `/auth` ni `/admin/users` (ver "Cambio de modo de autenticación") |
 | `JWT_ISSUER`, `JWT_AUDIENCE` | `quinde-vuelos-api` | `iss` y `aud` de los tokens. Con `AUTH_MODE=external` son obligatorias: el origen https del servicio de identidad, sin ruta (`iss` exacto de sus tokens), y `quinde-vuelos-api` |
 | `JWKS_URL` | `{JWT_ISSUER}/.well-known/jwks.json` | Solo con `AUTH_MODE=external`: de dónde se bajan las claves públicas (https en producción) |
+| `WEBHOOKS_MODE` | `local` | `local`: el core reparte y entrega los webhooks. `notifier`: publica cada evento al servicio notifier y no monta `/webhooks` (ver [MIGRACION-WEBHOOKS.md](MIGRACION-WEBHOOKS.md)) |
+| `NOTIFIER_URL` | — | Obligatoria con `WEBHOOKS_MODE=notifier`: base del notifier (`https://notifier.quinde.example`; https en producción) |
+| `IDENTITY_TOKEN_URL` | — | Obligatoria con `WEBHOOKS_MODE=notifier`: el `/oauth2/token` de identity (`https://identity.quinde.example/oauth2/token`) |
+| `NOTIFIER_CLIENT_ID` / `NOTIFIER_CLIENT_SECRET` | — | Obligatorias con `WEBHOOKS_MODE=notifier`: el cliente `core-vuelos` de identity con `events:publish`. El secreto nunca se registra |
+| `EVENT_RELAY_JOB_ENABLED` | `true` | Solo con `WEBHOOKS_MODE=notifier`: el relevo que publica la bandeja `evento_saliente` |
+| `EVENT_RELAY_JOB_INTERVAL_SECONDS` | `5` | Cada cuántos segundos corre el relevo (1 a 3600) |
 | `SEARCH_OFFER_TTL_MINUTES` | 30 | Vigencia de una oferta de búsqueda |
 | `HOLD_TTL_MINUTES` | 15 | Vigencia de un hold |
 | `CANCELLATION_QUOTE_TTL_MINUTES`, `CHANGE_OFFER_TTL_MINUTES` | 15 y 15 | Vigencia de una cotización de cancelación y de una oferta de cambio |

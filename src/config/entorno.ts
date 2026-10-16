@@ -17,6 +17,7 @@ import {
   validateSync,
 } from 'class-validator';
 import { esOrigenEmisor, esUrlJwks, MODOS_AUTH, ModoAuth } from './autenticacion';
+import { esUrlServicio, MODOS_WEBHOOKS, ModoWebhooks } from './eventos';
 import { esOrigenValido, listarOrigenes } from './origenes-cors';
 import { parsearTrustProxy } from './proxy';
 
@@ -67,6 +68,24 @@ class UrlJwks implements ValidatorConstraintInterface {
     return 'JWKS_URL debe ser una URL https (http solo fuera de producción) sin usuario, clave ni fragmento';
   }
 }
+
+/** NOTIFIER_URL e IDENTITY_TOKEN_URL: http(s) sin credenciales ni query; https en producción. */
+@ValidatorConstraint({ name: 'urlServicio' })
+class UrlServicio implements ValidatorConstraintInterface {
+  validate(valor: unknown, { object }: ValidationArguments): boolean {
+    return esUrlServicio(valor, (object as VariablesEntorno).NODE_ENV === 'production');
+  }
+
+  defaultMessage({ property }: ValidationArguments): string {
+    return (
+      `${property} debe ser una URL https (http solo fuera de producción) sin usuario, clave, ` +
+      'query ni fragmento'
+    );
+  }
+}
+
+/** Solo con WEBHOOKS_MODE=notifier se validan (y se exigen) las variables del relevo. */
+const conNotifier = (v: VariablesEntorno) => v.WEBHOOKS_MODE === 'notifier';
 
 @ValidatorConstraint({ name: 'trustProxyValido' })
 class TrustProxyValido implements ValidatorConstraintInterface {
@@ -190,6 +209,54 @@ export class VariablesEntorno {
   @Validate(UrlJwks)
   @IsOptional()
   JWKS_URL?: string;
+
+  /**
+   * Quién reparte los webhooks (src/config/eventos.ts). Sin valor: local, el core, como siempre.
+   * notifier: el core publica cada evento al servicio notifier y no monta /webhooks.
+   */
+  @IsIn(MODOS_WEBHOOKS, { message: `WEBHOOKS_MODE debe ser uno de: ${MODOS_WEBHOOKS.join(', ')}` })
+  @IsOptional()
+  WEBHOOKS_MODE?: ModoWebhooks;
+
+  /** Base del notifier (POST {NOTIFIER_URL}/internal/v1/events). Obligatoria con WEBHOOKS_MODE=notifier. */
+  @Validate(UrlServicio)
+  @IsString({ message: 'NOTIFIER_URL es obligatoria con WEBHOOKS_MODE=notifier' })
+  @ValidateIf(conNotifier)
+  NOTIFIER_URL?: string;
+
+  /** /oauth2/token del servicio de identidad. Obligatoria con WEBHOOKS_MODE=notifier. */
+  @Validate(UrlServicio)
+  @IsString({ message: 'IDENTITY_TOKEN_URL es obligatoria con WEBHOOKS_MODE=notifier' })
+  @ValidateIf(conNotifier)
+  IDENTITY_TOKEN_URL?: string;
+
+  /** client_id del cliente core-vuelos (con events:publish). Obligatoria con WEBHOOKS_MODE=notifier. */
+  @Matches(/^[a-z0-9][a-z0-9._-]{2,63}$/, {
+    message: 'NOTIFIER_CLIENT_ID debe ser un client_id de identity (minúsculas, números, . _ -)',
+  })
+  @IsString({ message: 'NOTIFIER_CLIENT_ID es obligatoria con WEBHOOKS_MODE=notifier' })
+  @ValidateIf(conNotifier)
+  NOTIFIER_CLIENT_ID?: string;
+
+  /** Su client_secret. Obligatoria con WEBHOOKS_MODE=notifier; nunca va al log. */
+  @MinLength(16, { message: 'NOTIFIER_CLIENT_SECRET debe tener al menos 16 caracteres' })
+  @IsString({ message: 'NOTIFIER_CLIENT_SECRET es obligatoria con WEBHOOKS_MODE=notifier' })
+  @ValidateIf(conNotifier)
+  NOTIFIER_CLIENT_SECRET?: string;
+
+  /** Relevo de la bandeja de eventos al notifier (solo WEBHOOKS_MODE=notifier). Sin valor: true. */
+  @IsIn(['true', 'false'], { message: 'EVENT_RELAY_JOB_ENABLED debe ser true o false' })
+  @IsOptional()
+  @ValidateIf(conNotifier)
+  EVENT_RELAY_JOB_ENABLED?: string;
+
+  /** Cada cuántos segundos corre el relevo. Sin valor: 5. */
+  @Max(3600, { message: 'EVENT_RELAY_JOB_INTERVAL_SECONDS debe estar entre 1 y 3600' })
+  @Min(1, { message: 'EVENT_RELAY_JOB_INTERVAL_SECONDS debe estar entre 1 y 3600' })
+  @IsInt({ message: 'EVENT_RELAY_JOB_INTERVAL_SECONDS debe ser un número entero' })
+  @IsOptional()
+  @ValidateIf(conNotifier)
+  EVENT_RELAY_JOB_INTERVAL_SECONDS?: number;
 
   /** Orígenes que pueden llamar desde un navegador. Sin valor: ninguno. */
   @Validate(ListaDeOrigenes)

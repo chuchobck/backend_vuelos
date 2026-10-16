@@ -48,6 +48,9 @@ jobs:
       # Autenticación local, como en Render. La suite de AUTH_MODE=external fija su propio
       # AUTH_MODE, JWT_ISSUER y JWT_AUDIENCE contra un servicio de identidad falso
       AUTH_MODE: local
+      # Webhooks repartidos por el core, como en Render. La suite de WEBHOOKS_MODE=notifier fija
+      # sus propias variables contra un notifier y un identity falsos
+      WEBHOOKS_MODE: local
 
     steps:
       - uses: actions/checkout@v4
