@@ -74,6 +74,16 @@ jobs:
             docker exec -i "$CONTENEDOR" psql -U postgres -d booking_db -v ON_ERROR_STOP=1 -q < "db/${archivo}.sql"
           done
 
+      # Una base que ya existe (esquema de main + db/migraciones) tiene que quedar igual a una nueva
+      # (db/esquema_vuelos.sql de este árbol): pg_dump -s de las dos, comparados. Las migraciones se
+      # aplican dos veces para comprobar que son idempotentes.
+      - name: Base migrada = base nueva
+        env:
+          CONTENEDOR: ${{ job.services.postgres.id }}
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          scripts/comprobar-migraciones.sh FETCH_HEAD
+
       - name: Lint
         run: npm run lint
 
