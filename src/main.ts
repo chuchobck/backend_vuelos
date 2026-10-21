@@ -13,6 +13,8 @@ async function bootstrap() {
     // Los logs del arranque esperan a que configurarApp ponga el logger con request id
     bufferLogs: true,
   });
+  // Un SIGTERM cierra la app con orden: el servidor de métricas y la cola de trazas salen limpios
+  app.enableShutdownHooks();
   configurarApp(app);
   // Servidor gRPC interno, solo con GRPC_ENABLED=true (src/config/grpc.ts)
   await iniciarGrpc(app);

@@ -21,6 +21,7 @@ const CABECERAS_PERMITIDAS = [
 /** Cabeceras de la respuesta que el navegador deja leer al código del origen permitido. */
 const CABECERAS_EXPUESTAS = [
   'X-Request-Id',
+  'X-Trace-Id',
   'Retry-After',
   'X-RateLimit-Limit',
   'X-RateLimit-Remaining',

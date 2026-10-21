@@ -25,6 +25,18 @@ export function contextoDeLaPeticion(peticion: Request): ContextoPeticion | unde
  * `user` solo con un token válido y `client` solo si el token es de un cliente máquina a máquina.
  */
 export function middlewareRequestId(peticion: Request, respuesta: Response, next: NextFunction) {
+  asegurarContexto(peticion, respuesta);
+  next();
+}
+
+/**
+ * El contexto de la petición, creado la primera vez que se pide (con su X-Request-Id y su línea de
+ * log al terminar) y reusado después. Lo piden el middleware de observabilidad, que va primero
+ * (necesita el request id para su span), y este: un solo id por petición.
+ */
+export function asegurarContexto(peticion: Request, respuesta: Response): ContextoPeticion {
+  const existente = contextoDeLaPeticion(peticion);
+  if (existente) return existente;
   const contexto: ContextoPeticion = {
     requestId: resolverRequestId(peticion.headers['x-request-id']),
     ip: normalizarIp(peticion.ip),
@@ -46,7 +58,7 @@ export function middlewareRequestId(peticion: Request, respuesta: Response, next
       ),
     );
   });
-  next();
+  return contexto;
 }
 
 /**

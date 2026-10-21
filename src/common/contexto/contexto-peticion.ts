@@ -20,6 +20,11 @@ export interface ContextoPeticion {
    * auditoría ya lo identifica; esto es su código legible, que va a la línea de acceso.
    */
   cliente?: string;
+  /**
+   * El span SERVER de la petición (o de la llamada gRPC), para que hasta la línea de acceso, que
+   * se escribe cuando el contexto de OpenTelemetry ya no está activo, lleve su traceId y spanId.
+   */
+  traza?: { traceId: string; spanId: string };
 }
 
 const almacen = new AsyncLocalStorage<ContextoPeticion>();
