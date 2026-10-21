@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
+import { plantillaDeRuta, SIN_PLANTILLA } from '../../observabilidad/plantilla-ruta';
 import { ContextoPeticion, ejecutarEnContexto, normalizarIp } from './contexto-peticion';
 import { CABECERA_REQUEST_ID, resolverRequestId } from './request-id';
 
@@ -22,6 +23,8 @@ export function contextoDeLaPeticion(peticion: Request): ContextoPeticion | unde
  *
  *   LOG [HTTP] [8d1f...] POST /flights/v1/offers/hold 201 48.3ms ip=10.0.0.7 user=<sub> client=<client_id>
  *
+ * La ruta es la PLANTILLA que atendió la petición (`/flights/v1/bookings/{bookingId}`, o
+ * `__unmatched__`), como pide docs/OBSERVABILIDAD.md: ninguna URL pedida, con sus ids, llega al log.
  * `user` solo con un token válido y `client` solo si el token es de un cliente máquina a máquina.
  */
 export function middlewareRequestId(peticion: Request, respuesta: Response, next: NextFunction) {
@@ -52,7 +55,7 @@ export function asegurarContexto(peticion: Request, respuesta: Response): Contex
     // se vuelve a entrar para que el logger vea el id.
     ejecutarEnContexto(contexto, () =>
       logger.log(
-        `${peticion.method} ${peticion.originalUrl.split('?')[0]} ${respuesta.statusCode} ` +
+        `${peticion.method} ${plantillaDeRuta(peticion) ?? SIN_PLANTILLA} ${respuesta.statusCode} ` +
           `${ms.toFixed(1)}ms ip=${contexto.ip ?? '-'}${contexto.usuario ? ` user=${contexto.usuario}` : ''}` +
           (contexto.cliente ? ` client=${contexto.cliente}` : ''),
       ),

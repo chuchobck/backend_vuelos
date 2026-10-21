@@ -3,6 +3,7 @@ import { NextFunction, Request, RequestHandler, Response } from 'express';
 import { asegurarContexto } from '../common/contexto/contexto.middleware';
 import { metodoNormalizado } from './atributos';
 import { Observabilidad } from './observabilidad';
+import { plantillaDeRuta, SIN_PLANTILLA } from './plantilla-ruta';
 import { CLAVE_REQUEST_ID, marcarError } from './trazas';
 
 /**
@@ -22,16 +23,6 @@ interface Observacion {
 
 const OBSERVACION = Symbol('observacionPeticion');
 type PeticionObservada = Request & { [OBSERVACION]?: Observacion };
-
-/**
- * La plantilla de la ruta que atendió la petición: `/flights/v1/bookings/{bookingId}`, nunca la
- * pedida. La ruta de Express trae `:bookingId`; el estándar escribe `{bookingId}`. Sin ruta
- * (404, archivos estáticos, un preflight), undefined: `__unmatched__`.
- */
-export function plantillaDeRuta(peticion: Request): string | undefined {
-  const ruta = (peticion.route as { path?: unknown } | undefined)?.path;
-  return typeof ruta === 'string' ? ruta.replace(/:([A-Za-z0-9_]+)\??/g, '{$1}') : undefined;
-}
 
 /** Primer middleware de la app: el span SERVER y la métrica del servidor. */
 export function middlewareObservabilidad(obs: Observabilidad): RequestHandler {
@@ -62,9 +53,9 @@ export function middlewareObservabilidad(obs: Observabilidad): RequestHandler {
       terminada = true;
       const ruta = plantillaDeRuta(peticion);
       const status = respuesta.statusCode;
-      span.updateName(`${metodo} ${ruta ?? '__unmatched__'}`);
+      span.updateName(`${metodo} ${ruta ?? SIN_PLANTILLA}`);
       span.setAttributes({
-        'http.route': ruta ?? '__unmatched__',
+        'http.route': ruta ?? SIN_PLANTILLA,
         'http.response.status_code': status,
       });
       // En un span de servidor, solo un 5xx es error (un 4xx es culpa del cliente)
