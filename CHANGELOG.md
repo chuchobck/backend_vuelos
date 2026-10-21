@@ -6,6 +6,32 @@ está en [docs/PLAN.md](docs/PLAN.md).
 
 ## [Sin publicar]
 
+### Fase 7c · Observabilidad
+
+El core adopta el estándar de observabilidad que definió el gateway (`docs/OBSERVABILIDAD.md`,
+fase 7a). El contrato OpenAPI no cambia. Sin `OTEL_EXPORTER_OTLP_ENDPOINT` las trazas se generan y se
+propagan, pero no se exportan.
+
+- Trazas (OpenTelemetry, W3C Trace Context): un span SERVER por petición REST (con la plantilla de
+  la ruta, `X-Trace-Id` en la respuesta) y por llamada gRPC (`rpc.*`, hijo del `traceparent` de la
+  metadata); INTERNAL con nombre fijo en crear retención, crear reserva, emitir boletos y cancelar;
+  CLIENT hacia la Payment API simulada y hacia el notifier; y cada corrida de un proceso periódico
+  como su propia traza raíz.
+- La bandeja guarda el `traceparent` del hecho (migración `003_traceparent_evento.sql`, columna
+  `evento_saliente.traceparent`) y el relevo lo continúa hasta el notifier. La entrega de webhooks a
+  terceros nunca manda `traceparent`.
+- Métricas en `METRICS_PORT` (aparte de `PORT`): las comunes, `http_client_request_duration_seconds`
+  para pagos y notifier, y `core_outbox_pending`, `core_outbox_oldest_pending_seconds`,
+  `core_relay_publish_total`, `core_bookings_total` y `core_job_run_duration_seconds`.
+- Variables opcionales: `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACES_SAMPLER_ARG`,
+  `TRACE_TRUST_INCOMING` y `METRICS_PORT`.
+- Cada línea del log lleva `traceId` y `spanId`; la línea de acceso y la de error escriben la
+  plantilla de la ruta y no la URL con sus ids y su query.
+- Dependencias: `@opentelemetry/api`, `sdk-trace-node`, `exporter-trace-otlp-http`, `resources` y
+  `prom-client`, con las del gateway.
+- CI: `scripts/comprobar-migraciones.sh` compara una base migrada con una nueva.
+- Pruebas con un recolector OTLP falso y un cliente gRPC, y 11 mutaciones más en `npm run test:mutaciones`.
+
 ### Fase 5b · Eventos al notifier
 
 El core puede dejar de repartir los webhooks y publicar sus eventos al servicio

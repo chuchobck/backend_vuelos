@@ -57,7 +57,7 @@ auditoría: `psql "$NEON_URL" -c "DROP SCHEMA vuelos CASCADE"` y repetir los pas
 
 **Una base que ya existe** se pone al día con `./db/migrar.sh` (usa `DATABASE_URL`; con
 `DATABASE_URL="$NEON_URL&schema=vuelos" ./db/migrar.sh` contra Neon): aplica `db/migraciones/*.sql`
-en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b.
+en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b y la 003 le agrega la columna `traceparent` (fase 7c).
 
 ## 3. Servicio en Render
 
@@ -294,6 +294,20 @@ El procedimiento del corte, el retroceso y cómo seguir la bandeja están en
   la segunda vez, 659 "ya existían"; las 35 rechazadas eran datos de prueba (secretos ficticios o
   fechas futuras puestas por pruebas con el reloj adelantado).
 - No se verificó: los tres servicios desplegados ni el gateway.
+
+### Fase 7c (2026-10-21): observabilidad con el gateway, el BFF, identity y el notifier
+
+- identity y notifier (`main`, con sus bases locales), el core compilado de esta rama con
+  `AUTH_MODE=external`, `WEBHOOKS_MODE=notifier` y gRPC, el BFF y el gateway (`main`, con sus
+  trazas), todos con `TRUST_PROXY=1`; el core y el gateway exportando a un recolector OTLP falso
+  (el `scripts/e2e/recolector-otlp.mjs` del gateway, en el 4318) y un proxy delante del notifier que
+  anota el `traceparent` que le llega. Base propia del core (`quinde7c_booking`).
+- Una reserva por el gateway dio una sola traza `gateway → core → pago`, con los tres eventos de la
+  bandeja publicados en la misma traza; el notifier recibió un `traceparent` con ese trace-id.
+- Lo que **no** se pudo cerrar: el BFF y el notifier de `main` todavía no tienen observabilidad
+  (fase 7b/7c de sus repos), así que `/graphql` da la traza del gateway y la llamada gRPC del BFF al
+  core abre una traza raíz aparte. La cadena `gateway → bff → core` se comprobó con un cliente gRPC
+  que hace de BFF instrumentado.
 
 ### Fase 4b (2026-10-15): AUTH_MODE=external con identity_vuelos
 
