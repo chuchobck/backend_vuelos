@@ -19,6 +19,12 @@ export const ATRIBUTOS_PERMITIDOS = new Set([
   'quinde.auth.mode',
   'quinde.request_id',
   'error.type',
+  // Extensión del core (fase 7c) para el span SERVER de una llamada gRPC; el estándar del gateway
+  // (docs/OBSERVABILIDAD.md) todavía no los lista: se sube allí primero.
+  'rpc.system',
+  'rpc.service',
+  'rpc.method',
+  'rpc.grpc.status_code',
 ]);
 
 /** Valores que pueden ir en `error.type`. */

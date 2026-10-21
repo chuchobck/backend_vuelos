@@ -1,5 +1,6 @@
 import { Metadata, status as EstadoGrpc, StatusObject } from '@grpc/grpc-js';
 import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
+import { Observabilidad } from '../../observabilidad/observabilidad';
 import { Observable, throwError } from 'rxjs';
 import {
   contextoDeLlamada,
@@ -40,8 +41,10 @@ const TEXTO_METADATA = /^[\x20-\x7e]*$/;
 export class FiltroErroresGrpc implements ExceptionFilter {
   private readonly logger = new Logger('Errores');
 
+  constructor(private readonly observabilidad: Observabilidad) {}
+
   catch(excepcion: unknown, host: ArgumentsHost): Observable<never> {
-    const llamada = contextoDeLlamada(host.getArgByIndex<LlamadaGrpc>(2));
+    const llamada = contextoDeLlamada(host.getArgByIndex<LlamadaGrpc>(2), this.observabilidad);
     const { problema, cabeceras, esErrorInterno, causa } = traducirExcepcion(excepcion, {
       metodo: 'gRPC',
       ruta: llamada.metodo,
@@ -62,7 +65,7 @@ export class FiltroErroresGrpc implements ExceptionFilter {
     };
     if (obtenerContexto() === undefined) ejecutarEnContexto(llamada.contexto, registrar);
     else registrar();
-    registrarLlamada(llamada, EstadoGrpc[codigo]);
+    registrarLlamada(llamada, EstadoGrpc[codigo], problema.status);
 
     const metadata = new Metadata();
     metadata.set(METADATA_REQUEST_ID, llamada.contexto.requestId);
