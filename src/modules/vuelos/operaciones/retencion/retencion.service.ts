@@ -5,6 +5,7 @@ import { CodigoError, CODIGO_SIN_EQUIVALENTE } from '../../../../common/errores/
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { UsuarioAutenticado } from '../../../../common/decorators/usuario-actual.decorator';
 import { Reloj } from '../../../../common/reloj';
+import { Observabilidad } from '../../../../observabilidad/observabilidad';
 import { TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
 import { CABINA, ORDEN_CABINAS } from '../../compartido/enums';
@@ -92,13 +93,24 @@ export class RetencionService {
     private readonly repositorio: RetencionRepository,
     private readonly claves: IdempotenciaRepository,
     private readonly reloj: Reloj,
+    private readonly observabilidad: Observabilidad,
     config: ConfigService,
   ) {
     this.vigenciaMinutos =
       config.get<number>('HOLD_TTL_MINUTES') ?? REGLAS_RETENCION.vigenciaPorDefectoMinutos;
   }
 
-  async crear(
+  crear(
+    solicitud: SolicitudRetencionDto,
+    idPropietario: string,
+    clave: string,
+  ): Promise<ResultadoCreacion> {
+    return this.observabilidad.interno('retencion.crear', () =>
+      this.crearRetencion(solicitud, idPropietario, clave),
+    );
+  }
+
+  private async crearRetencion(
     solicitud: SolicitudRetencionDto,
     idPropietario: string,
     clave: string,
