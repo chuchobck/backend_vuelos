@@ -111,6 +111,11 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `WEBHOOK_DELIVERY_JOB_ENABLED`, `WEBHOOK_DELIVERY_JOB_INTERVAL_SECONDS` | `true` y 10 | Enviar y reintentar los webhooks |
 | `BOARDING_PASS_SECRET` | `JWT_SECRET` | Clave de la firma de los códigos de barras de los pases. Con el mismo valor que el `JWT_SECRET` con que se emitieron, los pases ya emitidos siguen verificando; con otro, dejan de verificar. Obligatoria con `AUTH_MODE=external` si se quita `JWT_SECRET` |
 | `GRPC_ENABLED`, `GRPC_PORT` | `false` y 50051 | Servidor gRPC interno para el BFF (`docs/GRPC.md`). En Render queda apagado: el tráfico público llega solo al puerto HTTP (`PORT`); el despliegue de gRPC es la fase de Azure |
+| `OTEL_SERVICE_NAME` | `quinde-core` | `service.name` de las trazas y las métricas |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | (vacía) | Base OTLP/HTTP del recolector (`http://jaeger:4318`). Sin ella las trazas se generan y se propagan, pero no se exportan |
+| `OTEL_TRACES_SAMPLER_ARG` | `1.0` (desarrollo) / `0.1` (producción) | Fracción de trazas raíz que se registran (0 a 1). Un span hijo sigue a su padre |
+| `TRACE_TRUST_INCOMING` | `true` | Continuar el `traceparent` que llega (REST y gRPC). El core es interno: solo lo alcanzan el gateway y el BFF |
+| `METRICS_PORT` | `9464` (en local, `9466`) | Puerto aparte de `/metrics`, que el ingress nunca expone; `0` lo apaga. Distinto de `PORT` y `GRPC_PORT` |
 
 `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` y `DB_PORT` son solo para el entorno local
 (`./db/reset.sh` y docker compose); en Render no se usan.
