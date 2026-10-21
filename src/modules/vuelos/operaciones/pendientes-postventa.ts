@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Observabilidad } from '../../../observabilidad/observabilidad';
 import { Reloj } from '../../../common/reloj';
 import { CambioFechaService } from './cambio-fecha/cambio-fecha.service';
 import { CambioFechaRepository } from './cambio-fecha/cambio-fecha.repository';
@@ -57,6 +58,7 @@ export class PendientesPostventa implements OnApplicationBootstrap, OnModuleDest
     private readonly cancelacion: CancelacionService,
     private readonly cancelaciones: CancelacionRepository,
     private readonly reloj: Reloj,
+    private readonly observabilidad: Observabilidad,
     config: ConfigService,
   ) {
     this.habilitado = config.get<string>('POSTSALE_JOB_ENABLED') !== 'false';
@@ -83,7 +85,9 @@ export class PendientesPostventa implements OnApplicationBootstrap, OnModuleDest
 
   /** Una corrida; si ya hay una en curso, devuelve esa misma. */
   ejecutar(): Promise<ResultadoPostventa> {
-    this.corriendo ??= this.corrida().finally(() => (this.corriendo = undefined));
+    this.corriendo ??= this.observabilidad
+      .corridaDeJob('pendientes-postventa', () => this.corrida())
+      .finally(() => (this.corriendo = undefined));
     return this.corriendo;
   }
 

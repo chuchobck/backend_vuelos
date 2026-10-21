@@ -183,6 +183,21 @@ export class BandejaEventosRepository {
     return filas[0]?.estado ?? null;
   }
 
+  /**
+   * Cuántos eventos están PENDIENTE y desde cuándo espera el más viejo (null si no hay ninguno),
+   * para los gauges de /metrics. Una consulta sobre el índice parcial de PENDIENTE, con un plazo
+   * en la base (`statement_timeout` de esta transacción): si tarda más, falla en vez de colgar.
+   */
+  async resumenPendientes(plazoMs: number): Promise<{ pendientes: number; desde: Date | null }> {
+    const [, filas] = await this.prisma.db.$transaction([
+      this.prisma.db.$executeRaw`SELECT set_config('statement_timeout', ${String(plazoMs)}, true)`,
+      this.prisma.db.$queryRaw<Array<{ n: number; desde: Date | null }>>`
+        SELECT count(*)::int AS n, min(creado_en) AS desde
+          FROM vuelos.evento_saliente WHERE estado = 'PENDIENTE'`,
+    ]);
+    return { pendientes: filas[0]?.n ?? 0, desde: filas[0]?.desde ?? null };
+  }
+
   /** Desde cuándo espera el evento PENDIENTE más viejo, o null si no hay ninguno. */
   async pendienteMasViejo(): Promise<Date | null> {
     const [fila] = await this.prisma.db.$queryRaw<Array<{ desde: Date | null }>>`

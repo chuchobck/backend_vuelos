@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
+import { Observabilidad } from '../src/observabilidad/observabilidad';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { CifradoSecreto } from '../src/modules/vuelos/operaciones/webhook/cifrado-secreto';
 import {
@@ -708,6 +709,7 @@ describe('Entrega de webhooks', () => {
         cliente,
         c.app.get(CifradoSecreto),
         reloj,
+        c.app.get(Observabilidad),
         c.app.get(ConfigService),
       );
       await Promise.all([entrega.ejecutar(), otra.ejecutar()]);
