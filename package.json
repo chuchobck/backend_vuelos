@@ -9,6 +9,7 @@
     "auth:exportar-usuarios": "node scripts/exportar-usuarios.cjs",
     "build": "nest build",
     "eventos:check": "node scripts/eventos-check.cjs",
+    "eventos:purgar": "node scripts/purgar-eventos.cjs",
     "eventos:reencolar": "node scripts/reencolar-eventos.cjs",
     "eventos:sync": "node scripts/eventos-sync.cjs",
     "format": "prettier --write .",

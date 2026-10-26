@@ -285,6 +285,36 @@ export class VariablesEntorno {
   @ValidateIf(conNotifier)
   EVENT_RELAY_JOB_INTERVAL_SECONDS?: number;
 
+  /** Purga de la bandeja (solo WEBHOOKS_MODE=notifier). Sin valor: true. */
+  @IsIn(['true', 'false'], { message: 'EVENT_OUTBOX_PURGE_JOB_ENABLED debe ser true o false' })
+  @IsOptional()
+  @ValidateIf(conNotifier)
+  EVENT_OUTBOX_PURGE_JOB_ENABLED?: string;
+
+  /** Cada cuántos minutos corre la purga de la bandeja. Sin valor: 60. */
+  @Max(1440, { message: 'EVENT_OUTBOX_PURGE_INTERVAL_MINUTES debe estar entre 1 y 1440' })
+  @Min(1, { message: 'EVENT_OUTBOX_PURGE_INTERVAL_MINUTES debe estar entre 1 y 1440' })
+  @IsInt({ message: 'EVENT_OUTBOX_PURGE_INTERVAL_MINUTES debe ser un número entero' })
+  @IsOptional()
+  @ValidateIf(conNotifier)
+  EVENT_OUTBOX_PURGE_INTERVAL_MINUTES?: number;
+
+  /** Días que un evento PUBLICADO se conserva desde publicado_en. Sin valor: 7. */
+  @Max(365, { message: 'EVENT_OUTBOX_RETENTION_DAYS debe estar entre 1 y 365' })
+  @Min(1, { message: 'EVENT_OUTBOX_RETENTION_DAYS debe estar entre 1 y 365' })
+  @IsInt({ message: 'EVENT_OUTBOX_RETENTION_DAYS debe ser un número entero' })
+  @IsOptional()
+  @ValidateIf(conNotifier)
+  EVENT_OUTBOX_RETENTION_DAYS?: number;
+
+  /** Días que un evento FALLIDO se conserva desde que falló (diagnóstico y eventos:reencolar). Sin valor: 30. */
+  @Max(365, { message: 'EVENT_OUTBOX_FAILED_RETENTION_DAYS debe estar entre 7 y 365' })
+  @Min(7, { message: 'EVENT_OUTBOX_FAILED_RETENTION_DAYS debe estar entre 7 y 365' })
+  @IsInt({ message: 'EVENT_OUTBOX_FAILED_RETENTION_DAYS debe ser un número entero' })
+  @IsOptional()
+  @ValidateIf(conNotifier)
+  EVENT_OUTBOX_FAILED_RETENTION_DAYS?: number;
+
   /**
    * Si el sobre de cada evento lleva además `correlationId` (el X-Correlation-Id del hecho). Sin
    * valor: false, porque los esquemas 1.0 del notifier no lo admiten (additionalProperties:

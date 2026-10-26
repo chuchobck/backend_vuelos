@@ -237,6 +237,45 @@ export class BandejaEventosRepository {
       SELECT min(creado_en) AS desde FROM vuelos.evento_saliente WHERE estado = 'PENDIENTE'`;
     return fila?.desde ?? null;
   }
+
+  /**
+   * Borra, como mucho, `limite` eventos ya terminados: los PUBLICADO con publicado_en anterior a
+   * `corte`, o los FALLIDO que fallaron (proximo_intento) antes de `corte`. Devuelve cuántos.
+   *
+   * Un PENDIENTE no entra jamás, ni con el arrendamiento vencido: el relevo puede retomarlo. Por
+   * eso cada sentencia nombra el estado dos veces (al elegir y al borrar) y exige que no haya un
+   * arrendamiento vigente. FOR UPDATE SKIP LOCKED: una fila que otro proceso tiene tomada (otra
+   * purga, reencolar) se salta en vez de esperarla, así dos purgas a la vez se reparten las filas,
+   * ninguna borra la misma dos veces y no hay esperas cruzadas. SQL crudo porque deleteMany no
+   * admite LIMIT ni SKIP LOCKED; evento_saliente sigue fuera de TABLAS_CON_BORRADO_FISICO.
+   */
+  purgarLote(
+    estado: 'PUBLICADO' | 'FALLIDO',
+    corte: Date,
+    ahora: Date,
+    limite: number,
+  ): Promise<number> {
+    const db = this.prisma.db;
+    return estado === 'PUBLICADO'
+      ? db.$executeRaw`
+          DELETE FROM vuelos.evento_saliente
+           WHERE estado = 'PUBLICADO' AND id_evento IN (
+                 SELECT id_evento FROM vuelos.evento_saliente
+                  WHERE estado = 'PUBLICADO' AND publicado_en < ${corte}::timestamptz
+                    AND (arrendamiento_hasta IS NULL OR arrendamiento_hasta <= ${ahora}::timestamptz)
+                  ORDER BY publicado_en, id_evento
+                  LIMIT ${limite}
+                    FOR UPDATE SKIP LOCKED)`
+      : db.$executeRaw`
+          DELETE FROM vuelos.evento_saliente
+           WHERE estado = 'FALLIDO' AND id_evento IN (
+                 SELECT id_evento FROM vuelos.evento_saliente
+                  WHERE estado = 'FALLIDO' AND proximo_intento < ${corte}::timestamptz
+                    AND (arrendamiento_hasta IS NULL OR arrendamiento_hasta <= ${ahora}::timestamptz)
+                  ORDER BY proximo_intento, id_evento
+                  LIMIT ${limite}
+                    FOR UPDATE SKIP LOCKED)`;
+  }
 }
 
 export type EstadoEventoSaliente = 'PENDIENTE' | 'PUBLICADO' | 'FALLIDO';
