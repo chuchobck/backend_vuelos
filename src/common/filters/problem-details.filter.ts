@@ -1,10 +1,11 @@
-import { ArgumentsHost, Catch, ExceptionFilter, Logger } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Request, Response } from 'express';
 import { ejecutarEnContexto, obtenerContexto } from '../contexto/contexto-peticion';
 import { contextoDeLaPeticion } from '../contexto/contexto.middleware';
 import { ErrorNegocio } from '../errores/error-negocio';
 import { CONTENT_TYPE_PROBLEMA } from '../errores/problem-details';
+import { plantillaDeRuta, SIN_PLANTILLA } from '../../observabilidad/plantilla-ruta';
 import { aProblemaV2, esRutaV2 } from '../errores/problem-details-v2';
 import { traducirExcepcion } from '../errores/traducir-excepcion';
 
@@ -32,6 +33,8 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const peticion = host.switchToHttp().getRequest<Request>();
     const respuesta = host.switchToHttp().getResponse<Response>();
     const ruta = peticion.originalUrl.split('?')[0].slice(0, 200);
+    // En el log, la plantilla: la ruta pedida puede traer ids de reserva, correos...
+    const plantilla = plantillaDeRuta(peticion) ?? SIN_PLANTILLA;
 
     const traducido = traducirExcepcion(excepcion, {
       metodo: peticion.method,
@@ -51,13 +54,19 @@ export class ProblemDetailsFilter implements ExceptionFilter {
       if (esErrorInterno) {
         // El stack se queda en el log; al cliente solo llega el ProblemDetails sin detalle.
         const detalle = causa instanceof Error ? (causa.stack ?? causa.message) : String(causa);
-        this.logger.error(`${peticion.method} ${ruta} → ${problema.status}\n${detalle}`);
+        this.logger.error(`${peticion.method} ${plantilla} → ${problema.status}\n${detalle}`);
       } else {
         // Si vino de la base, el error original ayuda a ver qué restricción saltó.
+        // El mensaje de un HttpException de Nest ("Cannot GET /ruta?correo=...") trae la URL pedida
+        // con su query: al log va solo el tipo del error, nunca lo que mandó el cliente.
         const origen =
-          causa instanceof Error && !(causa instanceof ErrorNegocio) ? ` (${resumir(causa)})` : '';
+          causa instanceof HttpException
+            ? ` (${causa.constructor.name})`
+            : causa instanceof Error && !(causa instanceof ErrorNegocio)
+              ? ` (${resumir(causa)})`
+              : '';
         this.logger.debug(
-          `${peticion.method} ${ruta} → ${problema.status} ${problema.code}${origen}`,
+          `${peticion.method} ${plantilla} → ${problema.status} ${problema.code}${origen}`,
         );
       }
     };

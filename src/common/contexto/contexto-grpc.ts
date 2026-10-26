@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
-import { ServerUnaryCall } from '@grpc/grpc-js';
+import { ServerUnaryCall, status as EstadoGrpc } from '@grpc/grpc-js';
+import { abrirSpanGrpc, cerrarSpanGrpc, ObservacionLlamada } from '../../observabilidad/grpc';
+import { Observabilidad } from '../../observabilidad/observabilidad';
 import {
   ContextoPeticion,
   crearContexto,
@@ -20,6 +22,9 @@ export interface ContextoLlamada {
   /** `/quinde.flights.v1.FlightsService/SearchFlights`. */
   metodo: string;
   inicio: bigint;
+  /** El span SERVER de la llamada (observabilidad); `registrarLlamada` lo cierra. */
+  observacion: ObservacionLlamada;
+  observabilidad: Observabilidad;
 }
 
 const CONTEXTO_EN_LLAMADA = Symbol('contextoLlamada');
@@ -40,21 +45,31 @@ const logger = new Logger('gRPC');
  * - ip: la del cliente que abrió la conexión (el BFF), sin el puerto.
  * - usuario: null; las RPC de hoy son públicas.
  */
-export function contextoDeLlamada(llamada: LlamadaGrpc): ContextoLlamada {
+export function contextoDeLlamada(
+  llamada: LlamadaGrpc,
+  observabilidad: Observabilidad,
+): ContextoLlamada {
   const conContexto = llamada as LlamadaConContexto;
   if (conContexto[CONTEXTO_EN_LLAMADA] === undefined) {
     const valores = llamada.metadata.get(METADATA_REQUEST_ID);
     const correlaciones = llamada.metadata.get(METADATA_CORRELACION);
+    const requestId = resolverRequestId(valores.length === 1 ? String(valores[0]) : undefined);
+    const observacion = abrirSpanGrpc(observabilidad, llamada, requestId);
+    const { traceId, spanId } = observacion.span.spanContext();
+    const contexto = crearContexto({
+      requestId,
+      correlationId: resolverCorrelationId(
+        correlaciones.length === 1 ? String(correlaciones[0]) : undefined,
+      ),
+      ip: ipDelPar(llamada.getPeer()),
+    });
+    contexto.traza = { traceId, spanId };
     conContexto[CONTEXTO_EN_LLAMADA] = {
-      contexto: crearContexto({
-        requestId: resolverRequestId(valores.length === 1 ? String(valores[0]) : undefined),
-        correlationId: resolverCorrelationId(
-          correlaciones.length === 1 ? String(correlaciones[0]) : undefined,
-        ),
-        ip: ipDelPar(llamada.getPeer()),
-      }),
+      contexto,
       metodo: llamada.getPath(),
       inicio: process.hrtime.bigint(),
+      observacion,
+      observabilidad,
     };
   }
   return conContexto[CONTEXTO_EN_LLAMADA];
@@ -65,10 +80,21 @@ export function contextoDeLlamada(llamada: LlamadaGrpc): ContextoLlamada {
  *
  *   LOG [gRPC] [8d1f...] /quinde.flights.v1.FlightsService/GetFlightStatus OK 3.1ms ip=10.0.0.7
  *
- * `estado` es el nombre del código gRPC (OK, NOT_FOUND...). Sin el mensaje ni la metadata.
+ * `estado` es el nombre del código gRPC (OK, NOT_FOUND...) y `statusHttp`, el que habría dado
+ * REST. Sin el mensaje ni la metadata. También cierra el span SERVER de la llamada.
  */
-export function registrarLlamada({ contexto, metodo, inicio }: ContextoLlamada, estado: string) {
+export function registrarLlamada(
+  { contexto, metodo, inicio, observacion, observabilidad }: ContextoLlamada,
+  estado: string,
+  statusHttp = 200,
+) {
   const ms = Number(process.hrtime.bigint() - inicio) / 1e6;
+  cerrarSpanGrpc(
+    observabilidad,
+    observacion,
+    EstadoGrpc[estado as keyof typeof EstadoGrpc] ?? EstadoGrpc.UNKNOWN,
+    statusHttp,
+  );
   ejecutarEnContexto(contexto, () =>
     logger.log(`${metodo} ${estado} ${ms.toFixed(1)}ms ip=${contexto.ip ?? '-'}`),
   );

@@ -850,6 +850,8 @@ CREATE TABLE evento_saliente (
     ultimo_error         text,
     creado_en            timestamptz             NOT NULL,
     publicado_en         timestamptz,
+    -- El hecho ocurrió dentro de esta traza (W3C Trace Context); el relevo la continúa hacia el notifier
+    traceparent          text,
     correlation_id       text,
     CONSTRAINT pk_evento_saliente PRIMARY KEY (id_evento),
     CONSTRAINT ck_evento_saliente_tipo CHECK (tipo ~ '^(booking|hold|flight)\.[a-z_]+$'),
@@ -860,6 +862,7 @@ CREATE TABLE evento_saliente (
     -- Solo un código corto (HTTP_503, TIMEOUT, ECONNREFUSED...): ni URL, ni token, ni cuerpo
     CONSTRAINT ck_evento_saliente_error CHECK (ultimo_error IS NULL OR ultimo_error ~ '^[A-Z0-9_]{1,60}$'),
     CONSTRAINT ck_evento_saliente_publicado CHECK ((estado = 'PUBLICADO') = (publicado_en IS NOT NULL)),
+    CONSTRAINT ck_evento_saliente_traceparent CHECK (traceparent IS NULL OR traceparent ~ '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'),
     CONSTRAINT ck_evento_saliente_correlacion CHECK (correlation_id IS NULL OR correlation_id ~ '^[A-Za-z0-9._:-]{1,100}$')
 );
 
@@ -1383,6 +1386,7 @@ COMMENT ON COLUMN evento_saliente.id_evento IS 'eventId del sobre: el mismo en c
 COMMENT ON COLUMN evento_saliente.sobre IS 'Sobre de POST /internal/v1/events congelado al ocurrir el hecho; se envía tal cual, byte a byte.';
 COMMENT ON COLUMN evento_saliente.arrendamiento_hasta IS 'Hasta cuándo el relevo que tomó la fila la tiene apartada; vencido, otro proceso puede retomarla.';
 COMMENT ON COLUMN evento_saliente.reintentar_hasta IS 'Hasta cuándo se reintenta (48 h desde que se creó o se reencoló); después queda FALLIDO.';
+COMMENT ON COLUMN evento_saliente.traceparent IS 'traceparent (W3C Trace Context) del contexto activo cuando ocurrió el hecho: el relevo abre su span hacia el notifier como continuación de esa traza. NULL en los eventos anteriores a la fase 7c. Nunca se manda a un tercero.';
 COMMENT ON COLUMN evento_saliente.correlation_id IS 'X-Correlation-Id de la petición que produjo el hecho; el relevo lo manda al notifier sin cambios. NULL si lo produjo un proceso periódico.';
 COMMENT ON TABLE evento_entrega             IS 'Intentos de entrega de un evento a un webhook.';
 COMMENT ON TABLE clave_idempotencia         IS 'Registro de las cabeceras Idempotency-Key ya procesadas y su respuesta.';

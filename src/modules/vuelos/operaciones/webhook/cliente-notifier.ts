@@ -24,6 +24,7 @@ export interface ResultadoPublicacion {
  * vuelve a serializar), el token del cliente core-vuelos y, si el hecho lo tenía, su
  * X-Correlation-Id sin cambios. No sigue redirecciones (una 3xx es un
  * resultado, no un salto), corta a los 5 s y descarta el cuerpo de la respuesta. Nunca lanza.
+ * Con `traceparent`, lo manda como cabecera (el del span CLIENT del relevo).
  */
 @Injectable()
 export class ClienteNotifier {
@@ -32,6 +33,7 @@ export class ClienteNotifier {
   async publicar(
     sobre: string,
     token: string,
+    traceparent?: string,
     correlationId: string | null = null,
   ): Promise<ResultadoPublicacion> {
     const { urlNotifier } = configuracionNotifier(this.config);
@@ -43,6 +45,8 @@ export class ClienteNotifier {
           Accept: 'application/json',
           Authorization: `Bearer ${token}`,
           ...(correlationId === null ? {} : { [CABECERA_CORRELACION]: correlationId }),
+          // El span CLIENT de esta publicación: el notifier continúa la traza del hecho
+          ...(traceparent === undefined ? {} : { traceparent }),
         },
         body: sobre,
         redirect: 'manual',

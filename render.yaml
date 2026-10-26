@@ -42,6 +42,13 @@ services:
       #     value: quinde-vuelos-api
       #   - key: BOARDING_PASS_SECRET    # el valor de JWT_SECRET, para no invalidar los pases
       #     sync: false
+      # Observabilidad (docs/DEPLOY.md): trazas hacia un recolector OTLP/HTTP, si lo hay. Sin
+      # OTEL_EXPORTER_OTLP_ENDPOINT las trazas se propagan pero no se exportan. /metrics sale por
+      # METRICS_PORT (por defecto 9464), un puerto que Render no expone.
+      #   - key: OTEL_EXPORTER_OTLP_ENDPOINT
+      #     sync: false
+      #   - key: OTEL_TRACES_SAMPLER_ARG
+      #     value: "0.1"
       # Webhooks: en producción sigue WEBHOOKS_MODE=local hasta tener el notifier y el gateway
       # (docs/MIGRACION-WEBHOOKS.md). Para publicar los eventos al notifier, agregar:
       #   - key: WEBHOOKS_MODE

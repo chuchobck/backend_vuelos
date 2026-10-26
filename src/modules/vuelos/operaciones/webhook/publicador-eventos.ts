@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { correlacionActual } from '../../../../common/contexto/correlation-id';
 import { modoWebhooks } from '../../../../config/eventos';
+import { traceparentActivo } from '../../../../observabilidad/contexto-traza';
 import { TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { ESTADO_RESERVA } from '../../compartido/enums';
 import { BandejaEventosRepository, OrigenEvento } from './bandeja-eventos.repository';
@@ -32,8 +33,9 @@ const ESTADOS_DEL_CONTRATO: Record<string, string> = Object.fromEntries(
  *
  * - local (por defecto): escribe una fila PENDIENTE en webhook_entrega por cada suscripción del
  *   dueño que escucha el evento; las envía EntregaWebhooks, aparte.
- * - notifier: escribe UNA fila en evento_saliente con el sobre congelado; la publica
- *   RelevoEventos al notifier, que reparte a las suscripciones.
+ * - notifier: escribe UNA fila en evento_saliente con el sobre congelado y el `traceparent` del
+ *   contexto activo (la traza del hecho); la publica RelevoEventos al notifier, que reparte a las
+ *   suscripciones. La entrega a terceros (local) nunca lleva traceparent.
  *
  * Las firmas son las mismas en los dos modos: quien publica no sabe cuál está activo. En modo
  * notifier cada evento guarda el X-Correlation-Id de la petición del hecho (y, con
@@ -73,6 +75,7 @@ export class PublicadorEventos {
         ahora,
         randomUUID(),
         ESTADOS_DEL_CONTRATO,
+        traceparentActivo(),
         this.origen(),
       );
       return;
@@ -90,7 +93,14 @@ export class PublicadorEventos {
   /** hold.expired, al dueño del hold. */
   async deRetencionVencida(tx: TransaccionVuelos, retencionId: string, ahora: Date): Promise<void> {
     if (this.alNotifier) {
-      await this.bandeja.guardarDeRetencion(tx, retencionId, ahora, randomUUID(), this.origen());
+      await this.bandeja.guardarDeRetencion(
+        tx,
+        retencionId,
+        ahora,
+        randomUUID(),
+        traceparentActivo(),
+        this.origen(),
+      );
       return;
     }
     await this.entregas.encolarDeRetencion(tx, retencionId, ahora, randomUUID());
@@ -110,6 +120,7 @@ export class PublicadorEventos {
         tipo,
         ahora,
         ESTADOS_DEL_CONTRATO,
+        traceparentActivo(),
         this.origen(),
       );
       return;

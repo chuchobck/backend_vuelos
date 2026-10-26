@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { NextFunction, Request, Response } from 'express';
+import { plantillaDeRuta, SIN_PLANTILLA } from '../../observabilidad/plantilla-ruta';
 import {
   ContextoPeticion,
   crearContexto,
@@ -29,12 +30,26 @@ export function contextoDeLaPeticion(peticion: Request): ContextoPeticion | unde
  * errores que esos producen (413, JSON roto). Al terminar la respuesta deja dos líneas de log,
  * la de texto de siempre y la de acceso en JSON (registro-acceso.ts):
  *
- *   LOG [HTTP] [8d1f...] POST /flights/v1/offers/hold 201 48.3ms ip=10.0.0.7 user=<sub> client=<client_id> [corr=...]
+ *   LOG [HTTP] [8d1f...] [traceId=4bf9... spanId=00f0...] POST /flights/v1/offers/hold 201 48.3ms ip=10.0.0.7 user=<sub> client=<client_id> [corr=...]
  *   {"timestamp":"...","service":"core-vuelos","correlation_id":"...","request_id":"8d1f...",...}
  *
+ * La ruta es la PLANTILLA que atendió la petición (`/flights/v1/bookings/{bookingId}`, o
+ * `__unmatched__`), como pide docs/OBSERVABILIDAD.md: ninguna URL pedida, con sus ids, llega al log.
  * `user` solo con un token válido y `client` solo si el token es de un cliente máquina a máquina.
  */
 export function middlewareRequestId(peticion: Request, respuesta: Response, next: NextFunction) {
+  asegurarContexto(peticion, respuesta);
+  next();
+}
+
+/**
+ * El contexto de la petición, creado la primera vez que se pide (con su X-Request-Id y su línea de
+ * log al terminar) y reusado después. Lo piden el middleware de observabilidad, que va primero
+ * (necesita el request id para su span), y este: un solo id por petición.
+ */
+export function asegurarContexto(peticion: Request, respuesta: Response): ContextoPeticion {
+  const existente = contextoDeLaPeticion(peticion);
+  if (existente) return existente;
   const contexto = crearContexto({
     requestId: resolverRequestId(peticion.headers['x-request-id']),
     correlationId: resolverCorrelationId(peticion.headers['x-correlation-id']),
@@ -51,14 +66,14 @@ export function middlewareRequestId(peticion: Request, respuesta: Response, next
     // se vuelve a entrar para que el logger vea el id.
     ejecutarEnContexto(contexto, () => {
       logger.log(
-        `${peticion.method} ${peticion.originalUrl.split('?')[0]} ${respuesta.statusCode} ` +
+        `${peticion.method} ${plantillaDeRuta(peticion) ?? SIN_PLANTILLA} ${respuesta.statusCode} ` +
           `${ms.toFixed(1)}ms ip=${contexto.ip ?? '-'}${contexto.usuario ? ` user=${contexto.usuario}` : ''}` +
           (contexto.cliente ? ` client=${contexto.cliente}` : ''),
       );
       acceso.log(lineaDeAcceso(contexto, peticion.method, respuesta.statusCode, ms));
     });
   });
-  next();
+  return contexto;
 }
 
 /**

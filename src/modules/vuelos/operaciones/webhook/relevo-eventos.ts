@@ -1,12 +1,16 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SpanKind } from '@opentelemetry/api';
 import { Reloj } from '../../../../common/reloj';
+import { contextoDeTraceparent } from '../../../../observabilidad/contexto-traza';
+import { Observabilidad } from '../../../../observabilidad/observabilidad';
+import { marcarError, traceparentDe } from '../../../../observabilidad/trazas';
 import {
   BandejaEventosRepository,
   EstadoEventoSaliente,
   EventoReclamado,
 } from './bandeja-eventos.repository';
-import { ClienteNotifier, ResultadoPublicacion } from './cliente-notifier';
+import { ClienteNotifier, ResultadoPublicacion, RUTA_EVENTOS } from './cliente-notifier';
 import { ClienteTokenIdentity, TokenNoDisponibleError } from './cliente-token-identity';
 
 /** Reglas del relevo de la bandeja de eventos al notifier. */
@@ -91,6 +95,7 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly notifier: ClienteNotifier,
     private readonly tokens: ClienteTokenIdentity,
     private readonly reloj: Reloj,
+    private readonly observabilidad: Observabilidad,
     config: ConfigService,
   ) {
     this.habilitado = config.get<string>('EVENT_RELAY_JOB_ENABLED') !== 'false';
@@ -116,7 +121,9 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** Una corrida; si ya hay una en curso, devuelve esa. Un error se registra y no la detiene. */
   ejecutar(): Promise<ResultadoRelevo> {
-    this.corriendo ??= this.corrida().finally(() => (this.corriendo = undefined));
+    this.corriendo ??= this.observabilidad
+      .corridaDeJob('relevo-eventos', () => this.corrida())
+      .finally(() => (this.corriendo = undefined));
     return this.corriendo;
   }
 
@@ -154,11 +161,11 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private async publicar(e: EventoReclamado): Promise<EstadoEventoSaliente | null> {
-    let envio = await this.enviar(e.sobre, e.correlationId);
+    let envio = await this.enviar(e);
     if (envio.respuesta.codigoHttp === 401) {
       // Token vencido o revocado: uno nuevo y otra vez, en el mismo intento
       this.tokens.invalidar(envio.token);
-      envio = await this.enviar(e.sobre, e.correlationId);
+      envio = await this.enviar(e);
       if (envio.respuesta.codigoHttp === 401) this.tokens.invalidar(envio.token);
     }
     const { codigoHttp, retryAfter, error } = envio.respuesta;
@@ -196,6 +203,11 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
       error: exito ? null : codigo,
       proximoIntento: decision.proximoIntento,
     });
+    if (estado !== null) {
+      this.observabilidad.core.publicaciones.inc({
+        result: estado === 'PUBLICADO' ? 'published' : estado === 'PENDIENTE' ? 'retry' : 'failed',
+      });
+    }
     // Ni el sobre, ni el dueño, ni el token: el id y el tipo bastan para seguir el evento
     this.logger.log(
       `Evento ${e.idEvento} (${e.tipo}) intento ${e.intentos}: ${estado ?? 'NO_APLICADO'} ${codigo}`,
@@ -203,10 +215,13 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
     return estado;
   }
 
-  /** Un intento de publicación, con el token que se usó; nunca lanza. */
+  /**
+   * Un intento de publicación, con el token que se usó; nunca lanza. Abre un span CLIENT hacia el
+   * notifier como hijo de la traza del hecho que originó el evento (la que se guardó en la
+   * bandeja), no de la corrida del job, y manda su `traceparent`.
+   */
   private async enviar(
-    sobre: string,
-    correlationId: string | null,
+    e: EventoReclamado,
   ): Promise<{ respuesta: ResultadoPublicacion; token: string | undefined }> {
     let token: string;
     try {
@@ -215,7 +230,35 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
       const codigo = error instanceof TokenNoDisponibleError ? error.codigo : 'TOKEN_ERROR';
       return { respuesta: { codigoHttp: null, retryAfter: null, error: codigo }, token: undefined };
     }
-    return { respuesta: await this.notifier.publicar(sobre, token, correlationId), token };
+    const { trazas, metricas } = this.observabilidad;
+    const span = trazas.iniciar(
+      `POST ${RUTA_EVENTOS}`,
+      SpanKind.CLIENT,
+      { 'http.request.method': 'POST', 'http.route': RUTA_EVENTOS, 'quinde.upstream': 'notifier' },
+      contextoDeTraceparent(e.traceparent),
+    );
+    const inicio = process.hrtime.bigint();
+    const respuesta = await this.notifier.publicar(
+      e.sobre,
+      token,
+      traceparentDe(span),
+      e.correlationId,
+    );
+    const { codigoHttp } = respuesta;
+    if (codigoHttp !== null) span.setAttribute('http.response.status_code', codigoHttp);
+    if (codigoHttp === null) {
+      marcarError(span, respuesta.error === 'TIMEOUT' ? 'timeout' : 'unavailable');
+    } else if (codigoHttp >= 500) {
+      marcarError(span, String(Math.min(codigoHttp, 504)));
+    }
+    span.end();
+    metricas.registrarCliente(
+      'notifier',
+      'POST',
+      codigoHttp ?? 'error',
+      Number(process.hrtime.bigint() - inicio) / 1e9,
+    );
+    return { respuesta, token };
   }
 
   /** Si el pendiente más viejo lleva más de 15 minutos, lo dice (como mucho cada 5 minutos). */

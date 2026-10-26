@@ -4,6 +4,7 @@ import { CodigoError, CODIGO_SIN_EQUIVALENTE } from '../../../../common/errores/
 import { CodigoErrorV2 } from '../../../../common/errores/codigo-error-v2';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { Reloj } from '../../../../common/reloj';
+import { Observabilidad } from '../../../../observabilidad/observabilidad';
 import { estado_reserva, estado_vuelo, Prisma } from '../../../../generated/prisma/client';
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { esUuid, fechaIsoAUtc } from '../../../../common/pipes/formatos';
@@ -127,9 +128,21 @@ export class ReservaService {
     private readonly pagosRegistrados: PagosRepository,
     private readonly cobros: Cobros,
     private readonly reloj: Reloj,
+    private readonly observabilidad: Observabilidad,
   ) {}
 
-  async crear(
+  crear(
+    solicitud: SolicitudReservaDto,
+    idPropietario: string,
+    clave: string,
+    v2?: OpcionesReservaV2,
+  ): Promise<ResultadoReserva> {
+    return this.observabilidad.interno('reserva.crear', () =>
+      this.crearReserva(solicitud, idPropietario, clave, v2),
+    );
+  }
+
+  private async crearReserva(
     solicitud: SolicitudReservaDto,
     idPropietario: string,
     clave: string,
@@ -285,7 +298,9 @@ export class ReservaService {
       throw error;
     }
 
-    return { reserva: await this.leer(id), codigoHttp, repetida: false };
+    const reserva = await this.leer(id);
+    this.contarReserva(reserva.estado);
+    return { reserva, codigoHttp, repetida: false };
   }
 
   /** GET /bookings/{bookingId}: solo su dueño; para cualquier otro, 404. */
@@ -373,7 +388,7 @@ export class ReservaService {
     const pago = await this.pagos.consultar(referencia);
     if (pago === 'PENDIENTE') return null;
     const ahora = this.reloj.ahora();
-    return this.prisma.transaccionAuditada(
+    const estado = await this.prisma.transaccionAuditada(
       async (tx) => {
         if (!(await this.repositorio.tomarSiSigue(tx, reservaId, 'PENDIENTE_PAGO'))) return null;
         await this.pagosRegistrados.resolver(
@@ -396,13 +411,27 @@ export class ReservaService {
       },
       { ...REGLAS_RESERVA.transaccion, actor: { idUsuario: null, direccionIp: null } },
     );
+    if (estado !== null) this.contarReserva(estado);
+    return estado;
   }
 
   /**
    * Pago aprobado: EMITIENDO_BOLETOS, se emiten los boletos y CONFIRMADA. Sin prefijo de boleto
    * (la aerolínea lo perdió entre la reserva y la emisión), la emisión falla y la reserva también.
    */
-  private async emitirBoletos(
+  private emitirBoletos(
+    tx: TransaccionVuelos,
+    reservaId: string,
+    desde: estado_reserva,
+    prefijo: string | null,
+    ahora: Date,
+  ): Promise<estado_reserva> {
+    return this.observabilidad.interno('reserva.emitir-boletos', () =>
+      this.emitirBoletosEnSpan(tx, reservaId, desde, prefijo, ahora),
+    );
+  }
+
+  private async emitirBoletosEnSpan(
     tx: TransaccionVuelos,
     reservaId: string,
     desde: estado_reserva,
@@ -561,7 +590,20 @@ export class ReservaService {
   }
 
   /** El cobro del total congelado del hold (ver Cobros: 409 o 422 si no sigue). */
-  private autorizarPago(
+  /** `core_bookings_total{result}`: el resultado de una reserva, sin ningún dato de ella. */
+  private contarReserva(estado: estado_reserva | string): void {
+    const resultado =
+      estado === 'CONFIRMADA'
+        ? 'confirmed'
+        : estado === 'PENDIENTE_PAGO'
+          ? 'pending_payment'
+          : estado === 'FALLIDA'
+            ? 'failed'
+            : undefined;
+    if (resultado) this.observabilidad.core.reservas.inc({ result: resultado });
+  }
+
+  private async autorizarPago(
     referencia: string,
     hold: HoldParaReservar,
     fachada?: PagoDeFachada,
@@ -570,10 +612,18 @@ export class ReservaService {
       (suma, it) => suma.plus(it.base).plus(it.impuestos),
       new Prisma.Decimal(0),
     );
-    return this.cobros.autorizar(
-      { referencia, concepto: 'EMISION', moneda: hold.moneda, monto: total },
-      fachada,
-    );
+    try {
+      return await this.cobros.autorizar(
+        { referencia, concepto: 'EMISION', moneda: hold.moneda, monto: total },
+        fachada,
+      );
+    } catch (error) {
+      // 422: la Payment API no reconoce el pago o lo rechazó (un 409 es una referencia repetida)
+      if (error instanceof ErrorNegocio && error.status === 422) {
+        this.observabilidad.core.reservas.inc({ result: 'declined' });
+      }
+      throw error;
+    }
   }
 
   /** La respuesta de una clave ya usada: la misma reserva, como está hoy, con el status original. */

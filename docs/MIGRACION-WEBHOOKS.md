@@ -34,6 +34,14 @@ solo. Los esquemas están copiados en [contracts/notifier-eventos](../contracts/
 - Un evento que no se pudo publicar en **48 h** queda `FALLIDO` con un aviso. `npm run eventos:reencolar -- <eventId>`
   (o `-- --todos-los-fallidos`) lo devuelve a `PENDIENTE` con 48 h nuevas y el mismo sobre.
 - Si el evento pendiente más viejo lleva más de 15 minutos, el log lo dice (como mucho cada 5 minutos).
+- **La traza del hecho llega hasta el notifier** (fase 7c). `evento_saliente.traceparent` guarda el
+  `traceparent` del contexto activo cuando se escribió la fila, dentro de la transacción del hecho
+  (migración `003_traceparent_evento.sql`; `NULL` en los eventos anteriores). El relevo abre su span
+  `CLIENT POST /internal/v1/events` como hijo de ESA traza (no de la corrida del job, que es su propia
+  traza raíz) y manda en el POST un `traceparent` nuevo, con el span cliente como padre. El notifier
+  ve la misma traza que el gateway y el core. **La entrega del notifier a un tercero no lleva
+  `traceparent`**, y en modo local tampoco la de `EntregaWebhooks`: no se revela la estructura
+  interna.
 - **El orden de llegada no está garantizado**: los eventos de un lote se publican a la vez, y uno que
   se reintenta llega después de otros más nuevos. El tercero ordena por `occurredAt` y descarta
   repetidos por `X-Webhook-Id`, como ya hacía con el core.

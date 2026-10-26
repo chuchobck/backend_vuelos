@@ -13,10 +13,10 @@ export const NOMBRE_SERVICIO = 'core-vuelos';
  *
  *   {"timestamp":"2026-10-26T15:00:00.000Z","level":"info","service":"core-vuelos",
  *    "correlation_id":"corr-123","request_id":"8d1f...","operation":"createBooking",
- *    "method":"POST","status":201,"latency_ms":48.3}
+ *    "method":"POST","status":201,"latency_ms":48.3,"trace_id":"4bf9...","span_id":"00f0..."}
  *
- * `client_id` solo con un token de partner (o de otro cliente máquina a máquina). traceId y
- * spanId llegan con la fase de observabilidad (7c), que no está en esta rama.
+ * `client_id` solo con un token de partner (o de otro cliente máquina a máquina); `trace_id` y
+ * `span_id`, los del span SERVER de la petición (observabilidad), si lo hubo.
  */
 export function lineaDeAcceso(
   contexto: ContextoPeticion,
@@ -36,5 +36,6 @@ export function lineaDeAcceso(
     status,
     latency_ms: Math.round(ms * 10) / 10,
     ...(contexto.cliente ? { client_id: contexto.cliente } : {}),
+    ...(contexto.traza ? { trace_id: contexto.traza.traceId, span_id: contexto.traza.spanId } : {}),
   });
 }

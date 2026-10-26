@@ -17,6 +17,9 @@ export interface PublicacionRecibida {
   ruta: string | undefined;
   /** X-Correlation-Id con que llegó (el del hecho que produjo el evento). */
   correlacion: string | undefined;
+  /** La cabecera traceparent de la publicación (la traza del hecho, continuada por el relevo). */
+  traceparent: string | undefined;
+  tracestate: string | undefined;
 }
 
 /** Un servidor HTTP local en un puerto libre, que se puede bajar y volver a levantar. */
@@ -125,6 +128,8 @@ export class NotifierFalso extends ServidorFalso {
       contentType: peticion.headers['content-type'],
       ruta: peticion.url,
       correlacion: peticion.headers['x-correlation-id'] as string | undefined,
+      traceparent: peticion.headers.traceparent as string | undefined,
+      tracestate: peticion.headers.tracestate as string | undefined,
     };
     const yaEstaba = this.recibidas.some((r) => r.cuerpo === cuerpo);
     this.recibidas.push(recibida);

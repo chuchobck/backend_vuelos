@@ -164,9 +164,9 @@ Ecuador continental.
 **X-Correlation-Id.** También en v1 (cabecera de respuesta; el ProblemDetails de v1 no cambia). Va en cada
 línea de log de texto (`[corr=...]` al final de la primera línea) y en una línea de acceso JSON por
 petición (`correlation_id`, `request_id`, `service`, `operation`, `method`, `status`, `latency_ms`,
-`timestamp`, `client_id`). `traceId`/`spanId` llegan con la fase 7c (PR aparte, sin fusionar): esta rama no
-la tiene. Se propaga a la Payment API (`CobroEsperado.correlationId`), al notifier (cabecera, guardada en
-`evento_saliente.correlation_id`) y se lee de la metadata gRPC `x-correlation-id`. El sobre del notifier
+`timestamp`, `client_id`, y el `trace_id`/`span_id` del span SERVER de la fase 7c). Se propaga a la
+Payment API (`CobroEsperado.correlationId`), al notifier (cabecera, guardada en
+`evento_saliente.correlation_id` junto al `traceparent`) y se lee de la metadata gRPC `x-correlation-id`. El sobre del notifier
 lleva `correlationId` solo con `EVENT_ENVELOPE_CORRELATION_ID=true` (por defecto no: los esquemas 1.0 del
 notifier tienen `additionalProperties: false`).
 

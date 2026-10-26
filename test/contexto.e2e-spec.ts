@@ -165,6 +165,11 @@ describe('X-Request-Id y contexto de la petición', () => {
         requestId: 'ctx-id-000001',
         ip: '127.0.0.1',
         usuario: null,
+        // El span SERVER de la petición (observabilidad): el log de acceso lleva sus ids
+        traza: {
+          traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
+          spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
+        },
       });
     });
 
@@ -298,7 +303,7 @@ describe('X-Request-Id en los logs', () => {
 
     const linea = lineas().find((l) => l.includes('log-acceso-0001'));
     expect(linea).toMatch(
-      /\[HTTP\] \[log-acceso-0001\] GET \/flights\/v1\/health 200 [\d.]+ms ip=127\.0\.0\.1/,
+      /\[HTTP\] \[log-acceso-0001\] \[traceId=[0-9a-f]{32} spanId=[0-9a-f]{16}\] GET \/flights\/v1\/health 200 [\d.]+ms ip=127\.0\.0\.1/,
     );
     expect(linea).not.toContain('secreto'); // la query no se registra
   });

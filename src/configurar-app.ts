@@ -8,6 +8,8 @@ import { parsearTrustProxy } from './config/proxy';
 import { configurarSeguridad } from './config/seguridad';
 import { configurarSwagger, configurarSwaggerV2, RUTA_SWAGGER } from './config/swagger';
 import { FachadaV2Module } from './modules/vuelos/v2/v2.module';
+import { middlewareContextoTraza, middlewareObservabilidad } from './observabilidad/express';
+import { Observabilidad } from './observabilidad/observabilidad';
 import {
   PREFIJO_GLOBAL,
   RUTAS_FUERA_DEL_PREFIJO,
@@ -19,18 +21,24 @@ import {
  * las pruebas e2e, para que probar la API sea probar la que de verdad se despliega.
  *
  * El orden de los middlewares importa:
- *   1. request id: antes que todo, para que hasta un 413 del parser lleve X-Request-Id
+ *   1. observabilidad (span SERVER, X-Trace-Id) y request id: antes que todo, para que hasta un
+ *      413 del parser lleve X-Request-Id y quede en la traza
  *   2. helmet, CORS y parser del cuerpo (configurarSeguridad)
- *   3. contexto asíncrono: después del parser, que perdería el contexto si se abriera antes
+ *   3. contexto asíncrono y contexto de la traza: después del parser, que los perdería si se
+ *      abrieran antes
  */
 export function configurarApp(app: NestExpressApplication): void {
   // Antes del primer middleware: de esto depende que `req.ip` sea la IP del cliente
   app.set('trust proxy', parsearTrustProxy(app.get(ConfigService).get<string>('TRUST_PROXY')));
 
+  const observabilidad = app.get(Observabilidad);
+
   app.useLogger(new LoggerPorPeticion());
+  app.use(middlewareObservabilidad(observabilidad));
   app.use(middlewareRequestId);
   configurarSeguridad(app);
   app.use(middlewareContexto);
+  app.use(middlewareContextoTraza(observabilidad));
 
   // /flights/v1/...: prefijo global más versión en la URL. La fachada v2 (/api/v2/vuelos) no
   // lleva ni lo uno ni lo otro.

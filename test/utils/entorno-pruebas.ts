@@ -13,3 +13,6 @@ process.env.POSTSALE_JOB_ENABLED = 'false';
 process.env.WEBHOOK_DELIVERY_JOB_ENABLED = 'false';
 // La clave de cifrado de los webhooks es obligatoria; las pruebas no dependen de la del .env
 process.env.WEBHOOK_SECRET_KEY ??= 'clave-de-pruebas-de-los-webhooks-0123456789';
+// Las pruebas no abren el puerto de /metrics (varias apps conviven en un proceso): la que lo
+// necesita lo fija con su propio puerto libre
+process.env.METRICS_PORT = '0';

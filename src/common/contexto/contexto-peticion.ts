@@ -31,6 +31,11 @@ export interface ContextoPeticion {
    * en v1. La fija GuardOperacion, el primer guard; `undefined` si ninguna ruta la atendió.
    */
   operacion?: string;
+  /**
+   * El span SERVER de la petición (o de la llamada gRPC), para que hasta la línea de acceso, que
+   * se escribe cuando el contexto de OpenTelemetry ya no está activo, lleve su traceId y spanId.
+   */
+  traza?: { traceId: string; spanId: string };
 }
 
 const almacen = new AsyncLocalStorage<ContextoPeticion>();

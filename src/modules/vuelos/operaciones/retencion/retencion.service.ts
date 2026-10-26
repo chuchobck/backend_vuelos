@@ -6,6 +6,7 @@ import { CodigoErrorV2 } from '../../../../common/errores/codigo-error-v2';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { UsuarioAutenticado } from '../../../../common/decorators/usuario-actual.decorator';
 import { Reloj } from '../../../../common/reloj';
+import { Observabilidad } from '../../../../observabilidad/observabilidad';
 import { TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
 import { CABINA, ORDEN_CABINAS } from '../../compartido/enums';
@@ -93,6 +94,7 @@ export class RetencionService {
     private readonly repositorio: RetencionRepository,
     private readonly claves: IdempotenciaRepository,
     private readonly reloj: Reloj,
+    private readonly observabilidad: Observabilidad,
     config: ConfigService,
   ) {
     this.vigenciaMinutos =
@@ -103,7 +105,18 @@ export class RetencionService {
    * `vigenciaMinutos` es el ttlMinutes de la fachada v2 (de 5 a 30); sin él, HOLD_TTL_MINUTES.
    * Cuenta en la huella solo si llega: un reintento de v1 sigue dando la misma.
    */
-  async crear(
+  crear(
+    solicitud: SolicitudRetencionDto,
+    idPropietario: string,
+    clave: string,
+    vigenciaMinutos?: number,
+  ): Promise<ResultadoCreacion> {
+    return this.observabilidad.interno('retencion.crear', () =>
+      this.crearRetencion(solicitud, idPropietario, clave, vigenciaMinutos),
+    );
+  }
+
+  private async crearRetencion(
     solicitud: SolicitudRetencionDto,
     idPropietario: string,
     clave: string,

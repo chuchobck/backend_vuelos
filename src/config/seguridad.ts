@@ -24,6 +24,7 @@ const CABECERAS_EXPUESTAS = [
   'X-Request-Id',
   'X-Correlation-Id',
   'Idempotent-Replayed',
+  'X-Trace-Id',
   'Retry-After',
   'X-RateLimit-Limit',
   'X-RateLimit-Remaining',

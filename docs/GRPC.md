@@ -97,6 +97,7 @@ loadSync('contracts/proto/flights/v1/flights.proto', {
 | --- | --- | --- |
 | `x-request-id` | Entrada, opcional | El de la cabecera `X-Request-Id`, con las mismas reglas: de 8 a 64 letras, dígitos, `.`, `_` o `-`. Si falta, se repite o no es válido, la API genera un UUID |
 | `x-device-fingerprint` | Entrada, obligatoria en `SearchFlights` | La cabecera `X-Device-Fingerprint`: de 8 a 128 letras, dígitos o `. _ : + / = -`. No se registra ni vuelve en los errores |
+| `traceparent` | Entrada, opcional | W3C Trace Context (`00-<32 hex>-<16 hex>-<01\|00>`). El span SERVER de la llamada (`quinde.flights.v1.FlightsService/GetFlightStatus`, con `rpc.*` y su status) cuelga de él: mismo trace-id, ese parent. Si falta o no es válido (otra versión, mayúsculas, campos de más), se abre una traza raíz y la llamada sigue |
 | `x-request-id` | Salida (cabeceras de la respuesta y metadata del error) | El id de la llamada |
 | `problem-code` | Salida, en un error | El `code` de `ProblemDetails` (`VALIDATION_FAILED`, `OFFER_NO_LONGER_AVAILABLE`...) |
 | `problem-status` | Salida, en un error | El status HTTP que tendría la misma petición en REST |
@@ -110,7 +111,11 @@ pipes, el service, Prisma y el filtro de errores lo llevan, y cada llamada deja 
 LOG [gRPC] [bff-traza-0001] /quinde.flights.v1.FlightsService/GetFlightStatus OK 3.1ms ip=10.0.0.7
 ```
 
-La IP es la de quien abrió la conexión (el BFF), no la del usuario final.
+La IP es la de quien abrió la conexión (el BFF), no la del usuario final. Con la fase 7c, la línea
+lleva también la traza: `[gRPC] [bff-traza-0001] [traceId=4bf9... spanId=00f0...] /quinde...`. El BFF
+tiene que mandar el `traceparent` del span cliente con que llama (ver
+[OBSERVABILIDAD.md del gateway](https://github.com/chuchobck/gateway_vuelos/blob/main/docs/OBSERVABILIDAD.md));
+mientras no lo mande, la llamada es una traza raíz del core.
 
 ## Errores
 

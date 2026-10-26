@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Observabilidad } from '../../../../observabilidad/observabilidad';
 import { Reloj } from '../../../../common/reloj';
 import { CifradoSecreto } from './cifrado-secreto';
 import { ClienteWebhook, ResultadoWebhook } from './cliente-webhook';
@@ -67,6 +68,7 @@ export class EntregaWebhooks implements OnApplicationBootstrap, OnModuleDestroy 
     private readonly cliente: ClienteWebhook,
     private readonly cifrado: CifradoSecreto,
     private readonly reloj: Reloj,
+    private readonly observabilidad: Observabilidad,
     config: ConfigService,
   ) {
     this.habilitado = config.get<string>('WEBHOOK_DELIVERY_JOB_ENABLED') !== 'false';
@@ -97,7 +99,9 @@ export class EntregaWebhooks implements OnApplicationBootstrap, OnModuleDestroy 
    * se registra y no detiene las corridas siguientes.
    */
   ejecutar(): Promise<ResultadoEntregas> {
-    this.corriendo ??= this.corrida().finally(() => (this.corriendo = undefined));
+    this.corriendo ??= this.observabilidad
+      .corridaDeJob('entrega-webhooks', () => this.corrida())
+      .finally(() => (this.corriendo = undefined));
     return this.corriendo;
   }
 

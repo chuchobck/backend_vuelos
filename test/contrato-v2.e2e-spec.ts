@@ -1300,8 +1300,10 @@ describe('Contrato v2 (/api/v2/vuelos): pruebas de proveedor', () => {
             'operation',
             'request_id',
             'service',
+            'span_id',
             'status',
             'timestamp',
+            'trace_id',
           ].sort(),
         );
         expect(acceso).toMatchObject({ service: 'core-vuelos', client_id: 'booking-prototipo' });

@@ -840,9 +840,12 @@ model evento_saliente {
   ultimo_error        String?
   creado_en           DateTime               @db.Timestamptz(6)
   publicado_en        DateTime?              @db.Timestamptz(6)
+  traceparent         String?
   correlation_id      String?
 
   @@index([estado, proximo_intento], map: "ix_evento_saliente_pendiente", where: raw("(estado = 'PENDIENTE'::estado_evento_saliente)"))
+  @@index([proximo_intento], map: "ix_evento_saliente_fallido", where: raw("(estado = 'FALLIDO'::estado_evento_saliente)"))
+  @@index([publicado_en], map: "ix_evento_saliente_publicado", where: raw("(estado = 'PUBLICADO'::estado_evento_saliente)"))
 }
 
 /// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments

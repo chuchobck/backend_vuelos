@@ -34,6 +34,7 @@ gRPC interno, en [docs/GRPC.md](docs/GRPC.md).
 | R2-1. gRPC interno (v1.1.0)           | Hecha en local; apagado por defecto, su despliegue es la fase de Azure |
 | 4b. Auth externa (`AUTH_MODE`)        | Hecha en local; `local` por defecto hasta el despliegue en Azure |
 | 5b. Eventos al notifier (`WEBHOOKS_MODE`) | Hecha en local; `local` por defecto hasta tener el gateway |
+| 7c. Observabilidad (trazas y métricas) | Hecha en local; sin `OTEL_EXPORTER_OTLP_ENDPOINT` las trazas se propagan pero no se exportan |
 | V1. Fachada del contrato v2 (`/api/v2/vuelos`) | Hecha en local; Booking entra por aquí con un token de partner |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
@@ -143,6 +144,7 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | `npm run eventos:reencolar -- <eventId\|--todos-los-fallidos>` | Devuelve a PENDIENTE eventos FALLIDO de la bandeja hacia el notifier |
 | `npm run eventos:sync` / `eventos:check` | Trae o compara los esquemas de eventos del notifier ([contracts/notifier-eventos](contracts/notifier-eventos/)) |
 | `./db/migrar.sh` | Aplica `db/migraciones/*.sql` a una base que ya existe (idempotente, no borra) |
+| `scripts/comprobar-migraciones.sh <ref-base>` | Comprueba que el esquema de `<ref-base>` más las migraciones deja una base igual a una nueva (lo corre CI) |
 | `npm run auth:exportar-usuarios -- <archivo>` | Exporta las cuentas a SQL para identity_vuelos (una sola vez, al pasar a `AUTH_MODE=external`; [docs/DEPLOY.md](docs/DEPLOY.md#6-cambio-de-modo-de-autenticación)) |
 
 ## Cómo probar
@@ -501,6 +503,30 @@ curl -s -X POST localhost:3000/api/v2/vuelos/search -H 'Content-Type: applicatio
   -H 'X-Device-Fingerprint: fp-prueba-0001' -H 'X-Correlation-Id: corr-demo-1' \
   -d '{"itineraries":[{"origin":"UIO","destination":"GYE","departureDate":"2026-11-20"}],"passengers":{"adults":1}}'
 ```
+
+## Observabilidad
+
+El core sigue el estándar de observabilidad de Quinde
+([docs/OBSERVABILIDAD.md del gateway](https://github.com/chuchobck/gateway_vuelos/blob/main/docs/OBSERVABILIDAD.md)):
+trazas OpenTelemetry (W3C Trace Context) y métricas Prometheus. El módulo está en
+[src/observabilidad](src/observabilidad/README.md).
+
+- **Trazas.** Una petición REST abre un span SERVER con la plantilla de su ruta
+  (`POST /flights/v1/bookings`, `GET /flights/v1/bookings/{bookingId}`) y devuelve `X-Trace-Id`; una
+  llamada gRPC, otro con `rpc.*`. Ambos continúan el `traceparent` que reciben del gateway o del BFF.
+  Crear una retención, una reserva, emitir los boletos y cancelar abren un span INTERNAL con nombre
+  fijo; la Payment API y el notifier, uno CLIENT. Cada corrida de un proceso periódico es su propia
+  traza (`job relevo-eventos`...). La bandeja guarda el `traceparent` del hecho y el relevo lo
+  continúa hasta el notifier; **la entrega a terceros nunca lleva `traceparent`**.
+- **Métricas** en `METRICS_PORT` (aparte de `PORT`; en local, 9466): `http_server_*`,
+  `http_client_request_duration_seconds` (pagos y notifier), `quinde_build_info` y las propias
+  `core_outbox_pending`, `core_outbox_oldest_pending_seconds`, `core_relay_publish_total{result}`,
+  `core_bookings_total{result}` y `core_job_run_duration_seconds{job}`. Etiquetas de listas cerradas:
+  nunca pnr, ids, correos ni IPs.
+- **Logs.** Cada línea lleva `traceId` y `spanId`; la de acceso escribe la plantilla de la ruta.
+- Variables (todas opcionales): `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+  `OTEL_TRACES_SAMPLER_ARG`, `TRACE_TRUST_INCOMING` y `METRICS_PORT`
+  ([docs/DEPLOY.md](docs/DEPLOY.md)).
 
 ## Catálogo de administración
 

@@ -9,6 +9,7 @@ import { join, resolve } from 'node:path';
 import { Client } from 'pg';
 import * as request from 'supertest';
 import { validarEntorno } from '../src/config/entorno';
+import { Observabilidad } from '../src/observabilidad/observabilidad';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { BandejaEventosRepository } from '../src/modules/vuelos/operaciones/webhook/bandeja-eventos.repository';
 import { CifradoSecreto } from '../src/modules/vuelos/operaciones/webhook/cifrado-secreto';
@@ -594,6 +595,7 @@ describe('WEBHOOKS_MODE=notifier', () => {
         app.get(ClienteNotifier),
         app.get(ClienteTokenIdentity),
         reloj,
+        app.get(Observabilidad),
         app.get(ConfigService),
       );
       const [uno, dos] = await Promise.all([relevo.ejecutar(), otro.ejecutar()]);
