@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-21 (fase 7c, observabilidad del core) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-10-26 (cierre de la fase V1, fachada del contrato v2) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1. Las fases de RDA2 (R2-...) la integran con el resto del Booking: la R2-1 agrega un servidor gRPC interno para el BFF GraphQL la 4b deja que los tokens los emita el servicio de identidad (`AUTH_MODE=external`) y la 5b, que los webhooks los reparta el notifier (`WEBHOOKS_MODE=notifier`).
 
@@ -25,6 +25,7 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | 5b. Eventos al notifier | Hecha en local (2026-10-16); `WEBHOOKS_MODE=local` sigue siendo el valor por defecto y no se activa hasta tener el gateway | `lint`, `format:check` y `build` pasan en cada uno de los 11 commits. `test:e2e`: 1014 pruebas en 38 suites (43 nuevas en `eventos-notifier` y `exportar-webhooks`); pasan 1012 y fallan las mismas 2 de `errores-bd` de siempre en esta máquina (IPv6). Las suites existentes no cambiaron y corren en local; en una tercera corrida falló además `admin-auditoria` por datos acumulados en la base local (ver Hallazgos). `eventos-notifier` (40) contra un notifier y un identity falsos: reservar, cancelar, vencer un hold y mover un horario dejan una fila por hecho en `evento_saliente` y ninguna en `webhook_entrega`; los sobres de los 12 tipos cumplen los esquemas copiados del notifier; una transacción deshecha no deja evento; el relevo con 202, 200, 503 y Retry-After, 500, red caída y plazo (el mismo cuerpo byte a byte), 400/409/413/415/422 sin reintento, 401 con token nuevo, token reutilizado y renovado, esperas 5 s a 1 h, 48 h, aviso de atraso, SKIP LOCKED, dos relevos con 60 eventos, arrendamiento vencido y `eventos:reencolar`; `/webhooks` en 404; el entorno inválido; y ni el secreto, ni los tokens, ni las URLs en el log, la bandeja o las respuestas. `npm run test:mutaciones`: 32 de 32 muertas (11 de esta fase). Migración: `db/migrar.sh` dos veces sobre la base local y sobre una base nueva cargada con `esquema_vuelos.sql` (la segunda, sin cambios). Real, con todo en `main`: identity (`./db/migrar.sh`), notifier y el core compilado con `WEBHOOKS_MODE=notifier`; una reserva llegó al receptor con la firma válida, con el notifier apagado los eventos quedaron `PENDIENTE` y al volver se entregaron una vez cada uno; el importador del notifier aceptó el archivo de `webhooks:exportar` (659 importadas, la segunda vez "ya existían"; ver `docs/DEPLOY.md`) |
 | 5b-2. Purga de la bandeja | Hecha en local (2026-10-16); solo actúa con `WEBHOOKS_MODE=notifier` | `lint`, `format:check` y `build` pasan en cada uno de los 6 commits. `purga-bandeja` (29 pruebas, contra PostgreSQL con `Reloj` inyectado) y `purga-bandeja-local` (2): borra los `PUBLICADO` de más de 7 días y deja los de 6,99; borra los `FALLIDO` de más de 30 y deja los de 29,99; deja todos los `PENDIENTE` sea cual sea su edad o su arrendamiento; no borra lo que tiene un arrendamiento vigente, lo que el relevo tiene tomado ni una fila bloqueada por otra conexión (sin esperarla); respeta el lote de 1000 y el tope por corrida (con 3 700 filas y un tope de 2 500 borra exactamente 2 500 y sigue en la siguiente); dos instancias a la vez sobre 7 500 filas borran cada una una sola vez y sin errores; con el relevo publicando a la vez no se estorban; en modo local el job no existe; las variables inválidas no arrancan y el mensaje nombra la variable; `--dry-run` no borra y sus conteos son los del borrado real; el log solo lleva conteos. 12 mutaciones nuevas, 12 muertas. Verificación real: ver DEPLOY.md, «Purga de la bandeja». No verificado: contra una base desplegada (Neon) ni con el notifier real |
 | 7c. Observabilidad | Hecha en local (2026-10-21); sin `OTEL_EXPORTER_OTLP_ENDPOINT` las trazas se generan y propagan pero no se exportan | `lint`, `format:check` y `build` pasan en cada uno de los 12 commits. `test:e2e`: 1053 pruebas en 40 suites (62 nuevas en `observabilidad` y `observabilidad-local`); pasan 1050 y fallan las 2 de `errores-bd` de siempre en esta máquina (IPv6) y la paginación de `admin-auditoria` por datos acumulados en la base local (ver Hallazgos). Contra un recolector OTLP falso y un cliente gRPC: REST y gRPC continúan el `traceparent` recibido (mismo trace-id, parent correcto) y sin él abren una raíz (también con uno inválido: mayúsculas, versión `ff`, campos de más, ids en cero); la jerarquía de una reserva es `SERVER POST /flights/v1/bookings → INTERNAL reserva.crear → {CLIENT POST /payments/authorize, INTERNAL reserva.emitir-boletos}`; los tres eventos de la reserva guardan el `traceparent` del span de la emisión y el relevo los publica con spans CLIENT hijos de esa traza, y el notifier falso recibe un `traceparent` con el mismo trace-id; la entrega a un tercero (modo local) no lleva `traceparent` ni `tracestate`; cada corrida de un job es una traza raíz aunque se llame dentro de otra; ni pnr, ni correos, ni ids de reserva ni de usuario, ni tokens, ni IPs, ni nombres, ni la referencia de pago salen en un span ni en `/metrics`; 60 rutas distintas son una sola serie; `/metrics` solo en el puerto aparte; los gauges de la bandeja coinciden con la base y, si la base no contesta, el raspado termina y el gauge no se publica. 11 mutaciones nuevas, todas muertas. Verificación real: ver DEPLOY.md, «Fase 7c». No verificado: el árbol `gateway → bff → core` con el BFF real (ver Hallazgos), Jaeger y Prometheus reales, ni una base desplegada |
+| V1. Fachada del contrato v2 | Hecha en local (2026-10-26); Booking integra por `/api/v2/vuelos` con un token de partner de identity | `lint`, `format:check` y `build` pasan en cada commit. `test:e2e`: v1 sin cambios (1011 de 1014; las 3 que fallan son las de siempre en esta máquina: 2 de IPv6 en `errores-bd` y `admin-auditoria` por datos acumulados) más 49 nuevas en `contrato-v2` (36), `salud-v2` (8) y `fachada-v2` (5): cada operación implementada contra su esquema del contrato v2 por status (tabla de cobertura en `docs/V2-DIFERENCIAS.md`), correlación (sin cambios, generada, en la respuesta, el error, el log, la Payment API, gRPC, `evento_saliente` y la cabecera al notifier), partner (X-User-Id ignorado sin token de partner, aislamiento entre partners y usuarios finales), pagos de Booking (sin llamar a la Payment API, referencia reusada, `AMOUNT_MISMATCH`), idempotencia (reintento 200, otro cuerpo 409, 24 h con el reloj de la prueba), saga (compensación sin cotización ni penalidad, repetida) y salud con dependencias caídas, lentas y en caché. `npm run test:mutaciones`: 27 de 27 de esta fase muertas. Migración 004: base de `main` + 004 (dos veces) igual a una base nueva (`pg_dump -s`). Real: identity_vuelos (`main`) + el core compilado con `AUTH_MODE=external`, cliente `booking-prototipo` creado con `cliente:crear`; search → hold → booking (`PAY-BKP-...`) → reintento → tickets → cancel `SAGA_COMPENSATION` (y repetida) → 404, todo con el mismo `X-Correlation-Id`, que salió en cada respuesta, en el error y en las 18 líneas de log de la compra |
 
 ## Decisiones
 
@@ -460,6 +461,7 @@ Las fases 0 a 3 son la base, la 4 fija el patrón de módulo y las 5 a 7 son el 
 | 5b. Eventos al notifier | `feat/r2-publicar-eventos` | `WEBHOOKS_MODE`, bandeja `evento_saliente` con migración, relevo con token de identity, `/webhooks` solo en local, esquemas del notifier, exportador de suscripciones, pruebas y mutaciones | Con `WEBHOOKS_MODE=notifier` una reserva llega firmada al receptor a través del notifier, y con el notifier caído el evento espera y se entrega una vez |
 | 5b-2. Purga de la bandeja | `feat/r2-purga-bandeja` | Variables `EVENT_OUTBOX_*`, índices con migración 002, job `PurgaBandeja`, `npm run eventos:purgar`, pruebas y mutaciones | Una reserva real publicada y envejecida 8 días se borra con `--dry-run` primero y con el borrado real después, y un `PENDIENTE` de 100 días sobrevive |
 | 7c. Observabilidad | `feat/r2-observabilidad` | Módulo copiado del gateway, spans REST y gRPC, INTERNAL de negocio, CLIENT de pagos y notifier, traza por la bandeja (migración 003), trazas de los procesos periódicos, métricas `core_*`, CI de migraciones, pruebas y mutaciones | Una reserva por el gateway da una sola traza `gateway → core → pago`, y el notifier recibe el `traceparent` de esa misma traza |
+| V1. Fachada del contrato v2 | `feat/v2-fachada` | `/api/v2/vuelos` con las 21 operaciones de v1, `issueTickets` y `health`; partner, pagos de Booking, `ProblemDetails` v2, idempotencia v2, `X-Correlation-Id` en v1 y v2, migración 004, Swagger aparte, pruebas de proveedor y mutaciones | Booking compra y compensa con un token de partner y el mismo `X-Correlation-Id` aparece en cada respuesta y en cada línea de log |
 
 Si el tiempo aprieta antes de RDA1, lo primero que se recorta es la fase 10: se dejan alta, listado y baja de suscripciones y se pospone la entrega de eventos.
 
@@ -679,6 +681,21 @@ El paso 10 del pedido (documentación, plan y CHANGELOG) quedó en tres commits,
 la documentación, la versión con su CHANGELOG y el cierre del plan. El tag `v1.1.0` lo crea el
 dueño del repo después de mezclar.
 
+### Fase V1 · Fachada del contrato v2
+
+1. `docs(v2): documentar las diferencias entre el contrato v1 y el v2 por operación`
+2. `feat(correlacion): recibir, generar y devolver X-Correlation-Id en v1, gRPC, pagos y logs`
+3. `feat(bd): agregar correlation_id a la bandeja, partner y canal a la reserva y proveedor al pago`
+4. `feat(eventos): guardar el X-Correlation-Id del hecho en la bandeja y mandarlo al notifier`
+5. `feat(operaciones): preparar los servicios para v2 (errores, pago de Booking, partner, ttl, motivo)`
+6. `feat(v2): montar la fachada /api/v2/vuelos con salud, partner, pagos de Booking y Swagger aparte`
+7. `test(v2): probar el contrato v2 de proveedor, la correlación, el partner, la idempotencia y la salud`
+8. `test(v2): agregar 27 mutaciones de la fachada v2 y probar el reembolso con una tarifa reembolsable`
+9. `docs(v2): documentar la fachada v2 y cerrar la fase V1`
+
+El commit 5 también agrega `cotizacion_cancelacion.codigo_motivo` a la migración 004 (que no estaba
+subida). Las decisiones de la fase están en `docs/V2-DIFERENCIAS.md`.
+
 ### Fase 5b · Eventos al notifier
 
 1. `feat(eventos): agregar WEBHOOKS_MODE y las variables del notifier al entorno`
@@ -737,6 +754,24 @@ dos exportaciones (ocultas por `.gitignore`, que funcionó como segunda barrera)
 
 ## Hallazgos
 
+### Fase V1
+
+- `test/swagger.e2e-spec.ts` exige a la vez que toda ruta de la app esté en `/api/docs` y que ese
+  documento no tenga rutas fuera del contrato v1: con la fachada v2 no se pueden cumplir las dos sin
+  tocarla. Se cambió una línea (la primera salta `/api/v2/...`) y las rutas de v2 se comprueban contra
+  `/api/v2/docs` en `test/fachada-v2.e2e-spec.ts`. Es el único cambio a la suite de v1.
+- `test/contexto.e2e-spec.ts` compara el contexto de la petición entero: `correlationId` y `operacion` se
+  agregan como propiedades no enumerables (`crearContexto`) para no cambiar esa prueba.
+- La mutación "la cancelación de una reserva cobrada por Booking pide el reembolso" sobrevivió al
+  principio: la prueba cancelaba una tarifa BASIC (100 % de penalidad), sin nada que devolver. Ahora usa
+  una tarifa reembolsable.
+- `contracts/vuelos-openapi-v2.yaml` llegó como lo entregó el docente y no pasa Prettier: va en
+  `.prettierignore` (en `main`, `format:check` ya fallaba por él).
+- Sin la fase 7c en esta rama, la línea de acceso JSON no trae `traceId` ni `spanId`, y la línea de
+  texto de acceso sigue con la URL pedida (7c la cambia por la plantilla de la ruta). Al fusionar 7c
+  habrá conflictos en `contexto.middleware.ts` y en el logger.
+- Los límites de peticiones son por IP: Booking llega desde pocas IP y 10 reservas por minuto puede
+  quedarle corto. Contar por `client_id` queda pendiente.
 ### Fase 7c
 
 | Tema | Qué pasó | Qué implica |

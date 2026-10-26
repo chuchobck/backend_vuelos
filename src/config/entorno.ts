@@ -315,6 +315,32 @@ export class VariablesEntorno {
   @ValidateIf(conNotifier)
   EVENT_OUTBOX_FAILED_RETENTION_DAYS?: number;
 
+  /**
+   * Si el sobre de cada evento lleva además `correlationId` (el X-Correlation-Id del hecho). Sin
+   * valor: false, porque los esquemas 1.0 del notifier no lo admiten (additionalProperties:
+   * false); se enciende cuando el notifier lo acepte. La columna y la cabecera van siempre.
+   */
+  @IsIn(['true', 'false'], { message: 'EVENT_ENVELOPE_CORRELATION_ID debe ser true o false' })
+  @IsOptional()
+  EVENT_ENVELOPE_CORRELATION_ID?: string;
+
+  /**
+   * nodo_id de GET /api/v2/vuelos/health: cómo identifica Booking a este nodo en su Monitor de
+   * Nodos. Sin valor: NODE_VUE_QUINDE.
+   */
+  @Matches(/^[A-Z0-9_]{3,60}$/, {
+    message: 'NODO_ID debe tener de 3 a 60 mayúsculas, dígitos o _ (por ejemplo NODE_VUE_QUINDE)',
+  })
+  @IsOptional()
+  NODO_ID?: string;
+
+  /** nombre_proveedor de GET /api/v2/vuelos/health (la aerolínea). Sin valor: Quinde. */
+  @Matches(/^[\p{L}\p{N} .&'-]{1,80}$/u, {
+    message: "NOMBRE_PROVEEDOR debe tener de 1 a 80 letras, dígitos, espacios o . & ' -",
+  })
+  @IsOptional()
+  NOMBRE_PROVEEDOR?: string;
+
   /** Orígenes que pueden llamar desde un navegador. Sin valor: ninguno. */
   @Validate(ListaDeOrigenes)
   @IsOptional()

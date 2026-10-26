@@ -16,6 +16,7 @@
   },
   "transformIgnorePatterns": ["/node_modules/(?!(jose|@opentelemetry/otlp-exporter-base)/)"],
   "testTimeout": 20000,
+  "workerIdleMemoryLimit": "1536MB",
   "collectCoverageFrom": [
     "src/**/*.ts",
     "!src/generated/**",

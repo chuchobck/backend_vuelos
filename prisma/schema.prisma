@@ -201,6 +201,7 @@ model cotizacion_cancelacion {
   fecha_aceptacion DateTime?        @db.Timestamptz(6)
   motivo           String?
   fecha_completada DateTime?        @db.Timestamptz(6)
+  codigo_motivo    String?
   reserva_cabecera reserva_cabecera @relation(fields: [reserva_id], references: [id], onUpdate: NoAction, map: "fk_cotizacion_cancelacion_reserva")
 
   @@index([reserva_id], map: "ix_cotizacion_cancelacion_reserva")
@@ -426,6 +427,13 @@ model reserva_cabecera {
   estado                     estado_reserva               @default(PENDIENTE)
   fecha_creacion             DateTime                     @default(now()) @db.Timestamptz(6)
   fecha_actualizacion        DateTime                     @default(now()) @db.Timestamptz(6)
+  id_cliente                 String?
+  id_usuario_externo         String?
+  canal_socio                String?
+  canal_orden                String?
+  canal_paquete              String?
+  canal_promocion            Boolean?
+  canal_descuento            Decimal?                     @db.Decimal(5, 2)
   cambio_cabecera            cambio_cabecera[]
   cotizacion_cancelacion     cotizacion_cancelacion?
   evento                     evento[]
@@ -437,6 +445,7 @@ model reserva_cabecera {
 
   @@index([estado, fecha_actualizacion], map: "ix_reserva_cabecera_en_proceso", where: raw("(estado = ANY (ARRAY['PENDIENTE'::estado_reserva, 'PENDIENTE_PAGO'::estado_reserva, 'EMITIENDO_BOLETOS'::estado_reserva, 'CAMBIO_PENDIENTE'::estado_reserva, 'CANCELACION_PENDIENTE'::estado_reserva]))"))
   @@index([fecha_creacion(sort: Desc), id(sort: Desc)], map: "ix_reserva_cabecera_listado")
+  @@index([id_cliente, id_usuario_externo, fecha_creacion(sort: Desc)], map: "ix_reserva_cabecera_usuario_externo", where: raw("(id_usuario_externo IS NOT NULL)"))
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -522,6 +531,7 @@ model reserva_detalle_pago {
   concepto                 concepto_pago
   estado                   estado_pago                @default(APROBADO)
   fecha_registro           DateTime                   @default(now()) @db.Timestamptz(6)
+  proveedor                proveedor_pago             @default(AEROLINEA)
   cambio_cabecera          cambio_cabecera?
   reserva_detalle_equipaje reserva_detalle_equipaje[]
   reserva_cabecera         reserva_cabecera           @relation(fields: [reserva_id], references: [id], onUpdate: NoAction, map: "fk_reserva_detalle_pago_reserva")
@@ -831,6 +841,7 @@ model evento_saliente {
   creado_en           DateTime               @db.Timestamptz(6)
   publicado_en        DateTime?              @db.Timestamptz(6)
   traceparent         String?
+  correlation_id      String?
 
   @@index([estado, proximo_intento], map: "ix_evento_saliente_pendiente", where: raw("(estado = 'PENDIENTE'::estado_evento_saliente)"))
   @@index([proximo_intento], map: "ix_evento_saliente_fallido", where: raw("(estado = 'FALLIDO'::estado_evento_saliente)"))
@@ -992,4 +1003,10 @@ enum estado_evento_saliente {
   PENDIENTE
   PUBLICADO
   FALLIDO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum proveedor_pago {
+  AEROLINEA
+  BOOKING_PROTOTIPO
 }

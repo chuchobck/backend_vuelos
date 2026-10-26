@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
+import { correlacionActual } from '../../../../common/contexto/correlation-id';
 import { modoWebhooks } from '../../../../config/eventos';
 import { traceparentActivo } from '../../../../observabilidad/contexto-traza';
 import { TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { ESTADO_RESERVA } from '../../compartido/enums';
-import { BandejaEventosRepository } from './bandeja-eventos.repository';
+import { BandejaEventosRepository, OrigenEvento } from './bandeja-eventos.repository';
 import { EntregaRepository } from './entrega.repository';
 import { EVENTOS_WEBHOOK } from './webhook.modelo';
 
@@ -36,11 +37,14 @@ const ESTADOS_DEL_CONTRATO: Record<string, string> = Object.fromEntries(
  *   contexto activo (la traza del hecho); la publica RelevoEventos al notifier, que reparte a las
  *   suscripciones. La entrega a terceros (local) nunca lleva traceparent.
  *
- * Las firmas son las mismas en los dos modos: quien publica no sabe cuál está activo.
+ * Las firmas son las mismas en los dos modos: quien publica no sabe cuál está activo. En modo
+ * notifier cada evento guarda el X-Correlation-Id de la petición del hecho (y, con
+ * EVENT_ENVELOPE_CORRELATION_ID=true, lo lleva también en el sobre).
  */
 @Injectable()
 export class PublicadorEventos {
   private readonly alNotifier: boolean;
+  private readonly correlacionEnSobre: boolean;
 
   constructor(
     private readonly entregas: EntregaRepository,
@@ -48,6 +52,11 @@ export class PublicadorEventos {
     config: ConfigService,
   ) {
     this.alNotifier = modoWebhooks(config) === 'notifier';
+    this.correlacionEnSobre = config.get<string>('EVENT_ENVELOPE_CORRELATION_ID') === 'true';
+  }
+
+  private origen(): OrigenEvento {
+    return { correlationId: correlacionActual() ?? null, enSobre: this.correlacionEnSobre };
   }
 
   /** Un evento de la reserva (booking.*), a las suscripciones de su dueño. */
@@ -67,6 +76,7 @@ export class PublicadorEventos {
         randomUUID(),
         ESTADOS_DEL_CONTRATO,
         traceparentActivo(),
+        this.origen(),
       );
       return;
     }
@@ -89,6 +99,7 @@ export class PublicadorEventos {
         ahora,
         randomUUID(),
         traceparentActivo(),
+        this.origen(),
       );
       return;
     }
@@ -110,6 +121,7 @@ export class PublicadorEventos {
         ahora,
         ESTADOS_DEL_CONTRATO,
         traceparentActivo(),
+        this.origen(),
       );
       return;
     }

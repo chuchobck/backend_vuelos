@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { CABECERA_CORRELACION } from '../../../../common/contexto/correlation-id';
 import { configuracionNotifier } from '../../../../config/eventos';
 import { codigoDeRed } from './cliente-token-identity';
 
@@ -20,7 +21,8 @@ export interface ResultadoPublicacion {
 
 /**
  * POST {NOTIFIER_URL}/internal/v1/events con el sobre tal como está guardado (un string: no se
- * vuelve a serializar) y el token del cliente core-vuelos. No sigue redirecciones (una 3xx es un
+ * vuelve a serializar), el token del cliente core-vuelos y, si el hecho lo tenía, su
+ * X-Correlation-Id sin cambios. No sigue redirecciones (una 3xx es un
  * resultado, no un salto), corta a los 5 s y descarta el cuerpo de la respuesta. Nunca lanza.
  * Con `traceparent`, lo manda como cabecera (el del span CLIENT del relevo).
  */
@@ -32,6 +34,7 @@ export class ClienteNotifier {
     sobre: string,
     token: string,
     traceparent?: string,
+    correlationId: string | null = null,
   ): Promise<ResultadoPublicacion> {
     const { urlNotifier } = configuracionNotifier(this.config);
     try {
@@ -41,6 +44,7 @@ export class ClienteNotifier {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           Authorization: `Bearer ${token}`,
+          ...(correlationId === null ? {} : { [CABECERA_CORRELACION]: correlationId }),
           // El span CLIENT de esta publicación: el notifier continúa la traza del hecho
           ...(traceparent === undefined ? {} : { traceparent }),
         },

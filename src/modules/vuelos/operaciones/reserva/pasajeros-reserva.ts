@@ -1,4 +1,5 @@
 import { CODIGO_SIN_EQUIVALENTE } from '../../../../common/errores/codigo-error';
+import { CodigoErrorV2 } from '../../../../common/errores/codigo-error-v2';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { fechaIsoAUtc } from '../../../../common/pipes/formatos';
 import { tipo_pasajero } from '../../../../generated/prisma/client';
@@ -28,10 +29,21 @@ export interface ContextoPasajeros {
   paises: Map<string, bigint>;
 }
 
-/** 422: el pasajero es válido por sí solo, pero no corresponde al hold o al catálogo. */
-const noCorresponde = (campo: string, detalle: string) =>
+/**
+ * 422: el pasajero es válido por sí solo, pero no corresponde al hold o al catálogo. `codigoV2`
+ * es el code que lleva en la fachada v2 cuando el contrato v2 tiene uno para el caso.
+ */
+const noCorresponde = (campo: string, detalle: string, codigoV2?: CodigoErrorV2) =>
   new ErrorNegocio(422, CODIGO_SIN_EQUIVALENTE, `${campo}: ${detalle}`, {
     invalidParams: [{ name: campo, reason: detalle }],
+    ...(codigoV2 ? { v2: { code: codigoV2 } } : {}),
+  });
+
+/** 400 de un infante sin su adulto: en v2, INFANT_WITHOUT_ADULT (con el mismo status). */
+const infanteSinAdulto = (campo: string, detalle: string) =>
+  new ErrorNegocio(400, CODIGO_SIN_EQUIVALENTE, `${campo}: ${detalle}`, {
+    invalidParams: [{ name: campo, reason: detalle }],
+    v2: { code: CodigoErrorV2.INFANT_WITHOUT_ADULT },
   });
 
 /**
@@ -78,6 +90,7 @@ export function validarPasajeros(
       throw noCorresponde(
         `${campo}.documentExpiryDate`,
         'the document expires before the trip ends',
+        CodigoErrorV2.DOCUMENT_EXPIRED,
       );
     }
     if (tipoDocumento === 'CEDULA' && p.nationality === 'EC' && !esCedulaValida(p.documentNumber)) {
@@ -121,6 +134,7 @@ function validarConteo(pasajeros: PasajeroReservaDto[], conteo: Record<tipo_pasa
         'passengers',
         `the hold is for ${conteo[tipo]} ${TIPO_PASAJERO.aContrato(tipo)} passenger(s), ` +
           `not ${enviados}`,
+        CodigoErrorV2.PASSENGER_COUNT_MISMATCH,
       );
     }
   }
@@ -141,9 +155,9 @@ function validarInfantes(pasajeros: PasajeroReservaDto[]) {
       if (p.associatedAdultId !== undefined) throw cuerpoInvalido(campo, 'is only for INFANT');
       return;
     }
-    if (p.associatedAdultId === undefined) throw cuerpoInvalido(campo, 'is required for INFANT');
+    if (p.associatedAdultId === undefined) throw infanteSinAdulto(campo, 'is required for INFANT');
     if (!adultos.has(p.associatedAdultId)) {
-      throw cuerpoInvalido(campo, 'must be the passengerId of an ADULT of this booking');
+      throw infanteSinAdulto(campo, 'must be the passengerId of an ADULT of this booking');
     }
     if (conInfante.has(p.associatedAdultId)) {
       throw cuerpoInvalido(campo, 'each adult can travel with only one infant');

@@ -1,7 +1,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
+import { correlacionActual } from '../../../../common/contexto/correlation-id';
 import { CodigoError, CODIGO_SIN_EQUIVALENTE } from '../../../../common/errores/codigo-error';
+import { CodigoErrorV2 } from '../../../../common/errores/codigo-error-v2';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { Reloj } from '../../../../common/reloj';
 import { Observabilidad } from '../../../../observabilidad/observabilidad';
@@ -26,10 +28,12 @@ import { Cotizacion } from './cancelacion.modelo';
 import {
   CancelacionPendiente,
   CancelacionRepository,
+  CodigoMotivo,
   CotizacionGuardada,
   LineaReembolsable,
 } from './cancelacion.repository';
 import { SolicitudCancelacionDto } from './dto/cancelacion.dto';
+import { claveConOtroCuerpo, cuerpoInvalido } from '../../compartido/errores';
 
 /** Reglas de la cancelación. */
 export const REGLAS_CANCELACION = {
@@ -44,6 +48,28 @@ const HORA = 60 * MINUTO;
 /** Los procesos periódicos escriben sin usuario. */
 const SISTEMA = { idUsuario: null, direccionIp: null };
 
+/** reasonCode del contrato v2 (CancelBookingRequest). */
+export type MotivoCancelacionV2 =
+  'CUSTOMER_REQUEST' | 'SAGA_COMPENSATION' | 'FLIGHT_CANCELLED' | 'OTHER';
+
+/** reasonCode → cotizacion_cancelacion.codigo_motivo. */
+export const CODIGO_MOTIVO: Readonly<Record<MotivoCancelacionV2, CodigoMotivo>> = {
+  CUSTOMER_REQUEST: 'SOLICITUD_CLIENTE',
+  SAGA_COMPENSATION: 'COMPENSACION_SAGA',
+  FLIGHT_CANCELLED: 'VUELO_CANCELADO',
+  OTHER: 'OTRO',
+};
+
+/** POST .../cancel de la fachada v2: quoteId opcional en una compensación o un vuelo cancelado. */
+export interface SolicitudCancelacionV2 {
+  quoteId?: string;
+  reasonCode: MotivoCancelacionV2;
+  reason?: string;
+}
+
+/** Los reasonCode que no piden quoteId: el servidor cotiza sin penalidad. */
+const SIN_COTIZACION: readonly MotivoCancelacionV2[] = ['SAGA_COMPENSATION', 'FLIGHT_CANCELLED'];
+
 export interface ResultadoCancelacion {
   reserva: Reserva;
   codigoHttp: 200 | 202;
@@ -56,6 +82,8 @@ class ClaveEnUso extends Error {}
 const yaCancelada = (id: string) =>
   new ErrorNegocio(409, CodigoError.ALREADY_CANCELLED, `Booking ${id} is already cancelled`);
 const CIEN = new Prisma.Decimal(100);
+/** El code v2 de una reserva que no está CONFIRMADA al cotizar o cancelar. */
+const NO_CANCELABLE = CodigoErrorV2.BOOKING_NOT_CANCELLABLE;
 
 /**
  * Cotización y cancelación de una reserva (GET .../cancellation-quote y POST .../cancel).
@@ -75,6 +103,8 @@ interface DatosCancelacion {
   idClave: IdClave;
   huella: string;
   ahora: Date;
+  /** El motivo de la cancelación v2 (`reasonCode`); null en v1. */
+  codigoMotivo?: CodigoMotivo | null;
 }
 
 @Injectable()
@@ -101,11 +131,18 @@ export class CancelacionService {
   /**
    * Una cotización nueva en cada llamada, vigente CANCELLATION_QUOTE_TTL_MINUTES. Aprovecha la
    * escritura para purgar las vencidas que nadie aceptó (sin fallar la cotización).
+   *
+   * `sinPenalidad` (la cancelación v2 de una compensación o de un vuelo cancelado): se devuelve
+   * todo lo pagado, sin retener nada.
    */
-  async cotizar(reservaId: string, idPropietario: string): Promise<Cotizacion> {
+  async cotizar(
+    reservaId: string,
+    idPropietario: string,
+    sinPenalidad = false,
+  ): Promise<Cotizacion> {
     const ahora = this.reloj.ahora();
     const reserva = await this.reservas.detalle(reservaId, idPropietario);
-    exigirConfirmada(reserva, 'a cancellation');
+    exigirConfirmada(reserva, 'a cancellation', NO_CANCELABLE);
     exigirSinDespegar(reserva.itinerarios, ahora);
     if ((await this.repositorio.pagosPendientes(reserva.id)) > 0) {
       throw new ErrorNegocio(
@@ -115,10 +152,9 @@ export class CancelacionService {
       );
     }
 
-    const { reembolso, penalidad } = calcularReembolso(
-      await this.repositorio.lineas(reserva.id),
-      reserva.total.total,
-    );
+    const { reembolso, penalidad } = sinPenalidad
+      ? { reembolso: reserva.total.total, penalidad: new Prisma.Decimal(0) }
+      : calcularReembolso(await this.repositorio.lineas(reserva.id), reserva.total.total);
     const vence = new Date(ahora.getTime() + this.vigenciaMinutos * MINUTO);
     const id = await this.prisma.transaccionAuditada((tx) =>
       this.repositorio.crear(tx, {
@@ -164,6 +200,64 @@ export class CancelacionService {
       return this.repetir(previa, huella, reservaId, idPropietario);
     if (previa) await this.claves.borrarVencidas(ahora, idClave);
     return this.ejecutar({ reservaId, solicitud, idDueno: idPropietario, idClave, huella, ahora });
+  }
+
+  /**
+   * POST /api/v2/vuelos/bookings/{bookingId}/cancel (contrato v2): lo mismo que `cancelar`, más:
+   *
+   * - reasonCode (CUSTOMER_REQUEST por defecto) se guarda con la cancelación (codigo_motivo);
+   * - SAGA_COMPENSATION y FLIGHT_CANCELLED no piden quoteId: el servidor cotiza SIN penalidad y
+   *   acepta en el acto (el contrato deja la penalidad de una compensación al acuerdo B2B, que
+   *   esta fase no implementa; un vuelo cancelado no es culpa del cliente). Con quoteId, vale la
+   *   cotización tal como se dio;
+   * - una compensación sobre una reserva ya cancelada no es un error: responde la cancelación que
+   *   ya existe (200, o 202 si sigue pendiente). Booking puede repetirla con otra clave sin miedo.
+   *
+   * Si la reserva la cobró Booking, el reembolso solo se calcula (ver `reembolsar`).
+   */
+  async cancelarV2(
+    reservaId: string,
+    solicitud: SolicitudCancelacionV2,
+    idPropietario: string,
+    clave: string,
+  ): Promise<ResultadoCancelacion> {
+    const ahora = this.reloj.ahora();
+    const huella = huellaV2(reservaId, solicitud);
+    const idClave: IdClave = { idPropietario, operacion: 'CANCELAR_RESERVA', clave };
+    const previa = await this.claves.leer(idClave);
+    if (previa && previa.vence > ahora)
+      return this.repetir(previa, huella, reservaId, idPropietario);
+    if (previa) await this.claves.borrarVencidas(ahora, idClave);
+
+    if (solicitud.reasonCode === 'SAGA_COMPENSATION') {
+      const reserva = await this.reservas.detalle(reservaId, idPropietario);
+      if (reserva.estado === 'CANCELADA' || reserva.estado === 'CANCELACION_PENDIENTE') {
+        return {
+          reserva,
+          codigoHttp: reserva.estado === 'CANCELADA' ? 200 : 202,
+          repetida: false,
+        };
+      }
+    }
+    let quoteId = solicitud.quoteId;
+    if (quoteId === undefined) {
+      if (!SIN_COTIZACION.includes(solicitud.reasonCode)) {
+        throw cuerpoInvalido(
+          'quoteId',
+          'is required unless reasonCode is SAGA_COMPENSATION or FLIGHT_CANCELLED',
+        );
+      }
+      quoteId = (await this.cotizar(reservaId, idPropietario, true)).id;
+    }
+    return this.ejecutar({
+      reservaId,
+      solicitud: { quoteId, ...(solicitud.reason ? { reason: solicitud.reason } : {}) },
+      idDueno: idPropietario,
+      idClave,
+      huella,
+      ahora,
+      codigoMotivo: CODIGO_MOTIVO[solicitud.reasonCode],
+    });
   }
 
   /**
@@ -225,6 +319,7 @@ export class CancelacionService {
     idClave,
     huella,
     ahora,
+    codigoMotivo = null,
   }: DatosCancelacion): Promise<ResultadoCancelacion> {
     const reserva = await this.reservas.detalle(reservaId, idPropietario);
     const cotizacion = await this.repositorio.leer(solicitud.quoteId);
@@ -252,9 +347,16 @@ export class CancelacionService {
         const estado = await this.reservas.bloquear(tx, reserva.id);
         if (estado === 'CANCELADA' || estado === 'CANCELACION_PENDIENTE')
           throw yaCancelada(reserva.id);
-        if (estado !== 'CONFIRMADA') exigirConfirmada({ ...reserva, estado }, 'a cancellation');
+        if (estado !== 'CONFIRMADA')
+          exigirConfirmada({ ...reserva, estado }, 'a cancellation', NO_CANCELABLE);
         if (
-          !(await this.repositorio.aceptar(tx, cotizacion!.id, ahora, solicitud.reason ?? null))
+          !(await this.repositorio.aceptar(
+            tx,
+            cotizacion!.id,
+            ahora,
+            solicitud.reason ?? null,
+            codigoMotivo,
+          ))
         ) {
           throw new ErrorNegocio(
             409,
@@ -326,7 +428,10 @@ export class CancelacionService {
     );
   }
 
-  /** CANCELADA, cotización completada y, si se devolvió algo, boletos REEMBOLSADO. */
+  /**
+   * CANCELADA, cotización completada y, si se devolvió algo, boletos REEMBOLSADO. Si cobró
+   * Booking, los boletos quedan ANULADO: el reembolso lo ejecuta Booking, no esta API.
+   */
   private async completar(
     tx: TransaccionVuelos,
     reservaId: string,
@@ -334,7 +439,12 @@ export class CancelacionService {
     ahora: Date,
   ): Promise<void> {
     await this.repositorio.completar(tx, cotizacion.id, ahora);
-    if (cotizacion.reembolso.greaterThan(0)) await this.boletos.marcarReembolsados(tx, reservaId);
+    if (
+      cotizacion.reembolso.greaterThan(0) &&
+      (await this.repositorio.pagoDeEmision(reservaId)).proveedor !== 'BOOKING_PROTOTIPO'
+    ) {
+      await this.boletos.marcarReembolsados(tx, reservaId);
+    }
     await this.reservas.transicion(tx, reservaId, 'CANCELACION_PENDIENTE', 'CANCELADA', ahora, {
       tipo: 'booking.cancelled',
       descripcion: cotizacion.reembolso.greaterThan(0)
@@ -343,7 +453,11 @@ export class CancelacionService {
     });
   }
 
-  /** Pide (o consulta) el reembolso; sin nada que devolver, no llama a la Payment API. */
+  /**
+   * Pide (o consulta) el reembolso. Sin nada que devolver, o si el pago lo cobró Booking
+   * (BOOKING_PROTOTIPO: el reembolso lo calcula esta API y lo ejecuta Booking, contrato v2 §4),
+   * no llama a la Payment API y la cancelación sigue como aprobada.
+   */
   private async reembolsar(
     reservaId: string,
     moneda: string,
@@ -351,11 +465,14 @@ export class CancelacionService {
     pedir: (r: ReembolsoPedido) => Promise<EstadoReembolso>,
   ): Promise<EstadoReembolso> {
     if (!cotizacion.reembolso.greaterThan(0)) return 'APROBADO';
+    const emision = await this.repositorio.pagoDeEmision(reservaId);
+    if (emision.proveedor === 'BOOKING_PROTOTIPO') return 'APROBADO';
     return pedir({
-      referenciaPago: await this.repositorio.referenciaDeEmision(reservaId),
+      referenciaPago: emision.referencia,
       operacion: cotizacion.id,
       moneda,
       monto: cotizacion.reembolso,
+      correlationId: correlacionActual(),
     });
   }
 
@@ -366,12 +483,7 @@ export class CancelacionService {
     idPropietario: string,
   ): Promise<ResultadoCancelacion> {
     if (previa.huella !== huella) {
-      throw new ErrorNegocio(
-        422,
-        CODIGO_SIN_EQUIVALENTE,
-        'This Idempotency-Key was already used with a different request body',
-        { invalidParams: [{ name: 'Idempotency-Key', reason: 'already used with another body' }] },
-      );
+      throw claveConOtroCuerpo();
     }
     const codigo = previa.codigoHttp === 200 ? 200 : 202;
     return {
@@ -401,7 +513,7 @@ function validarCancelacion(
   if (reserva.estado === 'CANCELADA' || reserva.estado === 'CANCELACION_PENDIENTE') {
     throw yaCancelada(reserva.id);
   }
-  exigirConfirmada(reserva, 'a cancellation');
+  exigirConfirmada(reserva, 'a cancellation', NO_CANCELABLE);
   if (cotizacion.aceptada !== null || cotizacion.vence < ahora) {
     throw new ErrorNegocio(
       409,
@@ -415,6 +527,18 @@ function validarCancelacion(
 /** Sin quoteId: la administración crea una cotización nueva en cada intento. */
 function huellaDeAdministracion(reservaId: string, motivo: string | undefined): string {
   const canonica = { bookingId: reservaId.toLowerCase(), reason: motivo ?? null, by: 'admin' };
+  return createHash('sha256').update(JSON.stringify(canonica)).digest('hex');
+}
+
+/** La de v2: sin quoteId (una compensación no lo trae), pero con el reasonCode. */
+function huellaV2(reservaId: string, s: SolicitudCancelacionV2): string {
+  const canonica = {
+    bookingId: reservaId.toLowerCase(),
+    quoteId: s.quoteId?.toLowerCase() ?? null,
+    reasonCode: s.reasonCode,
+    reason: s.reason ?? null,
+    v: 2,
+  };
   return createHash('sha256').update(JSON.stringify(canonica)).digest('hex');
 }
 

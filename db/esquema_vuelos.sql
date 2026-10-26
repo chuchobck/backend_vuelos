@@ -91,6 +91,9 @@ COMMENT ON TYPE concepto_pago IS 'Operación que acredita una referencia de pago
 CREATE TYPE estado_pago AS ENUM ('PENDIENTE', 'APROBADO', 'RECHAZADO');
 COMMENT ON TYPE estado_pago IS 'Lo que dijo la Payment API del pago. PENDIENTE corresponde a una respuesta 202; RECHAZADO deja la operación sin efecto (sus filas quedan, nada se borra).';
 
+CREATE TYPE proveedor_pago AS ENUM ('AEROLINEA', 'BOOKING_PROTOTIPO');
+COMMENT ON TYPE proveedor_pago IS 'Quién cobró (contrato v2, PaymentReference.provider): AEROLINEA=AIRLINE_DIRECT (la Payment API de la aerolínea juzga la referencia, como en v1) o BOOKING_PROTOTIPO (cobró Booking; aquí solo se valida la referencia y el reembolso se calcula sin ejecutarlo).';
+
 CREATE TYPE estado_boleto AS ENUM ('PENDIENTE', 'EMITIENDO', 'EMITIDO', 'FALLIDO', 'ANULADO', 'REEMBOLSADO');
 COMMENT ON TYPE estado_boleto IS 'Contrato TicketStatus: PENDIENTE=PENDING, EMITIENDO=ISSUING, EMITIDO=ISSUED, FALLIDO=FAILED, ANULADO=VOIDED, REEMBOLSADO=REFUNDED.';
 
@@ -489,11 +492,29 @@ CREATE TABLE reserva_cabecera (
     estado               estado_reserva  NOT NULL DEFAULT 'PENDIENTE',
     fecha_creacion       timestamptz     NOT NULL DEFAULT now(),
     fecha_actualizacion  timestamptz     NOT NULL DEFAULT now(),
+    id_cliente           text,
+    id_usuario_externo   text,
+    canal_socio          text,
+    canal_orden          text,
+    canal_paquete        text,
+    canal_promocion      boolean,
+    canal_descuento      numeric(5,2),
     CONSTRAINT pk_reserva_cabecera PRIMARY KEY (id),
     CONSTRAINT uq_reserva_cabecera_retencion UNIQUE (retencion_id),
     CONSTRAINT uq_reserva_cabecera_pnr UNIQUE (pnr),
     CONSTRAINT fk_reserva_cabecera_retencion FOREIGN KEY (retencion_id) REFERENCES retencion_cabecera (id) ON DELETE RESTRICT,
-    CONSTRAINT ck_reserva_cabecera_pnr CHECK (pnr ~ '^[A-Z0-9]{6}$')
+    CONSTRAINT ck_reserva_cabecera_pnr CHECK (pnr ~ '^[A-Z0-9]{6}$'),
+    CONSTRAINT ck_reserva_cabecera_cliente CHECK (id_cliente IS NULL OR id_cliente ~ '^[A-Za-z0-9._:-]{1,100}$'),
+    CONSTRAINT ck_reserva_cabecera_usuario_externo CHECK (
+        id_usuario_externo IS NULL
+        OR (id_cliente IS NOT NULL AND id_usuario_externo ~ '^[A-Za-z0-9._:@|-]{1,100}$')
+    ),
+    CONSTRAINT ck_reserva_cabecera_canal CHECK (
+        (canal_socio IS NULL OR btrim(canal_socio) <> '')
+        AND (canal_orden IS NULL OR btrim(canal_orden) <> '')
+        AND (canal_paquete IS NULL OR btrim(canal_paquete) <> '')
+    ),
+    CONSTRAINT ck_reserva_cabecera_canal_descuento CHECK (canal_descuento IS NULL OR canal_descuento BETWEEN 0 AND 100)
 );
 
 CREATE TABLE reserva_detalle_itinerario (
@@ -567,6 +588,7 @@ CREATE TABLE reserva_detalle_pago (
     concepto         concepto_pago  NOT NULL,
     estado           estado_pago    NOT NULL DEFAULT 'APROBADO',
     fecha_registro   timestamptz    NOT NULL DEFAULT now(),
+    proveedor        proveedor_pago NOT NULL DEFAULT 'AEROLINEA',
     CONSTRAINT pk_reserva_detalle_pago PRIMARY KEY (id),
     CONSTRAINT uq_reserva_detalle_pago_referencia UNIQUE (referencia_pago),
     CONSTRAINT fk_reserva_detalle_pago_reserva FOREIGN KEY (reserva_id) REFERENCES reserva_cabecera (id) ON DELETE RESTRICT,
@@ -691,6 +713,7 @@ CREATE TABLE cotizacion_cancelacion (
     fecha_aceptacion  timestamptz,
     motivo            text,
     fecha_completada  timestamptz,
+    codigo_motivo     text,
     CONSTRAINT pk_cotizacion_cancelacion PRIMARY KEY (id),
     CONSTRAINT fk_cotizacion_cancelacion_reserva FOREIGN KEY (reserva_id) REFERENCES reserva_cabecera (id) ON DELETE RESTRICT,
     CONSTRAINT ck_cotizacion_cancelacion_montos CHECK (monto_reembolso >= 0 AND monto_penalidad >= 0),
@@ -700,6 +723,11 @@ CREATE TABLE cotizacion_cancelacion (
     CONSTRAINT ck_cotizacion_cancelacion_completada CHECK (
         fecha_completada IS NULL
         OR (fecha_aceptacion IS NOT NULL AND fecha_completada >= fecha_aceptacion)
+    ),
+    CONSTRAINT ck_cotizacion_cancelacion_codigo_motivo CHECK (
+        codigo_motivo IS NULL
+        OR (fecha_aceptacion IS NOT NULL
+            AND codigo_motivo IN ('SOLICITUD_CLIENTE', 'COMPENSACION_SAGA', 'VUELO_CANCELADO', 'OTRO'))
     )
 );
 
@@ -824,6 +852,7 @@ CREATE TABLE evento_saliente (
     publicado_en         timestamptz,
     -- El hecho ocurrió dentro de esta traza (W3C Trace Context); el relevo la continúa hacia el notifier
     traceparent          text,
+    correlation_id       text,
     CONSTRAINT pk_evento_saliente PRIMARY KEY (id_evento),
     CONSTRAINT ck_evento_saliente_tipo CHECK (tipo ~ '^(booking|hold|flight)\.[a-z_]+$'),
     CONSTRAINT ck_evento_saliente_propietario CHECK (btrim(id_propietario) <> ''),
@@ -833,7 +862,8 @@ CREATE TABLE evento_saliente (
     -- Solo un código corto (HTTP_503, TIMEOUT, ECONNREFUSED...): ni URL, ni token, ni cuerpo
     CONSTRAINT ck_evento_saliente_error CHECK (ultimo_error IS NULL OR ultimo_error ~ '^[A-Z0-9_]{1,60}$'),
     CONSTRAINT ck_evento_saliente_publicado CHECK ((estado = 'PUBLICADO') = (publicado_en IS NOT NULL)),
-    CONSTRAINT ck_evento_saliente_traceparent CHECK (traceparent IS NULL OR traceparent ~ '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$')
+    CONSTRAINT ck_evento_saliente_traceparent CHECK (traceparent IS NULL OR traceparent ~ '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'),
+    CONSTRAINT ck_evento_saliente_correlacion CHECK (correlation_id IS NULL OR correlation_id ~ '^[A-Za-z0-9._:-]{1,100}$')
 );
 
 CREATE TABLE evento_entrega (
@@ -1080,6 +1110,8 @@ CREATE INDEX ix_retencion_detalle_familia_tarifa ON retencion_detalle (familia_t
 CREATE INDEX ix_reserva_cabecera_listado ON reserva_cabecera (fecha_creacion DESC, id DESC);
 CREATE INDEX ix_reserva_cabecera_en_proceso ON reserva_cabecera (estado, fecha_actualizacion)
     WHERE estado IN ('PENDIENTE', 'PENDIENTE_PAGO', 'EMITIENDO_BOLETOS', 'CAMBIO_PENDIENTE', 'CANCELACION_PENDIENTE');
+CREATE INDEX ix_reserva_cabecera_usuario_externo ON reserva_cabecera (id_cliente, id_usuario_externo, fecha_creacion DESC)
+    WHERE id_usuario_externo IS NOT NULL;
 CREATE INDEX ix_reserva_detalle_itinerario_itinerario ON reserva_detalle_itinerario (itinerario_id);
 CREATE INDEX ix_reserva_detalle_itinerario_familia ON reserva_detalle_itinerario (familia_tarifa_id);
 CREATE INDEX ix_reserva_detalle_pasajero_adulto ON reserva_detalle_pasajero (adulto_responsable_id) WHERE adulto_responsable_id IS NOT NULL;
@@ -1359,6 +1391,7 @@ COMMENT ON COLUMN evento_saliente.arrendamiento_hasta IS 'Hasta cuándo el relev
 COMMENT ON COLUMN evento_saliente.reintentar_hasta IS 'Hasta cuándo se reintenta (48 h desde que se creó o se reencoló); después queda FALLIDO.';
 COMMENT ON COLUMN evento_saliente.proximo_intento IS 'Cuándo se vuelve a intentar publicar; de un evento FALLIDO es cuándo falló (la purga cuenta los días de retención desde ahí).';
 COMMENT ON COLUMN evento_saliente.traceparent IS 'traceparent (W3C Trace Context) del contexto activo cuando ocurrió el hecho: el relevo abre su span hacia el notifier como continuación de esa traza. NULL en los eventos anteriores a la fase 7c. Nunca se manda a un tercero.';
+COMMENT ON COLUMN evento_saliente.correlation_id IS 'X-Correlation-Id de la petición que produjo el hecho; el relevo lo manda al notifier sin cambios. NULL si lo produjo un proceso periódico.';
 COMMENT ON TABLE evento_entrega             IS 'Intentos de entrega de un evento a un webhook.';
 COMMENT ON TABLE clave_idempotencia         IS 'Registro de las cabeceras Idempotency-Key ya procesadas y su respuesta.';
 COMMENT ON TABLE auditoria                  IS 'Log de cambios: una fila por cada alta, cambio o baja en las tablas de negocio. La escribe el disparador fn_auditar y es de solo inserción. No es el historial que ve el cliente: ese es reserva_detalle_historial.';
@@ -1395,6 +1428,13 @@ COMMENT ON COLUMN retencion_cabecera.fecha_cierre IS 'Momento en que dejó de es
 COMMENT ON COLUMN retencion_detalle.tarifa_base_congelada IS 'Tarifa base del itinerario para todos los pasajeros de la retención, congelada al retener. La suma de las líneas es lockedPrice.';
 COMMENT ON COLUMN reserva_cabecera.retencion_id IS 'Retención consumida. Es única: una retención produce a lo sumo una reserva. El dueño y la moneda se leen de ella.';
 COMMENT ON COLUMN reserva_cabecera.pnr IS 'Localizador de 6 caracteres alfanuméricos en mayúsculas.';
+COMMENT ON COLUMN reserva_cabecera.id_cliente IS 'Claim client_id del token de partner (contrato v2) que creó la reserva; NULL si la creó una persona. El dueño sigue siendo el sub del token (retencion_cabecera.id_propietario).';
+COMMENT ON COLUMN reserva_cabecera.id_usuario_externo IS 'X-User-Id que mandó el partner: el usuario final en Booking. Solo con id_cliente; un partner con X-User-Id solo ve las reservas de ese usuario.';
+COMMENT ON COLUMN reserva_cabecera.canal_socio IS 'salesChannel.partnerId (contrato v2).';
+COMMENT ON COLUMN reserva_cabecera.canal_orden IS 'salesChannel.partnerOrderId: la orden o carrito en Booking.';
+COMMENT ON COLUMN reserva_cabecera.canal_paquete IS 'salesChannel.packageId: el combo (vuelo + auto + hotel), si la reserva es parte de uno.';
+COMMENT ON COLUMN reserva_cabecera.canal_promocion IS 'salesChannel.promotionApplied.';
+COMMENT ON COLUMN reserva_cabecera.canal_descuento IS 'salesChannel.discountPercentage (0 a 100). Se guarda tal cual: el precio es el congelado del hold.';
 COMMENT ON COLUMN reserva_detalle_itinerario.tarifa_base IS 'Tarifa base vendida del itinerario para todos los pasajeros. Tras un cambio de fecha incluye la diferencia cobrada.';
 COMMENT ON COLUMN reserva_detalle_itinerario.vigente IS 'false cuando un cambio de fecha confirmado reemplazó esta línea.';
 COMMENT ON COLUMN reserva_detalle_pasajero.codigo_pasajero IS 'passengerId que envía el cliente. Solo es único dentro de la reserva.';
@@ -1403,6 +1443,7 @@ COMMENT ON COLUMN reserva_detalle_pasajero.numero_documento IS 'Sin espacios ni 
 COMMENT ON COLUMN reserva_detalle_pasajero.telefono IS 'Solo dígitos con + opcional. Formato recomendado E.164 (+593...).';
 COMMENT ON COLUMN reserva_detalle_asiento.fecha_liberacion IS 'NULL mientras el asiento está ocupado. Se llena al cancelar o al cambiar de asiento o de fecha.';
 COMMENT ON COLUMN reserva_detalle_pago.referencia_pago IS 'paymentReference. Es única en todo el sistema: un mismo pago no acredita dos operaciones.';
+COMMENT ON COLUMN reserva_detalle_pago.proveedor IS 'Quién cobró. Con BOOKING_PROTOTIPO la Payment API de la aerolínea no se consulta y el reembolso solo se calcula.';
 COMMENT ON COLUMN reserva_detalle_pago.estado IS 'Estado del pago en la Payment API. Una maleta con pago PENDIENTE ya cuenta para el máximo; una con pago RECHAZADO no cuenta para nada.';
 COMMENT ON COLUMN reserva_detalle_equipaje.precio_unitario IS 'Precio por maleta congelado al momento de la compra.';
 COMMENT ON COLUMN boleto_cabecera.numero_boleto IS 'eTicketNumber de 13 dígitos. NULL hasta que se emite.';
@@ -1411,6 +1452,7 @@ COMMENT ON COLUMN cambio_cabecera.pago_id IS 'Pago de la diferencia. Puede ser N
 COMMENT ON COLUMN cambio_detalle.diferencia_tarifa IS 'fareDifference. Puede ser negativa si la tarifa nueva es menor. El totalToPay se calcula sumando diferencias y cargo_cambio.';
 COMMENT ON COLUMN cotizacion_cancelacion.fecha_aceptacion IS 'Momento en que POST /cancel aceptó la cotización. Debe caer dentro de su vigencia y solo una por reserva puede estar aceptada.';
 COMMENT ON COLUMN cotizacion_cancelacion.fecha_completada IS 'NULL mientras la reserva sigue en CANCELACION_PENDIENTE.';
+COMMENT ON COLUMN cotizacion_cancelacion.codigo_motivo IS 'reasonCode de la cancelación v2: SOLICITUD_CLIENTE=CUSTOMER_REQUEST, COMPENSACION_SAGA=SAGA_COMPENSATION, VUELO_CANCELADO=FLIGHT_CANCELLED, OTRO=OTHER. NULL en una cancelación de v1.';
 COMMENT ON COLUMN webhook_entrega.id_evento IS 'eventId del WebhookPayload: identifica el hecho, el mismo para todas las suscripciones que lo reciben. El receptor lo usa para no procesar dos veces una entrega repetida.';
 COMMENT ON COLUMN webhook_entrega.payload IS 'WebhookPayload congelado al ocurrir el hecho: un reintento envía exactamente el mismo cuerpo.';
 COMMENT ON COLUMN webhook_entrega.intentos IS 'Envíos HTTP ya hechos. Al llegar al máximo sin respuesta 2xx pasa a FALLIDO.';

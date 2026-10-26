@@ -5,11 +5,13 @@ Reglas permanentes del proyecto. Léelas antes de tocar código.
 ## Proyecto
 
 Quinde · API de Vuelos: backend NestJS 10 + TypeScript + Prisma 7 que implementa el contrato
-GDS Flight Core API v1.5.0.0 (`contracts/vuelos-openapi.yaml`), solo vuelos nacionales de Ecuador.
+GDS Flight Core API v1.5.0.0 (`contracts/vuelos-openapi.yaml`), solo vuelos nacionales de Ecuador, y
+la fachada del contrato de Vuelos v2 (`contracts/vuelos-openapi-v2.yaml`) para Booking Prototipo; sus
+diferencias y decisiones, en `docs/V2-DIFERENCIAS.md`.
 Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`; las
 diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.1.0 (`CHANGELOG.md`),
 más las fases 4b (auth externa, `AUTH_MODE`), 5b (eventos al notifier, `WEBHOOKS_MODE`, con la
-purga de su bandeja) y 7c (observabilidad) sin publicar.
+purga de su bandeja), 7c (observabilidad) y V1 (fachada v2) sin publicar.
 Además de REST, un servidor gRPC interno para el BFF (`docs/GRPC.md`), apagado por defecto.
 
 ## Alcance
@@ -41,7 +43,17 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 - Las tablas de detalle no tienen controller: las maneja el service de su cabecera.
 - El catálogo extiende `catalogo/base/` (`RepositorioCatalogo` y `ServicioCatalogo`); el patrón está
   en `src/modules/vuelos/README.md`. Rutas, query y JSON en inglés (`/reactivate`, `includeInactive`).
-- Todas las URLs cuelgan de `/flights/v1`. Swagger en `/api/docs` con las 7 etiquetas del contrato.
+- Todas las URLs cuelgan de `/flights/v1`, salvo la fachada v2. Swagger en `/api/docs` con las 7
+  etiquetas del contrato.
+- Fachada v2: `src/modules/vuelos/v2/` (`FachadaV2Module`), en `/api/v2/vuelos` fuera del prefijo
+  global y con controllers `VERSION_NEUTRAL`: un controller por microservicio del contrato v2
+  (`vuelos.v2`, `reservas.v2`, `postventa.v2`) que llama a los mismos services de v1 y suma lo de v2
+  con su mapper (`_links`, `status` de asiento, cancelación extendida). Cada ruta lleva
+  `@OperacionContrato('<operationId>')`. Nada de lógica de negocio propia: si v2 necesita una regla
+  distinta, el service de v1 la recibe como opción (`OpcionesReservaV2`, `PagoDeFachada`...) y v1 no
+  la pasa. Swagger aparte en `/api/v2/docs`.
+- Un error que cambia de `code` o de status en v2 lleva la pista en `ErrorNegocio` (`v2: { code,
+  status? }`); el filtro arma el `ProblemDetails` v2 en `/api/v2/**` y el de v1 no cambia.
 
 ## Seguridad
 
@@ -53,14 +65,19 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   Sin claves con las que verificar, 503 `AUTH_UNAVAILABLE`, nunca 401 ni dejar pasar. El modo
   local no se quita hasta que ya no haga falta volver a él (docs/DEPLOY.md, sección 6).
 - Ni un token ni el JWKS van al log: sí el `kid` y el motivo de un rechazo.
-- El usuario de la petición sale de `@UsuarioActual()`; su `id` es el `id_propietario`.
+- El usuario de la petición sale de `@UsuarioActual()`; su `id` es el `id_propietario`. En v2 sale de
+  `@UsuarioFachada()`: un token con `client_id` es un partner y solo con él cuentan `X-User-Id` y
+  `X-User-Roles`; con un token de persona se ignoran. Un partner con `X-User-Id` solo ve y opera las
+  reservas de ese usuario (`FachadaV2Service.exigirAcceso`).
 - Nunca registrar ni devolver contraseñas, hashes ni tokens, tampoco en mensajes de error.
 - Los datos de un pasajero (nombre, documento, correo, teléfono) no van a logs ni a mensajes de
   error: el error nombra el campo, no el valor. Solo el dueño de la reserva los ve.
 - Lo que sale en una respuesta como identificador legible (el código de barras de un pase, por
   ejemplo) lleva PNR, número de boleto o ids públicos, nunca nombre ni documento.
-- Un pago se juzga solo con `ServicioPagos` (`compartido/pagos`); la API nunca recibe ni guarda
-  datos de tarjeta, solo la `paymentReference`.
+- Un pago se juzga solo con `Cobros` y `ServicioPagos` (`compartido/pagos`); la API nunca recibe ni
+  guarda datos de tarjeta, solo la `paymentReference`. Con `provider = BOOKING_PROTOTIPO` (v2) cobró
+  Booking: no se llama a la Payment API, solo se valida la referencia y el monto, y un reembolso se
+  calcula pero no se ejecuta.
 - Los scopes de cada rol están en `src/modules/auth/scopes.ts`, no en la base.
 - Una operación pública lleva `@Publico()` y, si es costosa, su propio `@LimiteEstricto`.
 - Toda petición con cuerpo es `application/json` (otro tipo: 415). El límite de peticiones
@@ -79,6 +96,17 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   dentro de una transacción de negocio. Un evento nuevo se encola con `PublicadorEventos` en la
   misma transacción del hecho. Su URL se valida (https, sin redes internas) al registrar y otra vez
   al conectar (SSRF), y no se siguen redirecciones.
+
+## Correlación
+
+- `X-Correlation-Id` (v1 y v2): el que llega con formato válido (`[A-Za-z0-9._:-]{1,100}`) se usa SIN
+  cambios; si no, `corr-<uuid>`. Lo pone el primer middleware en el contexto (`correlationId`), sale en
+  cada respuesta y en el `ProblemDetails` v2, y se propaga a todo lo que la petición llama: la Payment
+  API (`CobroEsperado.correlationId`), el notifier (`evento_saliente.correlation_id` y la cabecera de
+  la publicación) y gRPC (metadata `x-correlation-id`). Una llamada saliente nueva lo manda con
+  `correlacionActual()`.
+- Cada línea de log de texto lleva `[corr=...]` al final de la primera línea, y cada petición deja
+  una línea de acceso JSON (`registro-acceso.ts`) sin URL, query, cuerpo, IP ni usuario.
 
 ## Observabilidad
 
@@ -141,7 +169,8 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 - `webhook_entrega` es la bandeja de salida: no se borra. Cada intento se anota con un UPDATE
   condicionado al intento tomado, y el log de un intento no lleva URL, secreto ni cuerpo.
 - Las respuestas de las operaciones del contrato se validan contra sus esquemas en las pruebas
-  (`test/utils/contrato.ts`, Ajv).
+  (`test/utils/contrato.ts`, Ajv); las de v2, contra el contrato v2 por operationId y status
+  (`test/utils/contrato-v2.ts`, `test/contrato-v2.e2e-spec.ts`).
 - Una respuesta que el contrato no declara (status nuevo, cuerpo distinto) va a `EXCEPCIONES` de
   `test/contrato.e2e-spec.ts` con su motivo y a `docs/DISCREPANCIAS-CONTRATO.md`; una diferencia
   de Swagger con el contrato, a `DIFERENCIAS_ACEPTADAS` de `test/swagger.e2e-spec.ts`. Los

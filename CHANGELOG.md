@@ -6,6 +6,39 @@ está en [docs/PLAN.md](docs/PLAN.md).
 
 ## [Sin publicar]
 
+### Fase V1 · Fachada del contrato v2
+
+Booking Prototipo integra el core por `/api/v2/vuelos/*`, la fachada del
+[contrato de Vuelos v2 (RDA2)](contracts/vuelos-openapi-v2.yaml). `/flights/v1` no cambia, salvo la
+cabecera `X-Correlation-Id`, que ahora también devuelve. Diferencias, decisiones y lo que necesitan el
+gateway y el notifier en [docs/V2-DIFERENCIAS.md](docs/V2-DIFERENCIAS.md).
+
+- Las 21 operaciones de v1 en `/api/v2/vuelos` (MS.Vuelos, MS.Reservas, MS.Postventa) sobre los mismos
+  services, más `POST /bookings/{id}/tickets` (issueTickets, idempotente) y `GET /health`
+  (`VuelosHealthResponse`, `DEGRADED` o `DOWN` en menos de 1 s, con `NODO_ID` y `NOMBRE_PROVEEDOR`).
+- `ProblemDetails` v2 en `/api/v2/**`: `instance`, `correlation_id`, `timestamp` y el enum de `code` de v2
+  (`UNAUTHORIZED`, `NOT_FOUND`, `HOLD_EXPIRED`, `IDEMPOTENCY_KEY_REUSED`, `PASSENGER_COUNT_MISMATCH`...).
+- Partner: un token con `client_id` entra como Booking; solo con él cuentan `X-User-Id` y `X-User-Roles`.
+  La reserva guarda el partner, el usuario final y el `salesChannel`, y el partner con `X-User-Id` solo ve
+  las de ese usuario.
+- Pagos de Booking (`provider = BOOKING_PROTOTIPO`, por defecto): sin llamar a la Payment API; la referencia
+  no puede estar usada (`PAYMENT_REFERENCE_INVALID`) y `amount`, si llega, tiene que ser el precio
+  (`AMOUNT_MISMATCH`). La reserva sale emitida y la cancelación calcula el reembolso sin ejecutarlo.
+- Cancelación v2 con `reasonCode`, reembolso, boletos anulados e inventario restaurado;
+  `SAGA_COMPENSATION` y `FLIGHT_CANCELLED` sin `quoteId` ni penalidad, y la compensación repetida
+  responde la misma cancelación. Hold con `ttlMinutes` (5 a 30), `status` por asiento en el mapa y
+  `_links` (HATEOAS).
+- Reintento con la misma `Idempotency-Key` en v2: 200 con `Idempotent-Replayed: true`; otro cuerpo, 409.
+- `X-Correlation-Id` en v1 y v2: se usa sin cambios o se genera `corr-<uuid>`, va en cada línea de log y
+  en una línea de acceso JSON, a la Payment API, a la metadata gRPC `x-correlation-id` y al notifier
+  (columna `evento_saliente.correlation_id`, cabecera y, con `EVENT_ENVELOPE_CORRELATION_ID=true`, el
+  campo `correlationId` del sobre).
+- Migración `db/migraciones/004_fachada_v2.sql`: `evento_saliente.correlation_id`, partner y canal en
+  `reserva_cabecera`, `reserva_detalle_pago.proveedor` y `cotizacion_cancelacion.codigo_motivo`.
+- Swagger de v2 aparte en `/api/v2/docs`; el de v1 (`/api/docs`) no cambia.
+- Pruebas de proveedor contra el contrato v2 (Ajv, por operationId y status), de la salud con
+  dependencias caídas y de AUTH_MODE=local, y 27 mutaciones más en `npm run test:mutaciones`.
+
 ### Fase 7c · Observabilidad
 
 El core adopta el estándar de observabilidad que definió el gateway (`docs/OBSERVABILIDAD.md`,

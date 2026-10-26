@@ -7,7 +7,11 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { ClaveGuardada, IdempotenciaRepository } from '../../compartido/idempotencia.repository';
 import { Cobros } from '../../compartido/pagos/cobros';
 import { PagosRepository } from '../../compartido/pagos/pagos.repository';
-import { SERVICIO_PAGOS, ServicioPagos } from '../../compartido/pagos/servicio-pagos';
+import {
+  PagoDeFachada,
+  SERVICIO_PAGOS,
+  ServicioPagos,
+} from '../../compartido/pagos/servicio-pagos';
 import { EventosReserva } from '../reserva/eventos-reserva';
 import {
   exigirConfirmada,
@@ -20,6 +24,7 @@ import { EquipajeAgregadoDto, SolicitudEquipajeDto } from './dto/equipaje.dto';
 import { aEquipajeAgregado } from './equipaje.mapper';
 import { OpcionEquipaje } from './equipaje.modelo';
 import { CompraPendiente, EquipajeRepository } from './equipaje.repository';
+import { claveConOtroCuerpo } from '../../compartido/errores';
 
 /** Reglas del equipaje adicional. */
 export const REGLAS_EQUIPAJE = {
@@ -86,16 +91,25 @@ export class EquipajeService {
     solicitud: SolicitudEquipajeDto,
     idPropietario: string,
     clave: string,
+    fachada?: PagoDeFachada,
   ): Promise<ResultadoEquipaje> {
     const ahora = this.reloj.ahora();
-    const huella = huellaDe(reservaId, solicitud);
+    const huella = huellaDe(reservaId, solicitud, fachada);
     const idClave = { idPropietario, operacion: 'AGREGAR_EQUIPAJE' as const, clave };
     const previa = await this.claves.leer(idClave);
     if (previa && previa.vence > ahora) return repetir(previa, huella);
     if (previa) await this.claves.borrarVencidas(ahora, idClave);
 
     try {
-      return await this.agregarNueva(reservaId, solicitud, idPropietario, idClave, huella, ahora);
+      return await this.agregarNueva(
+        reservaId,
+        solicitud,
+        idPropietario,
+        idClave,
+        huella,
+        ahora,
+        fachada,
+      );
     } catch (error) {
       // Otra petición con la misma clave pudo ganar mientras esta esperaba al pasajero
       if (error instanceof ErrorNegocio && error.status === 409) {
@@ -113,6 +127,7 @@ export class EquipajeService {
     idClave: { idPropietario: string; operacion: 'AGREGAR_EQUIPAJE'; clave: string },
     huella: string,
     ahora: Date,
+    fachada: PagoDeFachada | undefined,
   ): Promise<ResultadoEquipaje> {
     const reserva = await this.reservas.detalle(reservaId, idPropietario);
     exigirConfirmada(reserva, 'buying extra baggage');
@@ -127,12 +142,15 @@ export class EquipajeService {
 
     const precio = itinerario.familia.equipajeAdicional;
     const referencia = solicitud.payment.paymentReference;
-    const pago = await this.cobros.autorizar({
-      referencia,
-      concepto: 'EQUIPAJE_ADICIONAL',
-      moneda: reserva.total.moneda,
-      monto: precio.times(solicitud.quantity),
-    });
+    const pago = await this.cobros.autorizar(
+      {
+        referencia,
+        concepto: 'EQUIPAJE_ADICIONAL',
+        moneda: reserva.total.moneda,
+        monto: precio.times(solicitud.quantity),
+      },
+      fachada,
+    );
     const codigoHttp = pago === 'APROBADO' ? 200 : 202;
 
     return this.prisma.transaccionAuditada(async (tx) => {
@@ -164,6 +182,7 @@ export class EquipajeService {
         concepto: 'EQUIPAJE_ADICIONAL',
         estado: pago,
         fecha: ahora,
+        proveedor: fachada?.proveedor,
       });
       await this.repositorio.registrar(tx, {
         pasajeroId,
@@ -240,12 +259,7 @@ function exigirCupoDeMaletas(cantidad: number, maximo: number, compradas: number
 
 function repetir(previa: ClaveGuardada, huella: string): ResultadoEquipaje {
   if (previa.huella !== huella) {
-    throw new ErrorNegocio(
-      422,
-      CODIGO_SIN_EQUIVALENTE,
-      'This Idempotency-Key was already used with a different request body',
-      { invalidParams: [{ name: 'Idempotency-Key', reason: 'already used with another body' }] },
-    );
+    throw claveConOtroCuerpo();
   }
   if ((previa.codigoHttp !== 200 && previa.codigoHttp !== 202) || previa.respuesta === null) {
     throw claveEnUso();
@@ -274,13 +288,14 @@ const claveEnUso = () =>
   );
 
 /** SHA-256 de la reserva y el cuerpo, con las claves en un orden fijo. */
-function huellaDe(reservaId: string, s: SolicitudEquipajeDto): string {
+function huellaDe(reservaId: string, s: SolicitudEquipajeDto, fachada?: PagoDeFachada): string {
   const canonica = {
     bookingId: reservaId.toLowerCase(),
     passengerId: s.passengerId,
     itineraryId: s.itineraryId.toLowerCase(),
     quantity: s.quantity,
     payment: { paymentReference: s.payment.paymentReference },
+    ...(fachada ? { fachada } : {}),
   };
   return createHash('sha256').update(JSON.stringify(canonica)).digest('hex');
 }

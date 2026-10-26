@@ -5,7 +5,9 @@
 # Quinde · API de Vuelos
 
 Backend del dominio de **vuelos** del Booking Prototipo: implementa el contrato
-[GDS Flight Core API v1.5.0.0](contracts/vuelos-openapi.yaml) para vuelos nacionales de Ecuador.
+[GDS Flight Core API v1.5.0.0](contracts/vuelos-openapi.yaml) para vuelos nacionales de Ecuador en
+`/flights/v1`, y el [contrato de Vuelos v2 (RDA2)](contracts/vuelos-openapi-v2.yaml) en
+`/api/v2/vuelos`, que es por donde integra Booking ([diferencias](docs/V2-DIFERENCIAS.md)).
 
 Es un backend NestJS 10 + TypeScript con PostgreSQL 18 (ver [Origen](#origen)), versión **1.1.0**
 ([CHANGELOG](CHANGELOG.md)). El plan completo, con decisiones, fases y commits, está en
@@ -33,6 +35,7 @@ gRPC interno, en [docs/GRPC.md](docs/GRPC.md).
 | 4b. Auth externa (`AUTH_MODE`)        | Hecha en local; `local` por defecto hasta el despliegue en Azure |
 | 5b. Eventos al notifier (`WEBHOOKS_MODE`) | Hecha en local; `local` por defecto hasta tener el gateway |
 | 7c. Observabilidad (trazas y métricas) | Hecha en local; sin `OTEL_EXPORTER_OTLP_ENDPOINT` las trazas se propagan pero no se exportan |
+| V1. Fachada del contrato v2 (`/api/v2/vuelos`) | Hecha en local; Booking entra por aquí con un token de partner |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
 administración del catálogo, la auditoría, los administradores y las reservas de administración
@@ -468,6 +471,40 @@ reintentando con espera creciente hasta 48 h si el notifier no responde. `/webho
 core: lo sirve el notifier, detrás del gateway. La bandeja se purga sola (`PUBLICADO` a los 7 días,
 `FALLIDO` a los 30, `PENDIENTE` nunca). Variables, orden del corte, retroceso y purga:
 [docs/MIGRACION-WEBHOOKS.md](docs/MIGRACION-WEBHOOKS.md). No se activa hasta tener el gateway.
+
+## Contrato v2 (/api/v2/vuelos)
+
+La fachada que usa Booking Prototipo ([contrato](contracts/vuelos-openapi-v2.yaml), Swagger en
+`/api/v2/docs`). Son las 21 operaciones de v1 más `GET /api/v2/vuelos/health`, sobre los mismos
+services: la diferencia operación por operación, las decisiones y lo que necesitan el gateway y el
+notifier están en [docs/V2-DIFERENCIAS.md](docs/V2-DIFERENCIAS.md). Lo principal:
+
+- **Partner.** Booking entra con un token de identity con claim `client_id` (`client_credentials`,
+  `AUTH_MODE=external`) y manda el usuario final en `X-User-Id`. Con un token de persona, `X-User-*`
+  se ignora. Un partner con `X-User-Id` solo ve las reservas de ese usuario.
+- **Pagos.** Con `payment.provider = BOOKING_PROTOTIPO` (por defecto) cobró Booking: la aerolínea no
+  llama a la Payment API, solo valida que la referencia no se haya usado (`PAYMENT_REFERENCE_INVALID`)
+  y, si llega, que `amount` sea el precio (`AMOUNT_MISMATCH`). La reserva sale emitida (201
+  `CONFIRMED`) y la cancelación calcula el reembolso sin ejecutarlo (`refund.status = CALCULATED`).
+- **Saga.** Compensaciones idempotentes: `DELETE /offers/hold/{id}` repetido es 204 y
+  `POST .../cancel` con `reasonCode = SAGA_COMPENSATION` no pide `quoteId`, no cobra penalidad y,
+  repetido, responde la misma cancelación.
+- **Errores** con el ProblemDetails de v2 (`instance`, `correlation_id`, `timestamp`, su enum de
+  `code`) y **reintentos** con la misma `Idempotency-Key`: 200 con `Idempotent-Replayed: true`;
+  otro cuerpo, 409 `IDEMPOTENCY_KEY_REUSED`.
+- **Salud** para el Monitor de Nodos de Booking: `VuelosHealthResponse` con `NODO_ID` y
+  `NOMBRE_PROVEEDOR`, en menos de 1 s aunque una dependencia no responda.
+
+`X-Correlation-Id` (también en v1): el que llega se devuelve sin cambios (o se genera `corr-<uuid>`),
+va en cada línea de log, en una línea de acceso JSON por petición, a la Payment API, a la metadata
+gRPC y al notifier (columna `evento_saliente.correlation_id` y cabecera).
+
+```bash
+curl -s localhost:3000/api/v2/vuelos/health
+curl -s -X POST localhost:3000/api/v2/vuelos/search -H 'Content-Type: application/json' \
+  -H 'X-Device-Fingerprint: fp-prueba-0001' -H 'X-Correlation-Id: corr-demo-1' \
+  -d '{"itineraries":[{"origin":"UIO","destination":"GYE","departureDate":"2026-11-20"}],"passengers":{"adults":1}}'
+```
 
 ## Observabilidad
 

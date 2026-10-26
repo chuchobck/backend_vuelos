@@ -57,7 +57,7 @@ auditoría: `psql "$NEON_URL" -c "DROP SCHEMA vuelos CASCADE"` y repetir los pas
 
 **Una base que ya existe** se pone al día con `./db/migrar.sh` (usa `DATABASE_URL`; con
 `DATABASE_URL="$NEON_URL&schema=vuelos" ./db/migrar.sh` contra Neon): aplica `db/migraciones/*.sql`
-en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b, la 002 los índices de su purga y la 003 le agrega la columna `traceparent` (fase 7c).
+en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b, la 002 los índices de su purga, la 003 le agrega la columna `traceparent` (fase 7c) y la 004 lo de la fachada v2 (`correlation_id` en la bandeja, el partner y el canal en la reserva, el proveedor del pago y el motivo de la cancelación).
 
 ## 3. Servicio en Render
 
@@ -105,6 +105,9 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `EVENT_OUTBOX_PURGE_INTERVAL_MINUTES` | `60` | Cada cuántos minutos corre la purga (1 a 1440) |
 | `EVENT_OUTBOX_RETENTION_DAYS` | `7` | Días que un evento `PUBLICADO` se conserva desde `publicado_en` (1 a 365) |
 | `EVENT_OUTBOX_FAILED_RETENTION_DAYS` | `30` | Días que un evento `FALLIDO` se conserva desde que falló, para diagnosticar y usar `eventos:reencolar` (7 a 365). Un `PENDIENTE` no se borra nunca |
+| `EVENT_ENVELOPE_CORRELATION_ID` | `false` | Con `true`, el sobre de cada evento lleva `correlationId`. Encenderlo solo cuando el notifier acepte el campo (sus esquemas 1.0 lo rechazan). La columna `correlation_id` y la cabecera `X-Correlation-Id` al notifier van siempre |
+| `NODO_ID` | `NODE_VUE_QUINDE` | `nodo_id` de `GET /api/v2/vuelos/health`: cómo identifica Booking a este nodo (3 a 60 mayúsculas, dígitos o `_`) |
+| `NOMBRE_PROVEEDOR` | `Quinde` | `nombre_proveedor` de `GET /api/v2/vuelos/health` (la aerolínea) |
 | `SEARCH_OFFER_TTL_MINUTES` | 30 | Vigencia de una oferta de búsqueda |
 | `HOLD_TTL_MINUTES` | 15 | Vigencia de un hold |
 | `CANCELLATION_QUOTE_TTL_MINUTES`, `CHANGE_OFFER_TTL_MINUTES` | 15 y 15 | Vigencia de una cotización de cancelación y de una oferta de cambio |

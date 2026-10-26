@@ -1,4 +1,5 @@
 import { CodigoError } from './codigo-error';
+import { PistaV2 } from './codigo-error-v2';
 
 /** Un campo que la petición trajo mal: `invalidParams` del esquema ProblemDetails. */
 export interface ParametroInvalido {
@@ -12,6 +13,8 @@ export interface OpcionesErrorNegocio {
   cabeceras?: Record<string, string>;
   /** Error original, solo para el log: nunca llega al cliente. */
   causa?: unknown;
+  /** El `code` (y el status, si cambia) que responde la fachada v2; v1 no lo usa. */
+  v2?: PistaV2;
 }
 
 /**
@@ -26,6 +29,7 @@ export class ErrorNegocio extends Error {
   readonly invalidParams?: ParametroInvalido[];
   readonly cabeceras?: Record<string, string>;
   readonly causa?: unknown;
+  readonly v2?: PistaV2;
 
   constructor(
     readonly status: number,
@@ -38,6 +42,7 @@ export class ErrorNegocio extends Error {
     this.invalidParams = opciones.invalidParams;
     this.cabeceras = opciones.cabeceras;
     this.causa = opciones.causa;
+    this.v2 = opciones.v2;
   }
 
   /** Texto para `detail`; si no se dio uno, el campo se omite. */

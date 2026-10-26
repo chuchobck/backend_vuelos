@@ -2,7 +2,13 @@ import { Logger } from '@nestjs/common';
 import { ServerUnaryCall, status as EstadoGrpc } from '@grpc/grpc-js';
 import { abrirSpanGrpc, cerrarSpanGrpc, ObservacionLlamada } from '../../observabilidad/grpc';
 import { Observabilidad } from '../../observabilidad/observabilidad';
-import { ContextoPeticion, ejecutarEnContexto, normalizarIp } from './contexto-peticion';
+import {
+  ContextoPeticion,
+  crearContexto,
+  ejecutarEnContexto,
+  normalizarIp,
+} from './contexto-peticion';
+import { METADATA_CORRELACION, resolverCorrelationId } from './correlation-id';
 import { resolverRequestId } from './request-id';
 
 /** La metadata del request id: la cabecera X-Request-Id de HTTP, en minúsculas como pide gRPC. */
@@ -34,6 +40,8 @@ const logger = new Logger('gRPC');
  *
  * - requestId: la metadata x-request-id con las reglas de la cabecera X-Request-Id (si falta,
  *   se repite o no es válida, uno nuevo).
+ * - correlationId: la metadata x-correlation-id con las reglas de X-Correlation-Id (la que
+ *   llegó sin cambios si es válida; si no, `corr-<uuid>`).
  * - ip: la del cliente que abrió la conexión (el BFF), sin el puerto.
  * - usuario: null; las RPC de hoy son públicas.
  */
@@ -44,16 +52,20 @@ export function contextoDeLlamada(
   const conContexto = llamada as LlamadaConContexto;
   if (conContexto[CONTEXTO_EN_LLAMADA] === undefined) {
     const valores = llamada.metadata.get(METADATA_REQUEST_ID);
+    const correlaciones = llamada.metadata.get(METADATA_CORRELACION);
     const requestId = resolverRequestId(valores.length === 1 ? String(valores[0]) : undefined);
     const observacion = abrirSpanGrpc(observabilidad, llamada, requestId);
     const { traceId, spanId } = observacion.span.spanContext();
+    const contexto = crearContexto({
+      requestId,
+      correlationId: resolverCorrelationId(
+        correlaciones.length === 1 ? String(correlaciones[0]) : undefined,
+      ),
+      ip: ipDelPar(llamada.getPeer()),
+    });
+    contexto.traza = { traceId, spanId };
     conContexto[CONTEXTO_EN_LLAMADA] = {
-      contexto: {
-        requestId,
-        ip: ipDelPar(llamada.getPeer()),
-        usuario: null,
-        traza: { traceId, spanId },
-      },
+      contexto,
       metodo: llamada.getPath(),
       inicio: process.hrtime.bigint(),
       observacion,

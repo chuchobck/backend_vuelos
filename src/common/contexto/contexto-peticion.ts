@@ -7,6 +7,12 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 export interface ContextoPeticion {
   /** X-Request-Id: el que mandó el cliente si tenía un formato válido, o uno generado. */
   requestId: string;
+  /**
+   * X-Correlation-Id: el proceso de negocio completo (una compra de punta a punta). El que llegó
+   * sin cambios si es válido, o uno generado (`corr-<uuid>`). Va en cada respuesta y en cada
+   * línea de log, y se propaga a todo lo que la petición llama (correlation-id.ts).
+   */
+  correlationId: string;
   /** IP del cliente (con `trust proxy` configurado, la de X-Forwarded-For). */
   ip: string | null;
   /**
@@ -21,6 +27,11 @@ export interface ContextoPeticion {
    */
   cliente?: string;
   /**
+   * La operación que atiende la petición: el operationId del contrato v2 o `Controller.método`
+   * en v1. La fija GuardOperacion, el primer guard; `undefined` si ninguna ruta la atendió.
+   */
+  operacion?: string;
+  /**
    * El span SERVER de la petición (o de la llamada gRPC), para que hasta la línea de acceso, que
    * se escribe cuando el contexto de OpenTelemetry ya no está activo, lleve su traceId y spanId.
    */
@@ -28,6 +39,23 @@ export interface ContextoPeticion {
 }
 
 const almacen = new AsyncLocalStorage<ContextoPeticion>();
+
+/**
+ * El contexto de una petición nueva (HTTP o gRPC). `correlationId` y `operacion` se agregan como
+ * propiedades no enumerables: son de la fachada v2 y del log de acceso, y quien vuelca el
+ * contexto (una prueba de v1, un log de depuración) sigue viendo los mismos campos de siempre.
+ */
+export function crearContexto(datos: {
+  requestId: string;
+  correlationId: string;
+  ip: string | null;
+}): ContextoPeticion {
+  const contexto = { requestId: datos.requestId, ip: datos.ip, usuario: null };
+  return Object.defineProperties(contexto, {
+    correlationId: { value: datos.correlationId, enumerable: false },
+    operacion: { value: undefined, enumerable: false, writable: true },
+  }) as ContextoPeticion;
+}
 
 /** El contexto de la petición en curso, o `undefined` fuera de una petición (arranque, tareas). */
 export function obtenerContexto(): ContextoPeticion | undefined {

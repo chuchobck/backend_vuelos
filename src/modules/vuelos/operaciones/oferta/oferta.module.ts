@@ -11,5 +11,7 @@ import { OfertaService } from './oferta.service';
 @Module({
   controllers: [OfertaController, OfertaGrpc],
   providers: [OfertaService, OfertaRepository],
+  // La fachada v2 arma su mapa de asientos con el mismo service
+  exports: [OfertaService],
 })
 export class OfertaModule {}

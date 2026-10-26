@@ -238,7 +238,12 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
       contextoDeTraceparent(e.traceparent),
     );
     const inicio = process.hrtime.bigint();
-    const respuesta = await this.notifier.publicar(e.sobre, token, traceparentDe(span));
+    const respuesta = await this.notifier.publicar(
+      e.sobre,
+      token,
+      traceparentDe(span),
+      e.correlationId,
+    );
     const { codigoHttp } = respuesta;
     if (codigoHttp !== null) span.setAttribute('http.response.status_code', codigoHttp);
     if (codigoHttp === null) {

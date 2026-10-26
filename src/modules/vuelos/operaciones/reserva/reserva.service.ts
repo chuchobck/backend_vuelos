@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { CodigoError, CODIGO_SIN_EQUIVALENTE } from '../../../../common/errores/codigo-error';
+import { CodigoErrorV2 } from '../../../../common/errores/codigo-error-v2';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { Reloj } from '../../../../common/reloj';
 import { Observabilidad } from '../../../../observabilidad/observabilidad';
@@ -14,7 +15,7 @@ import {
   LIMITE_POR_DEFECTO,
 } from '../../catalogo/base/paginacion';
 import { ESTADO_RESERVA, ORDEN_CABINAS } from '../../compartido/enums';
-import { cuerpoInvalido, noExiste } from '../../compartido/errores';
+import { claveConOtroCuerpo, cuerpoInvalido, noExiste } from '../../compartido/errores';
 import { sumarDias } from '../../compartido/fechas';
 import {
   ClaveGuardada,
@@ -23,7 +24,12 @@ import {
 } from '../../compartido/idempotencia.repository';
 import { Cobros } from '../../compartido/pagos/cobros';
 import { PagosRepository } from '../../compartido/pagos/pagos.repository';
-import { EstadoPago, SERVICIO_PAGOS, ServicioPagos } from '../../compartido/pagos/servicio-pagos';
+import {
+  EstadoPago,
+  PagoDeFachada,
+  SERVICIO_PAGOS,
+  ServicioPagos,
+} from '../../compartido/pagos/servicio-pagos';
 import { BoletoService } from '../boleto/boleto.service';
 import { RetencionService } from '../retencion/retencion.service';
 import { asignarAsientos, SalidaConCabina, validarAsientosElegidos } from './asientos-reserva';
@@ -31,12 +37,13 @@ import { ConsultaReservasDto } from './dto/consulta-reservas.dto';
 import { SolicitudReservaDto } from './dto/solicitud-reserva.dto';
 import { EventosReserva, TipoEventoReserva } from './eventos-reserva';
 import { validarPasajeros } from './pasajeros-reserva';
-import { Reserva, ResumenReserva } from './reserva.modelo';
+import { Reserva } from './reserva.modelo';
 import {
   AsientoDeSalida,
   FilaListado,
   FiltrosReservas,
   HoldParaReservar,
+  OrigenReserva,
   PnrAgotado,
   ReservaRepository,
 } from './reserva.repository';
@@ -55,6 +62,15 @@ export const REGLAS_RESERVA = {
 /** Estados en los que un vuelo se sigue vendiendo (los de la búsqueda y del hold). */
 const ESTADOS_VENDIBLES: estado_vuelo[] = ['PROGRAMADO', 'DEMORADO'];
 const HORA = 60 * 60_000;
+
+/**
+ * Lo que la fachada v2 agrega a POST /bookings (v1 no lo pasa): quién cobró y cuánto (con
+ * BOOKING_PROTOTIPO no se llama a la Payment API) y, con un token de partner, su origen.
+ */
+export interface OpcionesReservaV2 {
+  pago: PagoDeFachada;
+  origen?: OrigenReserva;
+}
 
 /** Lo que responde POST /bookings: 201 si los boletos salieron, 202 si el pago sigue pendiente. */
 export interface ResultadoReserva {
@@ -79,12 +95,14 @@ const holdVencido = (id: string) =>
     410,
     CodigoError.OFFER_NO_LONGER_AVAILABLE,
     `Hold ${id} has expired or was released`,
+    { v2: { code: CodigoErrorV2.HOLD_EXPIRED } },
   );
 const holdConsumido = (id: string) =>
   new ErrorNegocio(
     409,
     CodigoError.OFFER_NO_LONGER_AVAILABLE,
     `Hold ${id} was already used for a booking`,
+    { v2: { code: CodigoErrorV2.HOLD_ALREADY_CONSUMED } },
   );
 const reservaNoExiste = (id: string) => noExiste(`Booking ${id} was not found`);
 
@@ -117,9 +135,10 @@ export class ReservaService {
     solicitud: SolicitudReservaDto,
     idPropietario: string,
     clave: string,
+    v2?: OpcionesReservaV2,
   ): Promise<ResultadoReserva> {
     return this.observabilidad.interno('reserva.crear', () =>
-      this.crearReserva(solicitud, idPropietario, clave),
+      this.crearReserva(solicitud, idPropietario, clave, v2),
     );
   }
 
@@ -127,9 +146,10 @@ export class ReservaService {
     solicitud: SolicitudReservaDto,
     idPropietario: string,
     clave: string,
+    v2?: OpcionesReservaV2,
   ): Promise<ResultadoReserva> {
     const ahora = this.reloj.ahora();
-    const huella = huellaDe(solicitud);
+    const huella = huellaDe(solicitud, v2);
     const idClave = { idPropietario, operacion: 'CREAR_RESERVA' as const, clave };
 
     const previa = await this.claves.leer(idClave);
@@ -137,7 +157,7 @@ export class ReservaService {
     if (previa) await this.claves.borrarVencidas(ahora, idClave);
 
     try {
-      return await this.crearNueva(solicitud, idPropietario, idClave, huella, ahora);
+      return await this.crearNueva(solicitud, idPropietario, idClave, huella, ahora, v2);
     } catch (error) {
       // Otra petición con la misma clave pudo terminar entre la lectura de arriba y la
       // comprobación que falló (el hold ya consumido, la referencia ya usada): se repite su
@@ -156,6 +176,7 @@ export class ReservaService {
     idClave: IdClave,
     huella: string,
     ahora: Date,
+    v2: OpcionesReservaV2 | undefined,
   ): Promise<ResultadoReserva> {
     const hold = await this.repositorio.holdParaReservar(solicitud.holdId);
     if (!hold || hold.idPropietario !== idPropietario) throw holdNoExiste();
@@ -189,7 +210,7 @@ export class ReservaService {
       );
     }
     const referencia = solicitud.payment.paymentReference;
-    const pago = await this.autorizarPago(referencia, hold);
+    const pago = await this.autorizarPago(referencia, hold, v2?.pago);
     const codigoHttp = pago === 'APROBADO' ? 201 : 202;
 
     const id = randomUUID();
@@ -233,6 +254,7 @@ export class ReservaService {
           })),
           pasajeros,
           asientos,
+          origen: v2?.origen,
         });
         await this.pagosRegistrados.registrar(tx, {
           reservaId: id,
@@ -240,6 +262,7 @@ export class ReservaService {
           concepto: 'EMISION',
           estado: pago === 'APROBADO' ? 'APROBADO' : 'PENDIENTE',
           fecha: ahora,
+          proveedor: v2?.pago.proveedor,
         });
         await this.evento(tx, id, 'booking.created', 'Booking created from hold', ahora, [
           null,
@@ -297,8 +320,9 @@ export class ReservaService {
   async listar(
     consulta: ConsultaReservasDto,
     idPropietario: string,
-  ): Promise<{ filas: ResumenReserva[]; nextCursor?: string }> {
-    return this.pagina(consulta, { idPropietario });
+    usuarioExterno?: string,
+  ): Promise<{ filas: FilaListado[]; nextCursor?: string }> {
+    return this.pagina(consulta, { idPropietario, usuarioExterno });
   }
 
   /**
@@ -314,7 +338,10 @@ export class ReservaService {
 
   private async pagina(
     consulta: ConsultaReservasDto,
-    alcance: Pick<FiltrosReservas, 'idPropietario' | 'correoPropietario' | 'numeroVuelo'>,
+    alcance: Pick<
+      FiltrosReservas,
+      'idPropietario' | 'usuarioExterno' | 'correoPropietario' | 'numeroVuelo'
+    >,
   ): Promise<{ filas: FilaListado[]; nextCursor?: string }> {
     const limite = consulta.limit ?? LIMITE_POR_DEFECTO;
     const desde = consulta.createdFrom ? fechaIsoAUtc(consulta.createdFrom) : undefined;
@@ -576,18 +603,20 @@ export class ReservaService {
     if (resultado) this.observabilidad.core.reservas.inc({ result: resultado });
   }
 
-  private async autorizarPago(referencia: string, hold: HoldParaReservar): Promise<EstadoPago> {
+  private async autorizarPago(
+    referencia: string,
+    hold: HoldParaReservar,
+    fachada?: PagoDeFachada,
+  ): Promise<EstadoPago> {
     const total = hold.itinerarios.reduce(
       (suma, it) => suma.plus(it.base).plus(it.impuestos),
       new Prisma.Decimal(0),
     );
     try {
-      return await this.cobros.autorizar({
-        referencia,
-        concepto: 'EMISION',
-        moneda: hold.moneda,
-        monto: total,
-      });
+      return await this.cobros.autorizar(
+        { referencia, concepto: 'EMISION', moneda: hold.moneda, monto: total },
+        fachada,
+      );
     } catch (error) {
       // 422: la Payment API no reconoce el pago o lo rechazó (un 409 es una referencia repetida)
       if (error instanceof ErrorNegocio && error.status === 422) {
@@ -604,12 +633,7 @@ export class ReservaService {
     idPropietario: string,
   ): Promise<ResultadoReserva> {
     if (previa.huella !== huella) {
-      throw new ErrorNegocio(
-        422,
-        CODIGO_SIN_EQUIVALENTE,
-        'This Idempotency-Key was already used with a different request body',
-        { invalidParams: [{ name: 'Idempotency-Key', reason: 'already used with another body' }] },
-      );
+      throw claveConOtroCuerpo();
     }
     const guardada = previa.respuesta as { bookingId?: string } | null;
     if ((previa.codigoHttp !== 201 && previa.codigoHttp !== 202) || !guardada?.bookingId) {
@@ -685,9 +709,10 @@ function salidasConCabina(hold: HoldParaReservar): SalidaConCabina[] {
 /**
  * SHA-256 (hexadecimal) del cuerpo ya validado y normalizado, con las claves en un orden fijo.
  * El orden de los pasajeros cuenta (decide la asignación de asientos). Solo se guarda el hash:
- * los datos personales no van a clave_idempotencia.
+ * los datos personales no van a clave_idempotencia. Desde la fachada v2 también cuentan el pago
+ * (proveedor y monto) y el origen (partner, usuario final y canal).
  */
-function huellaDe(solicitud: SolicitudReservaDto): string {
+function huellaDe(solicitud: SolicitudReservaDto, v2?: OpcionesReservaV2): string {
   const canonica = {
     holdId: solicitud.holdId.toLowerCase(),
     passengers: solicitud.passengers.map((p) => ({
@@ -713,6 +738,7 @@ function huellaDe(solicitud: SolicitudReservaDto): string {
       })),
     })),
     payment: { paymentReference: solicitud.payment.paymentReference },
+    ...(v2 ? { v2: { pago: v2.pago, origen: v2.origen ?? null } } : {}),
   };
   return createHash('sha256').update(JSON.stringify(canonica)).digest('hex');
 }

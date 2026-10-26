@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { concepto_pago, estado_pago } from '../../../../generated/prisma/client';
+import { concepto_pago, estado_pago, proveedor_pago } from '../../../../generated/prisma/client';
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
 
 export interface PagoNuevo {
@@ -8,6 +8,8 @@ export interface PagoNuevo {
   concepto: concepto_pago;
   estado: estado_pago;
   fecha: Date;
+  /** Quién cobró; sin valor, AEROLINEA (la Payment API de la aerolínea, como en v1). */
+  proveedor?: proveedor_pago;
 }
 
 /**
@@ -38,6 +40,7 @@ export class PagosRepository {
         concepto: pago.concepto,
         estado: pago.estado,
         fecha_registro: pago.fecha,
+        proveedor: pago.proveedor ?? 'AEROLINEA',
       },
       select: { id: true },
     });

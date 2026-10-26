@@ -8,5 +8,6 @@ import { EstadoVueloService } from './estado-vuelo.service';
 @Module({
   controllers: [EstadoVueloController, EstadoVueloGrpc],
   providers: [EstadoVueloService, EstadoVueloRepository],
+  exports: [EstadoVueloService],
 })
 export class EstadoVueloModule {}
