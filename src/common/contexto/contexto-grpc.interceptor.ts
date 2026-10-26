@@ -2,6 +2,7 @@ import { Metadata } from '@grpc/grpc-js';
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
 import { ejecutarEnContexto } from './contexto-peticion';
+import { METADATA_CORRELACION } from './correlation-id';
 import {
   contextoDeLlamada,
   LlamadaGrpc,
@@ -13,7 +14,7 @@ import {
  * Lo que en HTTP hacen los middlewares de contexto, para una llamada gRPC (lo pone
  * @ControladorGrpc): abre el mismo AsyncLocalStorage con el request id de la metadata, así el
  * log de los pipes, el service y Prisma lleva ese id; lo devuelve en la metadata inicial de la
- * respuesta (como X-Request-Id) y deja la línea de acceso. La de un error la deja el filtro.
+ * respuesta (como X-Request-Id), junto con el x-correlation-id, y deja la línea de acceso. La de un error la deja el filtro.
  */
 @Injectable()
 export class InterceptorContextoGrpc implements NestInterceptor {
@@ -23,6 +24,7 @@ export class InterceptorContextoGrpc implements NestInterceptor {
 
     const metadata = new Metadata();
     metadata.set(METADATA_REQUEST_ID, datos.contexto.requestId);
+    metadata.set(METADATA_CORRELACION, datos.contexto.correlationId);
     llamada.sendMetadata(metadata);
 
     // handle() se llama dentro del contexto: Nest enlaza ahí (AsyncResource) el pipe y el handler

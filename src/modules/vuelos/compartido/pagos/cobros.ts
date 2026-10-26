@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CodigoError } from '../../../../common/errores/codigo-error';
+import { correlacionActual } from '../../../../common/contexto/correlation-id';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { PagosRepository } from './pagos.repository';
 import { CobroEsperado, SERVICIO_PAGOS, ServicioPagos } from './servicio-pagos';
@@ -8,7 +9,8 @@ import { CobroEsperado, SERVICIO_PAGOS, ServicioPagos } from './servicio-pagos';
  * Cobrar con una paymentReference, igual en todas las operaciones (reserva, equipaje, cambio
  * de fecha), antes de abrir la transacción: una referencia ya usada en otra operación es 409;
  * una que la Payment API no reconoce o que rechazó es 422 y la operación no se hace. Aprobado
- * o pendiente, la operación sigue. Los errores nombran el campo, nunca la referencia.
+ * o pendiente, la operación sigue. Los errores nombran el campo, nunca la referencia. El cobro
+ * lleva el X-Correlation-Id de la petición, que la Payment API recibe sin cambios.
  */
 @Injectable()
 export class Cobros {
@@ -25,7 +27,7 @@ export class Cobros {
         'payment.paymentReference: was already used for another operation',
       );
     }
-    const estado = await this.pagos.autorizar(cobro);
+    const estado = await this.pagos.autorizar({ ...cobro, correlationId: correlacionActual() });
     if (estado === 'INVALIDO') {
       throw new ErrorNegocio(
         422,

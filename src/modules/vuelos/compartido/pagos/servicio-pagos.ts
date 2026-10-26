@@ -15,6 +15,11 @@ export interface CobroEsperado {
   concepto: concepto_pago;
   moneda: string;
   monto: Prisma.Decimal;
+  /**
+   * X-Correlation-Id del proceso que cobra (lo pone Cobros desde el contexto). Un cliente HTTP
+   * de la Payment API lo manda sin cambios en la cabecera X-Correlation-Id.
+   */
+  correlationId?: string;
 }
 
 /** Un reembolso de lo que se cobró con `referenciaPago`. */
@@ -25,6 +30,8 @@ export interface ReembolsoPedido {
   operacion: string;
   moneda: string;
   monto: Prisma.Decimal;
+  /** Como en CobroEsperado; falta cuando lo pide un proceso periódico, fuera de una petición. */
+  correlationId?: string;
 }
 
 export type EstadoReembolso = 'APROBADO' | 'PENDIENTE' | 'RECHAZADO';

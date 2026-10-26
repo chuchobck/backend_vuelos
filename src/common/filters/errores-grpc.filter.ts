@@ -8,6 +8,7 @@ import {
   registrarLlamada,
 } from '../contexto/contexto-grpc';
 import { ejecutarEnContexto, obtenerContexto } from '../contexto/contexto-peticion';
+import { METADATA_CORRELACION } from '../contexto/correlation-id';
 import { codigoGrpc } from '../errores/codigo-grpc';
 import { ErrorNegocio } from '../errores/error-negocio';
 import { traducirExcepcion } from '../errores/traducir-excepcion';
@@ -33,7 +34,8 @@ const TEXTO_METADATA = /^[\x20-\x7e]*$/;
  *
  * El `details` del status es el `detail` del ProblemDetails (o su título): nunca el mensaje
  * interno ni el stack, que en un 5xx se quedan en el log. Las cabeceras del error en REST
- * (Retry-After) van como metadata en minúsculas, con el x-request-id de la llamada. Las líneas
+ * (Retry-After) van como metadata en minúsculas, con el x-request-id y el x-correlation-id de la
+ * llamada. Las líneas
  * de log llevan ese id aunque el error ocurra antes del interceptor (en el guard).
  */
 @Catch()
@@ -66,6 +68,7 @@ export class FiltroErroresGrpc implements ExceptionFilter {
 
     const metadata = new Metadata();
     metadata.set(METADATA_REQUEST_ID, llamada.contexto.requestId);
+    metadata.set(METADATA_CORRELACION, llamada.contexto.correlationId);
     metadata.set(METADATA_ERROR.codigo, problema.code);
     metadata.set(METADATA_ERROR.status, String(problema.status));
     metadata.set(METADATA_ERROR.problema, Buffer.from(JSON.stringify(problema), 'utf8'));

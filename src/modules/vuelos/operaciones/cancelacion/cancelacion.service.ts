@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
+import { correlacionActual } from '../../../../common/contexto/correlation-id';
 import { CodigoError, CODIGO_SIN_EQUIVALENTE } from '../../../../common/errores/codigo-error';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { Reloj } from '../../../../common/reloj';
@@ -346,6 +347,7 @@ export class CancelacionService {
       operacion: cotizacion.id,
       moneda,
       monto: cotizacion.reembolso,
+      correlationId: correlacionActual(),
     });
   }
 

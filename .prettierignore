@@ -11,3 +11,6 @@ docs
 
 # Copia de los esquemas del notifier (npm run eventos:sync): se guardan tal cual llegan
 contracts/notifier-eventos
+
+# El contrato v2 tal como lo entregó el docente: no se reformatea
+contracts/vuelos-openapi-v2.yaml

@@ -16,11 +16,14 @@ const CABECERAS_PERMITIDAS = [
   'Idempotency-Key',
   'X-Device-Fingerprint',
   'X-Request-Id',
+  'X-Correlation-Id',
 ];
 
 /** Cabeceras de la respuesta que el navegador deja leer al código del origen permitido. */
 const CABECERAS_EXPUESTAS = [
   'X-Request-Id',
+  'X-Correlation-Id',
+  'Idempotent-Replayed',
   'Retry-After',
   'X-RateLimit-Limit',
   'X-RateLimit-Remaining',
