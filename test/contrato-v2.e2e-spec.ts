@@ -923,6 +923,11 @@ describe('Contrato v2 (/api/v2/vuelos): pruebas de proveedor', () => {
       expect(checkin._links['boarding-passes'].href).toBe(
         `${V2}/bookings/${reserva.bookingId}/boarding-passes`,
       );
+      // booking.checked_in se publica con el reloj todavía en el día del vuelo: si no, queda
+      // PENDIENTE con fecha dos meses adelante y otra suite (observabilidad) lo cuenta
+      const { RelevoEventos } =
+        await import('../src/modules/vuelos/operaciones/webhook/relevo-eventos');
+      await app.get(RelevoEventos).ejecutar();
       esperarV2(
         'listBoardingPasses',
         await v2('get', `/bookings/${reserva.bookingId}/boarding-passes`, tokenPartner()),
