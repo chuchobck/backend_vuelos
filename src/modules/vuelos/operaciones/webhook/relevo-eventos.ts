@@ -154,11 +154,11 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private async publicar(e: EventoReclamado): Promise<EstadoEventoSaliente | null> {
-    let envio = await this.enviar(e.sobre);
+    let envio = await this.enviar(e.sobre, e.correlationId);
     if (envio.respuesta.codigoHttp === 401) {
       // Token vencido o revocado: uno nuevo y otra vez, en el mismo intento
       this.tokens.invalidar(envio.token);
-      envio = await this.enviar(e.sobre);
+      envio = await this.enviar(e.sobre, e.correlationId);
       if (envio.respuesta.codigoHttp === 401) this.tokens.invalidar(envio.token);
     }
     const { codigoHttp, retryAfter, error } = envio.respuesta;
@@ -206,6 +206,7 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
   /** Un intento de publicación, con el token que se usó; nunca lanza. */
   private async enviar(
     sobre: string,
+    correlationId: string | null,
   ): Promise<{ respuesta: ResultadoPublicacion; token: string | undefined }> {
     let token: string;
     try {
@@ -214,7 +215,7 @@ export class RelevoEventos implements OnApplicationBootstrap, OnModuleDestroy {
       const codigo = error instanceof TokenNoDisponibleError ? error.codigo : 'TOKEN_ERROR';
       return { respuesta: { codigoHttp: null, retryAfter: null, error: codigo }, token: undefined };
     }
-    return { respuesta: await this.notifier.publicar(sobre, token), token };
+    return { respuesta: await this.notifier.publicar(sobre, token, correlationId), token };
   }
 
   /** Si el pendiente más viejo lleva más de 15 minutos, lo dice (como mucho cada 5 minutos). */

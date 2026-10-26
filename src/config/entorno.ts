@@ -258,6 +258,15 @@ export class VariablesEntorno {
   @ValidateIf(conNotifier)
   EVENT_RELAY_JOB_INTERVAL_SECONDS?: number;
 
+  /**
+   * Si el sobre de cada evento lleva además `correlationId` (el X-Correlation-Id del hecho). Sin
+   * valor: false, porque los esquemas 1.0 del notifier no lo admiten (additionalProperties:
+   * false); se enciende cuando el notifier lo acepte. La columna y la cabecera van siempre.
+   */
+  @IsIn(['true', 'false'], { message: 'EVENT_ENVELOPE_CORRELATION_ID debe ser true o false' })
+  @IsOptional()
+  EVENT_ENVELOPE_CORRELATION_ID?: string;
+
   /** Orígenes que pueden llamar desde un navegador. Sin valor: ninguno. */
   @Validate(ListaDeOrigenes)
   @IsOptional()

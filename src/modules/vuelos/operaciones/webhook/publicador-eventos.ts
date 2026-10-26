@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
+import { correlacionActual } from '../../../../common/contexto/correlation-id';
 import { modoWebhooks } from '../../../../config/eventos';
 import { TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { ESTADO_RESERVA } from '../../compartido/enums';
-import { BandejaEventosRepository } from './bandeja-eventos.repository';
+import { BandejaEventosRepository, OrigenEvento } from './bandeja-eventos.repository';
 import { EntregaRepository } from './entrega.repository';
 import { EVENTOS_WEBHOOK } from './webhook.modelo';
 
@@ -34,11 +35,14 @@ const ESTADOS_DEL_CONTRATO: Record<string, string> = Object.fromEntries(
  * - notifier: escribe UNA fila en evento_saliente con el sobre congelado; la publica
  *   RelevoEventos al notifier, que reparte a las suscripciones.
  *
- * Las firmas son las mismas en los dos modos: quien publica no sabe cuál está activo.
+ * Las firmas son las mismas en los dos modos: quien publica no sabe cuál está activo. En modo
+ * notifier cada evento guarda el X-Correlation-Id de la petición del hecho (y, con
+ * EVENT_ENVELOPE_CORRELATION_ID=true, lo lleva también en el sobre).
  */
 @Injectable()
 export class PublicadorEventos {
   private readonly alNotifier: boolean;
+  private readonly correlacionEnSobre: boolean;
 
   constructor(
     private readonly entregas: EntregaRepository,
@@ -46,6 +50,11 @@ export class PublicadorEventos {
     config: ConfigService,
   ) {
     this.alNotifier = modoWebhooks(config) === 'notifier';
+    this.correlacionEnSobre = config.get<string>('EVENT_ENVELOPE_CORRELATION_ID') === 'true';
+  }
+
+  private origen(): OrigenEvento {
+    return { correlationId: correlacionActual() ?? null, enSobre: this.correlacionEnSobre };
   }
 
   /** Un evento de la reserva (booking.*), a las suscripciones de su dueño. */
@@ -64,6 +73,7 @@ export class PublicadorEventos {
         ahora,
         randomUUID(),
         ESTADOS_DEL_CONTRATO,
+        this.origen(),
       );
       return;
     }
@@ -80,7 +90,7 @@ export class PublicadorEventos {
   /** hold.expired, al dueño del hold. */
   async deRetencionVencida(tx: TransaccionVuelos, retencionId: string, ahora: Date): Promise<void> {
     if (this.alNotifier) {
-      await this.bandeja.guardarDeRetencion(tx, retencionId, ahora, randomUUID());
+      await this.bandeja.guardarDeRetencion(tx, retencionId, ahora, randomUUID(), this.origen());
       return;
     }
     await this.entregas.encolarDeRetencion(tx, retencionId, ahora, randomUUID());
@@ -94,7 +104,14 @@ export class PublicadorEventos {
     ahora: Date,
   ): Promise<void> {
     if (this.alNotifier) {
-      await this.bandeja.guardarDeVuelo(tx, salidaId, tipo, ahora, ESTADOS_DEL_CONTRATO);
+      await this.bandeja.guardarDeVuelo(
+        tx,
+        salidaId,
+        tipo,
+        ahora,
+        ESTADOS_DEL_CONTRATO,
+        this.origen(),
+      );
       return;
     }
     await this.entregas.encolarDeVuelo(tx, salidaId, tipo, ahora, ESTADOS_DEL_CONTRATO);

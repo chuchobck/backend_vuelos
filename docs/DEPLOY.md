@@ -101,6 +101,7 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `NOTIFIER_CLIENT_ID` / `NOTIFIER_CLIENT_SECRET` | — | Obligatorias con `WEBHOOKS_MODE=notifier`: el cliente `core-vuelos` de identity con `events:publish`. El secreto nunca se registra |
 | `EVENT_RELAY_JOB_ENABLED` | `true` | Solo con `WEBHOOKS_MODE=notifier`: el relevo que publica la bandeja `evento_saliente` |
 | `EVENT_RELAY_JOB_INTERVAL_SECONDS` | `5` | Cada cuántos segundos corre el relevo (1 a 3600) |
+| `EVENT_ENVELOPE_CORRELATION_ID` | `false` | Con `true`, el sobre de cada evento lleva `correlationId`. Encenderlo solo cuando el notifier acepte el campo (sus esquemas 1.0 lo rechazan). La columna `correlation_id` y la cabecera `X-Correlation-Id` al notifier van siempre |
 | `SEARCH_OFFER_TTL_MINUTES` | 30 | Vigencia de una oferta de búsqueda |
 | `HOLD_TTL_MINUTES` | 15 | Vigencia de un hold |
 | `CANCELLATION_QUOTE_TTL_MINUTES`, `CHANGE_OFFER_TTL_MINUTES` | 15 y 15 | Vigencia de una cotización de cancelación y de una oferta de cambio |

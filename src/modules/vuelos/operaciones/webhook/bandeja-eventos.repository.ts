@@ -4,6 +4,23 @@ import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.serv
 /** schemaVersion del sobre: el menor de la v1 de los esquemas del notifier (contracts/notifier-eventos). */
 export const VERSION_ESQUEMA_EVENTOS = '1.0';
 
+/**
+ * De qué proceso de negocio sale un evento: el X-Correlation-Id de la petición que produjo el
+ * hecho (null en un proceso periódico) y si además va dentro del sobre (`correlationId`,
+ * EVENT_ENVELOPE_CORRELATION_ID=true). Siempre se guarda en la columna correlation_id.
+ */
+export interface OrigenEvento {
+  correlationId: string | null;
+  enSobre: boolean;
+}
+
+/** Lo que se agrega al sobre: `{"correlationId": ...}` solo si va en el sobre y hay uno. */
+function extraDelSobre(origen: OrigenEvento): string {
+  return JSON.stringify(
+    origen.enSobre && origen.correlationId !== null ? { correlationId: origen.correlationId } : {},
+  );
+}
+
 /** Cuánto se reintenta publicar un evento antes de dejarlo FALLIDO. */
 export const PLAZO_REINTENTOS_HORAS = 48;
 
@@ -29,12 +46,14 @@ export class BandejaEventosRepository {
     ahora: Date,
     eventId: string,
     estados: Record<string, string>,
+    origen: OrigenEvento,
   ): Promise<number> {
     return tx.$executeRaw`
       INSERT INTO vuelos.evento_saliente
-             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)
+             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en,
+              correlation_id)
       SELECT ${eventId}::uuid, ${tipo}::text, r.id_propietario,
-             jsonb_build_object(
+             (jsonb_build_object(
                'eventId', ${eventId}::text, 'eventType', ${tipo}::text,
                'schemaVersion', ${VERSION_ESQUEMA_EVENTOS}::text,
                'occurredAt', to_char(${ahora}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -45,10 +64,12 @@ export class BandejaEventosRepository {
                  'refundAmount', (SELECT to_char(c.monto_reembolso, 'FM999999990.00')
                                     FROM vuelos.cotizacion_cancelacion c
                                    WHERE c.reserva_id = rc.id AND c.fecha_aceptacion IS NOT NULL
-                                     AND ${tipo}::text = 'booking.cancelled'))))::text,
+                                     AND ${tipo}::text = 'booking.cancelled'))))
+               || ${extraDelSobre(origen)}::jsonb)::text,
              ${ahora}::timestamptz,
              ${ahora}::timestamptz + make_interval(hours => ${PLAZO_REINTENTOS_HORAS}),
-             ${ahora}::timestamptz
+             ${ahora}::timestamptz,
+             ${origen.correlationId}::text
         FROM vuelos.reserva_cabecera rc
         JOIN vuelos.retencion_cabecera r ON r.id = rc.retencion_id
        WHERE rc.id = ${reservaId}::uuid`;
@@ -60,20 +81,24 @@ export class BandejaEventosRepository {
     retencionId: string,
     ahora: Date,
     eventId: string,
+    origen: OrigenEvento,
   ): Promise<number> {
     return tx.$executeRaw`
       INSERT INTO vuelos.evento_saliente
-             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)
+             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en,
+              correlation_id)
       SELECT ${eventId}::uuid, 'hold.expired', r.id_propietario,
-             jsonb_build_object(
+             (jsonb_build_object(
                'eventId', ${eventId}::text, 'eventType', 'hold.expired',
                'schemaVersion', ${VERSION_ESQUEMA_EVENTOS}::text,
                'occurredAt', to_char(${ahora}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
                'ownerId', r.id_propietario,
-               'data', jsonb_build_object('holdId', r.id::text, 'status', 'EXPIRED'))::text,
+               'data', jsonb_build_object('holdId', r.id::text, 'status', 'EXPIRED'))
+               || ${extraDelSobre(origen)}::jsonb)::text,
              ${ahora}::timestamptz,
              ${ahora}::timestamptz + make_interval(hours => ${PLAZO_REINTENTOS_HORAS}),
-             ${ahora}::timestamptz
+             ${ahora}::timestamptz,
+             ${origen.correlationId}::text
         FROM vuelos.retencion_cabecera r
        WHERE r.id = ${retencionId}::uuid`;
   }
@@ -88,6 +113,7 @@ export class BandejaEventosRepository {
     tipo: string,
     ahora: Date,
     estados: Record<string, string>,
+    origen: OrigenEvento,
   ): Promise<number> {
     return tx.$executeRaw`
       WITH afectadas AS (
@@ -106,9 +132,10 @@ export class BandejaEventosRepository {
                           AND i.vuelo_programado_id = vp.id)
       )
       INSERT INTO vuelos.evento_saliente
-             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)
+             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en,
+              correlation_id)
       SELECT a.evento, ${tipo}::text, a.id_propietario,
-             jsonb_build_object(
+             (jsonb_build_object(
                'eventId', a.evento::text, 'eventType', ${tipo}::text,
                'schemaVersion', ${VERSION_ESQUEMA_EVENTOS}::text,
                'occurredAt', to_char(${ahora}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
@@ -116,10 +143,12 @@ export class BandejaEventosRepository {
                'data', jsonb_build_object(
                  'bookingId', a.id::text, 'pnr', a.pnr,
                  'status', ${JSON.stringify(estados)}::jsonb ->> a.estado::text,
-                 'flightNumber', a.vuelo, 'segmentId', ${salidaId}::text))::text,
+                 'flightNumber', a.vuelo, 'segmentId', ${salidaId}::text))
+               || ${extraDelSobre(origen)}::jsonb)::text,
              ${ahora}::timestamptz,
              ${ahora}::timestamptz + make_interval(hours => ${PLAZO_REINTENTOS_HORAS}),
-             ${ahora}::timestamptz
+             ${ahora}::timestamptz,
+             ${origen.correlationId}::text
         FROM afectadas a`;
   }
 
@@ -147,7 +176,8 @@ export class BandejaEventosRepository {
         FROM elegidos
        WHERE e.id_evento = elegidos.id_evento
       RETURNING e.id_evento::text AS "idEvento", e.tipo AS "tipo", e.intentos::int AS "intentos",
-                e.sobre AS "sobre", e.reintentar_hasta AS "reintentarHasta"`;
+                e.sobre AS "sobre", e.reintentar_hasta AS "reintentarHasta",
+                e.correlation_id AS "correlationId"`;
   }
 
   /**
@@ -198,4 +228,6 @@ export interface EventoReclamado {
   /** El sobre tal como se guardó: se envía sin tocarlo. */
   sobre: string;
   reintentarHasta: Date;
+  /** X-Correlation-Id del hecho: va en la cabecera de la publicación. */
+  correlationId: string | null;
 }
