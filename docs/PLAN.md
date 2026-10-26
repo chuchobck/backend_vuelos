@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-16 (cierre de la fase 5b, eventos al notifier) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-10-26 (cierre de la fase V1, fachada del contrato v2) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1. Las fases de RDA2 (R2-...) la integran con el resto del Booking: la R2-1 agrega un servidor gRPC interno para el BFF GraphQL la 4b deja que los tokens los emita el servicio de identidad (`AUTH_MODE=external`) y la 5b, que los webhooks los reparta el notifier (`WEBHOOKS_MODE=notifier`).
 
@@ -23,6 +23,7 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | R2-1. gRPC | Hecha en local (2026-10-15); gRPC queda apagado por defecto y su despliegue es la fase de Azure | `lint`, `format:check` y `build` pasan en cada uno de los 12 commits. `test:e2e` con Node 22.22.0 (el de `.nvmrc`): 893 pruebas en 32 suites (42 nuevas en `grpc.e2e-spec.ts`), tres corridas seguidas con 891 que pasan y las mismas 2 que ya fallaban en esta máquina antes del primer commit (`errores-bd`, IPv6: el sandbox no tiene `::1` y `connect` da `EAFNOSUPPORT`; ver Hallazgos). Paridad con un cliente real de `@grpc/grpc-js` contra la semilla: `SearchFlights` (UIO-GYE con 2 adultos, un niño y un infante; ida y vuelta UIO-GPS con escala por GYE), `GetSeatMap` y `GetFlightStatus` dan lo mismo que REST con la misma entrada (sin los `null` y con los enums del proto), y la oferta de una búsqueda gRPC abre su mapa por REST; los errores 400 y 404 traen el mismo `ProblemDetails` que REST en `problem-details-bin`, con `problem-code` y `problem-status`. Una mutación (quitar la conversión del enum en `GetFlightStatus`) hace fallar la paridad con `FLIGHT_STATUS_UNSPECIFIED`. Con la API compilada (`node dist/main`): con `GRPC_ENABLED=true` el puerto abre, el log dice `[gRPC] Activo en 0.0.0.0:50061` y `/health` sigue en 200; sin la variable no abren ni 50061 ni 50051 y el log dice `Apagado (GRPC_ENABLED=false)`; con `GRPC_ENABLED=si` no arranca y nombra la variable. Con la base parada (`docker stop`): `GetFlightStatus` da `UNAVAILABLE` con `retry-after: 5` y `problem-status: 503`, como el 503 de REST. El `x-request-id` del cliente vuelve en las cabeceras y en los trailers del error y va en la línea `[gRPC]` y en la de `[Errores]`; uno inválido se cambia por un UUID. grpcurl 1.9.3 con el proto (sin reflection): `list`, `describe`, las tres RPC y un `NOT_FOUND` con sus trailers. Docker: la imagen (construida con una copia del Dockerfile que solo agrega la CA del proxy del sandbox) declara `EXPOSE 3000 50051` con el `HEALTHCHECK` sin cambios, trae `contracts/proto` y queda `healthy`; con `GRPC_ENABLED=true` responde por gRPC y sin la variable no abre el puerto. buf 1.73: `proto:lint` limpio; `proto:breaking` contra `main` (todavía sin proto: nada que comparar) y, contra `HEAD`, 7 cambios de prueba incompatibles dan código 100 (renumerar, quitar un campo sin `reserved` o solo con el número, renombrar, cambiar un tipo, quitar una RPC, quitar un valor de enum) y 2 compatibles dan 0 (quitar con número y nombre reservados, agregar un campo); el paso de CI corrió igual en un clon superficial. `actionlint` sin observaciones. `npm audit --omit=dev`: de 15 a 16 avisos, el nuevo es `@nestjs/microservices` (ver Hallazgos) |
 | 4b. Auth externa | Hecha en local (2026-10-15); `AUTH_MODE=local` sigue siendo el valor por defecto hasta el despliegue en Azure | `lint`, `format:check` y `build` pasan en cada uno de los 11 commits. `test:e2e` con Node 22.22.0: 971 pruebas en 36 suites (78 nuevas en `auth-externa`, `auth-modos`, `exportar-usuarios` y `clave-pases`), tres corridas seguidas sobre el código final con 969 que pasan y las mismas 2 de `errores-bd` que fallan en esta máquina desde antes de la fase (IPv6). Las suites existentes no cambiaron y corren en local. `test/auth-externa.e2e-spec.ts` (54 pruebas) contra un servicio de identidad falso: tokens de persona y de cliente, 27 tokens falsos o manipulados en 401, JWKS caído, en 500, lento, rotado y vacío, el enfriamiento con 100 `kid` inventados, las rutas del emisor en 404 y ningún token ni clave en el log ni en la auditoría. `npm run test:mutaciones`: 21 de 21 mutaciones muertas (HS256 con la clave pública, `alg` none, sin `iss`, `aud`, `typ` o `exp`, `sub` sin uuid, 5 minutos de tolerancia, 200 o 401 con el JWKS caído, sin enfriamiento, copia vencida, sin `max-age`, sin plazo, token o JWKS en el log, rutas montadas en external y tres de la exportación). Con el build (`node dist/main`, sin `.env` ni `JWT_SECRET`): `/auth/*` y `/admin/users` en 404, Swagger sin sus etiquetas. Verificación real con identity_vuelos (`main`, puerto 3001, base `identity_db`): las 969 cuentas exportadas y cargadas con la misma huella de ids y hashes, la segunda carga sin cambios; registro y login en identity, búsqueda, hold y reserva con `PAY-OK` en el core (201 `CONFIRMED`); un cliente `client_credentials` con `flights:read flights:hold` retuvo (201) y al reservar recibió 403 `insufficient_scope`; un token alterado, 401; el administrador migrado entró con su contraseña del core y abrió `/admin/audit-log`; con identity apagado, el core siguió aceptando tokens; ningún token completo ni el secreto del cliente en el log (salidas en el reporte del PR) |
 | 5b. Eventos al notifier | Hecha en local (2026-10-16); `WEBHOOKS_MODE=local` sigue siendo el valor por defecto y no se activa hasta tener el gateway | `lint`, `format:check` y `build` pasan en cada uno de los 11 commits. `test:e2e`: 1014 pruebas en 38 suites (43 nuevas en `eventos-notifier` y `exportar-webhooks`); pasan 1012 y fallan las mismas 2 de `errores-bd` de siempre en esta máquina (IPv6). Las suites existentes no cambiaron y corren en local; en una tercera corrida falló además `admin-auditoria` por datos acumulados en la base local (ver Hallazgos). `eventos-notifier` (40) contra un notifier y un identity falsos: reservar, cancelar, vencer un hold y mover un horario dejan una fila por hecho en `evento_saliente` y ninguna en `webhook_entrega`; los sobres de los 12 tipos cumplen los esquemas copiados del notifier; una transacción deshecha no deja evento; el relevo con 202, 200, 503 y Retry-After, 500, red caída y plazo (el mismo cuerpo byte a byte), 400/409/413/415/422 sin reintento, 401 con token nuevo, token reutilizado y renovado, esperas 5 s a 1 h, 48 h, aviso de atraso, SKIP LOCKED, dos relevos con 60 eventos, arrendamiento vencido y `eventos:reencolar`; `/webhooks` en 404; el entorno inválido; y ni el secreto, ni los tokens, ni las URLs en el log, la bandeja o las respuestas. `npm run test:mutaciones`: 32 de 32 muertas (11 de esta fase). Migración: `db/migrar.sh` dos veces sobre la base local y sobre una base nueva cargada con `esquema_vuelos.sql` (la segunda, sin cambios). Real, con todo en `main`: identity (`./db/migrar.sh`), notifier y el core compilado con `WEBHOOKS_MODE=notifier`; una reserva llegó al receptor con la firma válida, con el notifier apagado los eventos quedaron `PENDIENTE` y al volver se entregaron una vez cada uno; el importador del notifier aceptó el archivo de `webhooks:exportar` (659 importadas, la segunda vez "ya existían"; ver `docs/DEPLOY.md`) |
+| V1. Fachada del contrato v2 | Hecha en local (2026-10-26); Booking integra por `/api/v2/vuelos` con un token de partner de identity | `lint`, `format:check` y `build` pasan en cada commit. `test:e2e`: v1 sin cambios (1011 de 1014; las 3 que fallan son las de siempre en esta máquina: 2 de IPv6 en `errores-bd` y `admin-auditoria` por datos acumulados) más 49 nuevas en `contrato-v2` (36), `salud-v2` (8) y `fachada-v2` (5): cada operación implementada contra su esquema del contrato v2 por status (tabla de cobertura en `docs/V2-DIFERENCIAS.md`), correlación (sin cambios, generada, en la respuesta, el error, el log, la Payment API, gRPC, `evento_saliente` y la cabecera al notifier), partner (X-User-Id ignorado sin token de partner, aislamiento entre partners y usuarios finales), pagos de Booking (sin llamar a la Payment API, referencia reusada, `AMOUNT_MISMATCH`), idempotencia (reintento 200, otro cuerpo 409, 24 h con el reloj de la prueba), saga (compensación sin cotización ni penalidad, repetida) y salud con dependencias caídas, lentas y en caché. `npm run test:mutaciones`: 27 de 27 de esta fase muertas. Migración 004: base de `main` + 004 (dos veces) igual a una base nueva (`pg_dump -s`). Real: identity_vuelos (`main`) + el core compilado con `AUTH_MODE=external`, cliente `booking-prototipo` creado con `cliente:crear`; search → hold → booking (`PAY-BKP-...`) → reintento → tickets → cancel `SAGA_COMPENSATION` (y repetida) → 404, todo con el mismo `X-Correlation-Id`, que salió en cada respuesta, en el error y en las 18 líneas de log de la compra |
 
 ## Decisiones
 
@@ -433,6 +434,7 @@ Las fases 0 a 3 son la base, la 4 fija el patrón de módulo y las 5 a 7 son el 
 | R2-1. gRPC | `feat/r2-grpc` | Contrato Protobuf, servidor gRPC interno apagado por defecto, errores, request id, pruebas, buf, Docker, versión 1.1.0 | Las tres RPC dan lo mismo que REST con un cliente real, y con `GRPC_ENABLED=false` el puerto no abre |
 | 4b. Auth externa | `feat/r2-auth-externa` | `AUTH_MODE`, verificador RS256 con JWKS, rutas del emisor solo en local, exportación de cuentas, pruebas con un identity falso y mutaciones | Con `AUTH_MODE=external`, un token de identity_vuelos recorre la compra, uno manipulado da 401 y con identity caído y sin copia del JWKS la API responde 503 |
 | 5b. Eventos al notifier | `feat/r2-publicar-eventos` | `WEBHOOKS_MODE`, bandeja `evento_saliente` con migración, relevo con token de identity, `/webhooks` solo en local, esquemas del notifier, exportador de suscripciones, pruebas y mutaciones | Con `WEBHOOKS_MODE=notifier` una reserva llega firmada al receptor a través del notifier, y con el notifier caído el evento espera y se entrega una vez |
+| V1. Fachada del contrato v2 | `feat/v2-fachada` | `/api/v2/vuelos` con las 21 operaciones de v1, `issueTickets` y `health`; partner, pagos de Booking, `ProblemDetails` v2, idempotencia v2, `X-Correlation-Id` en v1 y v2, migración 004, Swagger aparte, pruebas de proveedor y mutaciones | Booking compra y compensa con un token de partner y el mismo `X-Correlation-Id` aparece en cada respuesta y en cada línea de log |
 
 Si el tiempo aprieta antes de RDA1, lo primero que se recorta es la fase 10: se dejan alta, listado y baja de suscripciones y se pospone la entrega de eventos.
 
@@ -652,6 +654,21 @@ El paso 10 del pedido (documentación, plan y CHANGELOG) quedó en tres commits,
 la documentación, la versión con su CHANGELOG y el cierre del plan. El tag `v1.1.0` lo crea el
 dueño del repo después de mezclar.
 
+### Fase V1 · Fachada del contrato v2
+
+1. `docs(v2): documentar las diferencias entre el contrato v1 y el v2 por operación`
+2. `feat(correlacion): recibir, generar y devolver X-Correlation-Id en v1, gRPC, pagos y logs`
+3. `feat(bd): agregar correlation_id a la bandeja, partner y canal a la reserva y proveedor al pago`
+4. `feat(eventos): guardar el X-Correlation-Id del hecho en la bandeja y mandarlo al notifier`
+5. `feat(operaciones): preparar los servicios para v2 (errores, pago de Booking, partner, ttl, motivo)`
+6. `feat(v2): montar la fachada /api/v2/vuelos con salud, partner, pagos de Booking y Swagger aparte`
+7. `test(v2): probar el contrato v2 de proveedor, la correlación, el partner, la idempotencia y la salud`
+8. `test(v2): agregar 27 mutaciones de la fachada v2 y probar el reembolso con una tarifa reembolsable`
+9. `docs(v2): documentar la fachada v2 y cerrar la fase V1`
+
+El commit 5 también agrega `cotizacion_cancelacion.codigo_motivo` a la migración 004 (que no estaba
+subida). Las decisiones de la fase están en `docs/V2-DIFERENCIAS.md`.
+
 ### Fase 5b · Eventos al notifier
 
 1. `feat(eventos): agregar WEBHOOKS_MODE y las variables del notifier al entorno`
@@ -686,6 +703,25 @@ la prueba de la exportación: la mutación que quita el rechazo de las rutas del
 dos exportaciones (ocultas por `.gitignore`, que funcionó como segunda barrera) y se borraron.
 
 ## Hallazgos
+
+### Fase V1
+
+- `test/swagger.e2e-spec.ts` exige a la vez que toda ruta de la app esté en `/api/docs` y que ese
+  documento no tenga rutas fuera del contrato v1: con la fachada v2 no se pueden cumplir las dos sin
+  tocarla. Se cambió una línea (la primera salta `/api/v2/...`) y las rutas de v2 se comprueban contra
+  `/api/v2/docs` en `test/fachada-v2.e2e-spec.ts`. Es el único cambio a la suite de v1.
+- `test/contexto.e2e-spec.ts` compara el contexto de la petición entero: `correlationId` y `operacion` se
+  agregan como propiedades no enumerables (`crearContexto`) para no cambiar esa prueba.
+- La mutación "la cancelación de una reserva cobrada por Booking pide el reembolso" sobrevivió al
+  principio: la prueba cancelaba una tarifa BASIC (100 % de penalidad), sin nada que devolver. Ahora usa
+  una tarifa reembolsable.
+- `contracts/vuelos-openapi-v2.yaml` llegó como lo entregó el docente y no pasa Prettier: va en
+  `.prettierignore` (en `main`, `format:check` ya fallaba por él).
+- Sin la fase 7c en esta rama, la línea de acceso JSON no trae `traceId` ni `spanId`, y la línea de
+  texto de acceso sigue con la URL pedida (7c la cambia por la plantilla de la ruta). Al fusionar 7c
+  habrá conflictos en `contexto.middleware.ts` y en el logger.
+- Los límites de peticiones son por IP: Booking llega desde pocas IP y 10 reservas por minuto puede
+  quedarle corto. Contar por `client_id` queda pendiente.
 
 ### Fase 5b
 
