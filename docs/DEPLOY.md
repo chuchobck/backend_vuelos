@@ -57,7 +57,7 @@ auditoría: `psql "$NEON_URL" -c "DROP SCHEMA vuelos CASCADE"` y repetir los pas
 
 **Una base que ya existe** se pone al día con `./db/migrar.sh` (usa `DATABASE_URL`; con
 `DATABASE_URL="$NEON_URL&schema=vuelos" ./db/migrar.sh` contra Neon): aplica `db/migraciones/*.sql`
-en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b y la 003 le agrega la columna `traceparent` (fase 7c).
+en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b, la 002 los índices de su purga y la 003 le agrega la columna `traceparent` (fase 7c).
 
 ## 3. Servicio en Render
 
@@ -101,6 +101,10 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `NOTIFIER_CLIENT_ID` / `NOTIFIER_CLIENT_SECRET` | — | Obligatorias con `WEBHOOKS_MODE=notifier`: el cliente `core-vuelos` de identity con `events:publish`. El secreto nunca se registra |
 | `EVENT_RELAY_JOB_ENABLED` | `true` | Solo con `WEBHOOKS_MODE=notifier`: el relevo que publica la bandeja `evento_saliente` |
 | `EVENT_RELAY_JOB_INTERVAL_SECONDS` | `5` | Cada cuántos segundos corre el relevo (1 a 3600) |
+| `EVENT_OUTBOX_PURGE_JOB_ENABLED` | `true` | Solo con `WEBHOOKS_MODE=notifier`: la purga que borra de `evento_saliente` lo ya publicado o fallido hace tiempo |
+| `EVENT_OUTBOX_PURGE_INTERVAL_MINUTES` | `60` | Cada cuántos minutos corre la purga (1 a 1440) |
+| `EVENT_OUTBOX_RETENTION_DAYS` | `7` | Días que un evento `PUBLICADO` se conserva desde `publicado_en` (1 a 365) |
+| `EVENT_OUTBOX_FAILED_RETENTION_DAYS` | `30` | Días que un evento `FALLIDO` se conserva desde que falló, para diagnosticar y usar `eventos:reencolar` (7 a 365). Un `PENDIENTE` no se borra nunca |
 | `SEARCH_OFFER_TTL_MINUTES` | 30 | Vigencia de una oferta de búsqueda |
 | `HOLD_TTL_MINUTES` | 15 | Vigencia de un hold |
 | `CANCELLATION_QUOTE_TTL_MINUTES`, `CHANGE_OFFER_TTL_MINUTES` | 15 y 15 | Vigencia de una cotización de cancelación y de una oferta de cambio |
@@ -295,6 +299,20 @@ El procedimiento del corte, el retroceso y cómo seguir la bandeja están en
   fechas futuras puestas por pruebas con el reloj adelantado).
 - No se verificó: los tres servicios desplegados ni el gateway.
 
+### Purga de la bandeja (2026-10-16)
+
+- El core compilado con `WEBHOOKS_MODE=notifier` (relevo cada 1 s, purga cada 1 min), un identity y
+  un notifier de mentira (puertos 3001 y 3002; no los reales, la purga no depende de ellos) y
+  `scripts/smoke.sh` contra el core: una reserva real dejó `booking.confirmed`, `ticket_issuing`,
+  `ticket_issued` y `cancelled` en la bandeja, y el relevo los pasó a `PUBLICADO` (202).
+- Se envejecieron esos 4 eventos 8 días en la base y se sembraron un `PENDIENTE` de 100 días, otro con
+  el arrendamiento vencido, un `FALLIDO` de 40 días y otro de 10, y un `PUBLICADO` de 3.
+  `npm run eventos:purgar -- --dry-run` dijo «Borraría: 4 PUBLICADO y 1 FALLIDO» sin borrar nada; el
+  borrado real dijo «Borradas: 4 PUBLICADO y 1 FALLIDO» y los dos `PENDIENTE`, el `FALLIDO` de 10 días y
+  el `PUBLICADO` de 3 siguieron ahí.
+- El job (`PurgaBandeja`, cada 1 min) borró en su primera corrida 3 `PUBLICADO` de 9 días con
+  «Purga de la bandeja: 3 PUBLICADO y 0 FALLIDO borrados en 17 ms»; el log del core no tenía ningún
+  `eventId`, PNR ni sobre.
 ### Fase 7c (2026-10-21): observabilidad con el gateway, el BFF, identity y el notifier
 
 - identity y notifier (`main`, con sus bases locales), el core compilado de esta rama con

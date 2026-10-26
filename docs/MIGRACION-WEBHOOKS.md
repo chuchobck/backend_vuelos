@@ -32,7 +32,10 @@ solo. Los esquemas están copiados en [contracts/notifier-eventos](../contracts/
 | `429`, `5xx`, red caída, 5 s sin respuesta, sin token, `403`, `3xx` u otro `4xx` | Reintenta a los 5 s, 30 s, 2 min, 10 min, 30 min y luego cada hora (o lo que diga `Retry-After`, si es más) |
 
 - Un evento que no se pudo publicar en **48 h** queda `FALLIDO` con un aviso. `npm run eventos:reencolar -- <eventId>`
-  (o `-- --todos-los-fallidos`) lo devuelve a `PENDIENTE` con 48 h nuevas y el mismo sobre.
+  (o `-- --todos-los-fallidos`) lo devuelve a `PENDIENTE` con 48 h nuevas y el mismo sobre. **Solo
+  funciona mientras la fila `FALLIDO` exista**: la purga (abajo) la borra a los 30 días de haber fallado
+  (`EVENT_OUTBOX_FAILED_RETENTION_DAYS`); después, `reencolar` responde que no está `FALLIDO` o no existe,
+  y el sobre ya no se puede reenviar.
 - Si el evento pendiente más viejo lleva más de 15 minutos, el log lo dice (como mucho cada 5 minutos).
 - **La traza del hecho llega hasta el notifier** (fase 7c). `evento_saliente.traceparent` guarda el
   `traceparent` del contexto activo cuando se escribió la fila, dentro de la transacción del hecho
@@ -58,6 +61,44 @@ SELECT id_evento, tipo, intentos, ultimo_codigo_http, ultimo_error, proximo_inte
   FROM vuelos.evento_saliente WHERE estado <> 'PUBLICADO' ORDER BY creado_en;
 ```
 
+## Purga de la bandeja
+
+Sin ella `evento_saliente` solo crece (una fila por hecho, también con el dueño sin suscripciones).
+Con `WEBHOOKS_MODE=notifier` el job `PurgaBandeja` borra, cada `EVENT_OUTBOX_PURGE_INTERVAL_MINUTES`
+(60) minutos:
+
+| Estado | Se borra | Variable |
+| --- | --- | --- |
+| `PUBLICADO` | a los 7 días de `publicado_en` | `EVENT_OUTBOX_RETENTION_DAYS` (1 a 365) |
+| `FALLIDO` | a los 30 días de haber fallado (la fecha de su último cambio, `proximo_intento`) | `EVENT_OUTBOX_FAILED_RETENTION_DAYS` (7 a 365) |
+| `PENDIENTE` | **jamás**, ni con el arrendamiento vencido: el relevo lo retoma | — |
+
+- Borra en sentencias de 1000 filas, alternando `PUBLICADO` y `FALLIDO`, hasta 20 000 por corrida; si
+  queda más, el log lo dice y sigue en la corrida siguiente. Cada sentencia usa `FOR UPDATE SKIP LOCKED`:
+  con varias instancias a la vez (o con `eventos:reencolar` o el relevo tocando una fila) se saltan lo que
+  otro tiene tomado, así que nadie espera ni borra la misma fila dos veces. No toca nada con un
+  arrendamiento vigente.
+- Los días se cuentan con la hora del `Reloj`. Los índices parciales de la migración
+  `db/migraciones/002_purga_bandeja.sql` (`ix_evento_saliente_publicado` y `ix_evento_saliente_fallido`)
+  sirven a estas sentencias; `./db/migrar.sh` los crea en una base que ya existe.
+- El log lleva solo conteos y duración (`Purga de la bandeja: 3 PUBLICADO y 0 FALLIDO borrados en 17 ms`):
+  nunca un sobre, un `eventId`, un dueño ni un PNR. Se apaga con `EVENT_OUTBOX_PURGE_JOB_ENABLED=false`.
+  En modo `local` el job no existe.
+- A mano: `npm run eventos:purgar -- --dry-run` muestra cuántas filas borraría de cada estado (y no borra
+  nada); sin `--dry-run` las borra con las mismas reglas (en tandas de 1000, sin tope por corrida). Lee las
+  mismas `EVENT_OUTBOX_*`, cuenta la edad con el `now()` de la base e imprime solo conteos.
+- **Consecuencia de la retención**: a los 7 días de publicado el core ya no guarda el sobre. Para saber
+  qué se publicó después de eso hay que mirar el notifier (que es idempotente por `eventId`). Y un
+  `FALLIDO` que nadie reencoló en 30 días se pierde para ese tercero.
+
+```sql
+-- Qué borraría la purga ahora (igual que --dry-run)
+SELECT estado, count(*) FROM vuelos.evento_saliente
+ WHERE (estado = 'PUBLICADO' AND publicado_en < now() - interval '7 days')
+    OR (estado = 'FALLIDO' AND proximo_intento < now() - interval '30 days')
+ GROUP BY estado;
+```
+
 ## Orden del corte
 
 1. **Notifier desplegado** con su base (`./db/reset.sh` la primera vez, `./db/migrar.sh` después) y la
@@ -71,7 +112,8 @@ SELECT id_evento, tipo, intentos, ultimo_codigo_http, ultimo_error, proximo_inte
    ```
 
    El `client_secret` sale una sola vez: va directo al gestor de secretos como `NOTIFIER_CLIENT_SECRET`.
-3. **Base del core migrada**: `./db/migrar.sh` (crea `evento_saliente`; idempotente, solo agrega).
+3. **Base del core migrada**: `./db/migrar.sh` (crea `evento_saliente` y los índices de su purga; idempotente,
+   solo agrega).
 4. **Exportar del core** (solo lee):
 
    ```bash
