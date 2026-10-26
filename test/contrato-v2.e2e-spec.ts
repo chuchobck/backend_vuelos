@@ -307,6 +307,18 @@ describe('Contrato v2 (/api/v2/vuelos): pruebas de proveedor', () => {
           .catch(() => undefined);
       }
     }
+    // Lo que la prueba dejó en la bandeja (esas cancelaciones, un hold.expired) se publica al
+    // notifier falso antes de cerrar: otras suites (purga, observabilidad) cuentan los PENDIENTE
+    const { RelevoEventos } =
+      await import('../src/modules/vuelos/operaciones/webhook/relevo-eventos');
+    const relevo = app.get(RelevoEventos);
+    notifier.reiniciar();
+    reloj.adelantar(60 * 72);
+    for (let i = 0; i < 50; i++) {
+      const r = await relevo.ejecutar();
+      if (r.publicados + r.reintentos + r.fallidos === 0) break;
+    }
+    reloj.alPresente();
     await app.close();
 
     // La tabla de cobertura por operationId (también va a docs/V2-DIFERENCIAS.md)
