@@ -494,7 +494,7 @@ describe('gRPC: contexto, log y errores internos', () => {
     await new Promise((resolver) => setTimeout(resolver, 20));
 
     expect(lineas().find((l) => l.includes('grpc-log-0001'))).toMatch(
-      /\[gRPC\] \[grpc-log-0001\] \/quinde\.flights\.v1\.FlightsService\/GetFlightStatus OK [\d.]+ms ip=127\.0\.0\.1/,
+      /\[gRPC\] \[grpc-log-0001\] \[traceId=[0-9a-f]{32} spanId=[0-9a-f]{16}\] \/quinde\.flights\.v1\.FlightsService\/GetFlightStatus OK [\d.]+ms ip=127\.0\.0\.1/,
     );
   });
 

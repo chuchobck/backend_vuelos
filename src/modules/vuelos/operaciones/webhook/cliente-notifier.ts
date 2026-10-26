@@ -22,12 +22,17 @@ export interface ResultadoPublicacion {
  * POST {NOTIFIER_URL}/internal/v1/events con el sobre tal como está guardado (un string: no se
  * vuelve a serializar) y el token del cliente core-vuelos. No sigue redirecciones (una 3xx es un
  * resultado, no un salto), corta a los 5 s y descarta el cuerpo de la respuesta. Nunca lanza.
+ * Con `traceparent`, lo manda como cabecera (el del span CLIENT del relevo).
  */
 @Injectable()
 export class ClienteNotifier {
   constructor(private readonly config: ConfigService) {}
 
-  async publicar(sobre: string, token: string): Promise<ResultadoPublicacion> {
+  async publicar(
+    sobre: string,
+    token: string,
+    traceparent?: string,
+  ): Promise<ResultadoPublicacion> {
     const { urlNotifier } = configuracionNotifier(this.config);
     try {
       const respuesta = await fetch(`${urlNotifier}${RUTA_EVENTOS}`, {
@@ -36,6 +41,8 @@ export class ClienteNotifier {
           'Content-Type': 'application/json',
           Accept: 'application/json',
           Authorization: `Bearer ${token}`,
+          // El span CLIENT de esta publicación: el notifier continúa la traza del hecho
+          ...(traceparent === undefined ? {} : { traceparent }),
         },
         body: sobre,
         redirect: 'manual',

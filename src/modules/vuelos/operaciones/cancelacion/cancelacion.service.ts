@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { CodigoError, CODIGO_SIN_EQUIVALENTE } from '../../../../common/errores/codigo-error';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { Reloj } from '../../../../common/reloj';
+import { Observabilidad } from '../../../../observabilidad/observabilidad';
 import { Prisma } from '../../../../generated/prisma/client';
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
 import {
@@ -66,6 +67,16 @@ const CIEN = new Prisma.Decimal(100);
  * isRefundable es refundAmount > 0. Sin cercanía a la salida: el catálogo no tiene un dato para
  * eso, y un vuelo que ya salió no se cancela (409).
  */
+/** Lo que `ejecutar` necesita para cancelar una reserva. */
+interface DatosCancelacion {
+  reservaId: string;
+  solicitud: SolicitudCancelacionDto;
+  idDueno: string;
+  idClave: IdClave;
+  huella: string;
+  ahora: Date;
+}
+
 @Injectable()
 export class CancelacionService {
   private readonly logger = new Logger(CancelacionService.name);
@@ -79,6 +90,7 @@ export class CancelacionService {
     @Inject(SERVICIO_PAGOS) private readonly pagos: ServicioPagos,
     private readonly prisma: PrismaService,
     private readonly reloj: Reloj,
+    private readonly observabilidad: Observabilidad,
     config: ConfigService,
   ) {
     this.vigenciaMinutos =
@@ -198,24 +210,22 @@ export class CancelacionService {
   }
 
   /**
-   * El cuerpo común de la cancelación (pasos 1 a 3 de `cancelar`). `idDueno` es el dueño de la
-   * reserva; `idClave` es de quien llama (el dueño o un administrador).
+   * El cuerpo común de la cancelación (pasos 1 a 3 de `cancelar`), en un span INTERNAL
+   * `cancelacion.cancelar`. `idDueno` es el dueño de la reserva; `idClave` es de quien llama (el
+   * dueño o un administrador).
    */
-  private async ejecutar({
+  private ejecutar(datos: DatosCancelacion): Promise<ResultadoCancelacion> {
+    return this.observabilidad.interno('cancelacion.cancelar', () => this.cancelarReserva(datos));
+  }
+
+  private async cancelarReserva({
     reservaId,
     solicitud,
     idDueno: idPropietario,
     idClave,
     huella,
     ahora,
-  }: {
-    reservaId: string;
-    solicitud: SolicitudCancelacionDto;
-    idDueno: string;
-    idClave: IdClave;
-    huella: string;
-    ahora: Date;
-  }): Promise<ResultadoCancelacion> {
+  }: DatosCancelacion): Promise<ResultadoCancelacion> {
     const reserva = await this.reservas.detalle(reservaId, idPropietario);
     const cotizacion = await this.repositorio.leer(solicitud.quoteId);
     try {

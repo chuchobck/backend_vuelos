@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Observabilidad } from '../../../../observabilidad/observabilidad';
 import { ReservaRepository } from './reserva.repository';
 import { ReservaService } from './reserva.service';
 
@@ -42,6 +43,7 @@ export class EmisionPendiente implements OnApplicationBootstrap, OnModuleDestroy
   constructor(
     private readonly repositorio: ReservaRepository,
     private readonly reservas: ReservaService,
+    private readonly observabilidad: Observabilidad,
     config: ConfigService,
   ) {
     this.habilitado = config.get<string>('BOOKING_ISSUE_JOB_ENABLED') !== 'false';
@@ -68,7 +70,9 @@ export class EmisionPendiente implements OnApplicationBootstrap, OnModuleDestroy
 
   /** Una corrida; si ya hay una en curso, devuelve esa misma. */
   ejecutar(): Promise<ResultadoEmision> {
-    this.corriendo ??= this.corrida().finally(() => (this.corriendo = undefined));
+    this.corriendo ??= this.observabilidad
+      .corridaDeJob('emision-pendiente', () => this.corrida())
+      .finally(() => (this.corriendo = undefined));
     return this.corriendo;
   }
 

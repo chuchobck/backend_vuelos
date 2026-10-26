@@ -4,6 +4,7 @@ import { RouterModule } from '@nestjs/core';
 
 import { CommonModule } from './common/common.module';
 import { validarEntorno } from './config/entorno';
+import { ObservabilidadModule } from './observabilidad/observabilidad.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { rutas } from './routes/index.routes';
 import { AdministradoresModule } from './modules/auth/administradores/administradores.module';
@@ -28,6 +29,7 @@ function esModoLocal(entorno: NodeJS.ProcessEnv): boolean {
 
     // Módulos Compartidos. CommonModule va antes que AutenticacionModule: así el límite de
     // peticiones es el primer guard global y corre antes que el de JWT (ver autenticacion.module.ts).
+    ObservabilidadModule,
     PrismaModule,
     CommonModule,
     SaludModule,
