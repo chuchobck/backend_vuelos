@@ -9,6 +9,7 @@
 --  * reserva_cabecera: el partner (client_id), el usuario final (X-User-Id) y el
 --    salesChannel de una reserva hecha por Booking.
 --  * reserva_detalle_pago.proveedor: quién cobró (la aerolínea o Booking).
+--  * cotizacion_cancelacion.codigo_motivo: el reasonCode de una cancelación v2.
 --
 --  El número 004 deja libres el 002 (purga de la bandeja) y el 003 (traceparent
 --  de la bandeja), que van en otras ramas: no dependen de esta ni esta de ellas.
@@ -107,5 +108,25 @@ COMMENT ON TYPE proveedor_pago IS 'Quién cobró (contrato v2, PaymentReference.
 ALTER TABLE reserva_detalle_pago ADD COLUMN IF NOT EXISTS proveedor proveedor_pago NOT NULL DEFAULT 'AEROLINEA';
 
 COMMENT ON COLUMN reserva_detalle_pago.proveedor IS 'Quién cobró. Con BOOKING_PROTOTIPO la Payment API de la aerolínea no se consulta y el reembolso solo se calcula.';
+
+-- Motivo de la cancelación -----------------------------------------------------
+
+ALTER TABLE cotizacion_cancelacion ADD COLUMN IF NOT EXISTS codigo_motivo text;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                    WHERE conname = 'ck_cotizacion_cancelacion_codigo_motivo'
+                      AND conrelid = 'vuelos.cotizacion_cancelacion'::regclass) THEN
+        ALTER TABLE cotizacion_cancelacion ADD CONSTRAINT ck_cotizacion_cancelacion_codigo_motivo CHECK (
+            codigo_motivo IS NULL
+            OR (fecha_aceptacion IS NOT NULL
+                AND codigo_motivo IN ('SOLICITUD_CLIENTE', 'COMPENSACION_SAGA', 'VUELO_CANCELADO', 'OTRO'))
+        );
+    END IF;
+END
+$$;
+
+COMMENT ON COLUMN cotizacion_cancelacion.codigo_motivo IS 'reasonCode de la cancelación v2: SOLICITUD_CLIENTE=CUSTOMER_REQUEST, COMPENSACION_SAGA=SAGA_COMPENSATION, VUELO_CANCELADO=FLIGHT_CANCELLED, OTRO=OTHER. NULL en una cancelación de v1.';
 
 COMMIT;

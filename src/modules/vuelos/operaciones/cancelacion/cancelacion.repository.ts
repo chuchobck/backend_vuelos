@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '../../../../generated/prisma/client';
+import { Prisma, proveedor_pago } from '../../../../generated/prisma/client';
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
 
 /** Lo que cuenta para el reembolso de un itinerario vigente. */
@@ -22,7 +22,12 @@ export interface CotizacionGuardada {
   vence: Date;
   aceptada: Date | null;
   completada: Date | null;
+  /** reasonCode de una cancelación v2 (CodigoMotivo); null en v1 o si no se aceptó. */
+  codigoMotivo: CodigoMotivo | null;
 }
+
+/** cotizacion_cancelacion.codigo_motivo: el reasonCode del contrato v2, en español. */
+export type CodigoMotivo = 'SOLICITUD_CLIENTE' | 'COMPENSACION_SAGA' | 'VUELO_CANCELADO' | 'OTRO';
 
 /** Una cancelación aceptada que espera su reembolso (CANCELACION_PENDIENTE). */
 export interface CancelacionPendiente {
@@ -98,6 +103,7 @@ export class CancelacionRepository {
           vence: fila.fecha_expiracion,
           aceptada: fila.fecha_aceptacion,
           completada: fila.fecha_completada,
+          codigoMotivo: fila.codigo_motivo as CodigoMotivo | null,
         }
       : null;
   }
@@ -122,10 +128,11 @@ export class CancelacionRepository {
     cotizacionId: string,
     ahora: Date,
     motivo: string | null,
+    codigoMotivo: CodigoMotivo | null = null,
   ): Promise<boolean> {
     const { count } = await tx.cotizacion_cancelacion.updateMany({
       where: { id: cotizacionId, fecha_aceptacion: null, fecha_expiracion: { gte: ahora } },
-      data: { fecha_aceptacion: ahora, motivo },
+      data: { fecha_aceptacion: ahora, motivo, codigo_motivo: codigoMotivo },
     });
     return count === 1;
   }
@@ -137,13 +144,24 @@ export class CancelacionRepository {
     });
   }
 
-  /** La referencia del pago de emisión: el reembolso devuelve ese pago. */
-  async referenciaDeEmision(reservaId: string): Promise<string> {
+  /** El pago de emisión: el reembolso devuelve ese pago, y quién lo cobró decide quién lo hace. */
+  async pagoDeEmision(
+    reservaId: string,
+  ): Promise<{ referencia: string; proveedor: proveedor_pago }> {
     const fila = await this.prisma.db.reserva_detalle_pago.findFirstOrThrow({
       where: { reserva_id: reservaId, concepto: 'EMISION' },
-      select: { referencia_pago: true },
+      select: { referencia_pago: true, proveedor: true },
     });
-    return fila.referencia_pago;
+    return { referencia: fila.referencia_pago, proveedor: fila.proveedor };
+  }
+
+  /** La cotización que se aceptó para cancelar la reserva (la cancelación), si hay una. */
+  async aceptadaDe(reservaId: string): Promise<CotizacionGuardada | null> {
+    const fila = await this.prisma.db.cotizacion_cancelacion.findFirst({
+      where: { reserva_id: reservaId, fecha_aceptacion: { not: null } },
+      select: { id: true },
+    });
+    return fila ? this.leer(fila.id) : null;
   }
 
   /** Las cancelaciones aceptadas cuyo reembolso sigue pendiente. */

@@ -6,7 +6,7 @@ import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { Reloj } from '../../../../common/reloj';
 import { clase_cabina, Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
-import { cuerpoInvalido } from '../../compartido/errores';
+import { claveConOtroCuerpo, cuerpoInvalido } from '../../compartido/errores';
 import {
   ClaveGuardada,
   IdClave,
@@ -15,7 +15,11 @@ import {
 import { InventarioRepository, MovimientoDeCupo } from '../../compartido/inventario.repository';
 import { Cobros } from '../../compartido/pagos/cobros';
 import { PagosRepository } from '../../compartido/pagos/pagos.repository';
-import { SERVICIO_PAGOS, ServicioPagos } from '../../compartido/pagos/servicio-pagos';
+import {
+  PagoDeFachada,
+  SERVICIO_PAGOS,
+  ServicioPagos,
+} from '../../compartido/pagos/servicio-pagos';
 import { ConteoPasajeros } from '../../compartido/pasajeros';
 import { ItinerarioArmado, SalidaVendible } from '../busqueda/busqueda.modelo';
 import {
@@ -240,9 +244,10 @@ export class CambioFechaService {
     solicitud: SolicitudCambioDto,
     idPropietario: string,
     clave: string,
+    fachada?: PagoDeFachada,
   ): Promise<ResultadoCambio> {
     const ahora = this.reloj.ahora();
-    const huella = huellaDe(reservaId, solicitud);
+    const huella = huellaDe(reservaId, solicitud, fachada);
     const idClave: IdClave = { idPropietario, operacion: 'CONFIRMAR_CAMBIO_FECHA', clave };
     const previa = await this.claves.leer(idClave);
     if (previa && previa.vence > ahora)
@@ -250,7 +255,15 @@ export class CambioFechaService {
     if (previa) await this.claves.borrarVencidas(ahora, idClave);
 
     try {
-      return await this.confirmarNueva(reservaId, solicitud, idPropietario, idClave, huella, ahora);
+      return await this.confirmarNueva(
+        reservaId,
+        solicitud,
+        idPropietario,
+        idClave,
+        huella,
+        ahora,
+        fachada,
+      );
     } catch (error) {
       if (error instanceof ClaveEnUso || (error instanceof ErrorNegocio && error.status === 409)) {
         const ganadora = await this.claves.leer(idClave);
@@ -267,6 +280,7 @@ export class CambioFechaService {
     idClave: IdClave,
     huella: string,
     ahora: Date,
+    fachada: PagoDeFachada | undefined,
   ): Promise<ResultadoCambio> {
     const reserva = await this.reservas.detalle(reservaId, idPropietario);
     const oferta = await this.repositorio.leer(solicitud.changeOfferId);
@@ -310,12 +324,15 @@ export class CambioFechaService {
           },
         );
       }
-      pago = await this.cobros.autorizar({
-        referencia: solicitud.payment.paymentReference,
-        concepto: 'CAMBIO_FECHA',
-        moneda: reserva.total.moneda,
-        monto: aPagar,
-      });
+      pago = await this.cobros.autorizar(
+        {
+          referencia: solicitud.payment.paymentReference,
+          concepto: 'CAMBIO_FECHA',
+          moneda: reserva.total.moneda,
+          monto: aPagar,
+        },
+        fachada,
+      );
     }
     const salidasNuevas = salidasConCabina(oferta);
     const { pasajeros, pedidos } = asientosPedidos(reserva, solicitud, salidasNuevas);
@@ -347,6 +364,7 @@ export class CambioFechaService {
             concepto: 'CAMBIO_FECHA',
             estado: pago,
             fecha: ahora,
+            proveedor: fachada?.proveedor,
           })
         : undefined;
       const hacia = pago === 'APROBADO' ? 'CONFIRMADO' : 'PENDIENTE';
@@ -503,12 +521,7 @@ export class CambioFechaService {
     idPropietario: string,
   ): Promise<ResultadoCambio> {
     if (previa.huella !== huella) {
-      throw new ErrorNegocio(
-        422,
-        CODIGO_SIN_EQUIVALENTE,
-        'This Idempotency-Key was already used with a different request body',
-        { invalidParams: [{ name: 'Idempotency-Key', reason: 'already used with another body' }] },
-      );
+      throw claveConOtroCuerpo();
     }
     return {
       reserva: await this.reservas.detalle(reservaId, idPropietario),
@@ -619,7 +632,7 @@ function descripcion(oferta: OfertaCambio, aPagar: Prisma.Decimal): string {
   return `Date changed for ${n} itinerary(ies); ${aPagar.toFixed(2)} charged`;
 }
 
-function huellaDe(reservaId: string, s: SolicitudCambioDto): string {
+function huellaDe(reservaId: string, s: SolicitudCambioDto, fachada?: PagoDeFachada): string {
   const canonica = {
     bookingId: reservaId.toLowerCase(),
     changeOfferId: s.changeOfferId.toLowerCase(),
@@ -628,6 +641,7 @@ function huellaDe(reservaId: string, s: SolicitudCambioDto): string {
       segmentId: a.segmentId.toLowerCase(),
       seatNumber: a.seatNumber,
     })),
+    ...(fachada ? { fachada } : {}),
   };
   return createHash('sha256').update(JSON.stringify(canonica)).digest('hex');
 }

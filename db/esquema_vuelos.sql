@@ -713,6 +713,7 @@ CREATE TABLE cotizacion_cancelacion (
     fecha_aceptacion  timestamptz,
     motivo            text,
     fecha_completada  timestamptz,
+    codigo_motivo     text,
     CONSTRAINT pk_cotizacion_cancelacion PRIMARY KEY (id),
     CONSTRAINT fk_cotizacion_cancelacion_reserva FOREIGN KEY (reserva_id) REFERENCES reserva_cabecera (id) ON DELETE RESTRICT,
     CONSTRAINT ck_cotizacion_cancelacion_montos CHECK (monto_reembolso >= 0 AND monto_penalidad >= 0),
@@ -722,6 +723,11 @@ CREATE TABLE cotizacion_cancelacion (
     CONSTRAINT ck_cotizacion_cancelacion_completada CHECK (
         fecha_completada IS NULL
         OR (fecha_aceptacion IS NOT NULL AND fecha_completada >= fecha_aceptacion)
+    ),
+    CONSTRAINT ck_cotizacion_cancelacion_codigo_motivo CHECK (
+        codigo_motivo IS NULL
+        OR (fecha_aceptacion IS NOT NULL
+            AND codigo_motivo IN ('SOLICITUD_CLIENTE', 'COMPENSACION_SAGA', 'VUELO_CANCELADO', 'OTRO'))
     )
 );
 
@@ -1438,6 +1444,7 @@ COMMENT ON COLUMN cambio_cabecera.pago_id IS 'Pago de la diferencia. Puede ser N
 COMMENT ON COLUMN cambio_detalle.diferencia_tarifa IS 'fareDifference. Puede ser negativa si la tarifa nueva es menor. El totalToPay se calcula sumando diferencias y cargo_cambio.';
 COMMENT ON COLUMN cotizacion_cancelacion.fecha_aceptacion IS 'Momento en que POST /cancel aceptó la cotización. Debe caer dentro de su vigencia y solo una por reserva puede estar aceptada.';
 COMMENT ON COLUMN cotizacion_cancelacion.fecha_completada IS 'NULL mientras la reserva sigue en CANCELACION_PENDIENTE.';
+COMMENT ON COLUMN cotizacion_cancelacion.codigo_motivo IS 'reasonCode de la cancelación v2: SOLICITUD_CLIENTE=CUSTOMER_REQUEST, COMPENSACION_SAGA=SAGA_COMPENSATION, VUELO_CANCELADO=FLIGHT_CANCELLED, OTRO=OTHER. NULL en una cancelación de v1.';
 COMMENT ON COLUMN webhook_entrega.id_evento IS 'eventId del WebhookPayload: identifica el hecho, el mismo para todas las suscripciones que lo reciben. El receptor lo usa para no procesar dos veces una entrega repetida.';
 COMMENT ON COLUMN webhook_entrega.payload IS 'WebhookPayload congelado al ocurrir el hecho: un reintento envía exactamente el mismo cuerpo.';
 COMMENT ON COLUMN webhook_entrega.intentos IS 'Envíos HTTP ya hechos. Al llegar al máximo sin respuesta 2xx pasa a FALLIDO.';

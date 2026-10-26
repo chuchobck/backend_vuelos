@@ -2,13 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomUUID } from 'node:crypto';
 import { CodigoError, CODIGO_SIN_EQUIVALENTE } from '../../../../common/errores/codigo-error';
+import { CodigoErrorV2 } from '../../../../common/errores/codigo-error-v2';
 import { ErrorNegocio } from '../../../../common/errores/error-negocio';
 import { UsuarioAutenticado } from '../../../../common/decorators/usuario-actual.decorator';
 import { Reloj } from '../../../../common/reloj';
 import { TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
 import { CABINA, ORDEN_CABINAS } from '../../compartido/enums';
-import { cuerpoInvalido, noExiste } from '../../compartido/errores';
+import { claveConOtroCuerpo, cuerpoInvalido, noExiste } from '../../compartido/errores';
 import { asientosOcupados, ConteoPasajeros, validarPasajeros } from '../../compartido/pasajeros';
 import { RetencionCreadaDto } from './dto/respuesta-retencion.dto';
 import { SolicitudRetencionDto } from './dto/solicitud-retencion.dto';
@@ -98,13 +99,19 @@ export class RetencionService {
       config.get<number>('HOLD_TTL_MINUTES') ?? REGLAS_RETENCION.vigenciaPorDefectoMinutos;
   }
 
+  /**
+   * `vigenciaMinutos` es el ttlMinutes de la fachada v2 (de 5 a 30); sin él, HOLD_TTL_MINUTES.
+   * Cuenta en la huella solo si llega: un reintento de v1 sigue dando la misma.
+   */
   async crear(
     solicitud: SolicitudRetencionDto,
     idPropietario: string,
     clave: string,
+    vigenciaMinutos?: number,
   ): Promise<ResultadoCreacion> {
     const ahora = this.reloj.ahora();
-    const huella = huellaDe(solicitud);
+    const huella = huellaDe(solicitud, vigenciaMinutos);
+    const minutos = vigenciaMinutos ?? this.vigenciaMinutos;
     const idClave = { idPropietario, operacion: 'CREAR_RETENCION' as const, clave };
 
     const previa = await this.claves.leer(idClave);
@@ -134,11 +141,11 @@ export class RetencionService {
     );
 
     const id = randomUUID();
-    const vence = new Date(ahora.getTime() + this.vigenciaMinutos * MINUTO);
+    const vence = new Date(ahora.getTime() + minutos * MINUTO);
     const cuerpo = aRetencionCreada({
       id,
       vence,
-      vigenciaMinutos: this.vigenciaMinutos,
+      vigenciaMinutos: minutos,
       precio: {
         moneda: lineas[0].moneda,
         base: sumar(lineas.map((l) => l.base)),
@@ -285,6 +292,7 @@ export class RetencionService {
         409,
         CODIGO_SIN_EQUIVALENTE,
         `Hold ${id} was already used for a booking; cancel the booking instead`,
+        { v2: { code: CodigoErrorV2.HOLD_ALREADY_CONSUMED } },
       );
     }
   }
@@ -334,7 +342,7 @@ function motivoDeCierre(estado: string): ResultadoConsumo {
  * SHA-256 (hexadecimal) del cuerpo ya validado y con los valores por defecto puestos, con las
  * claves en un orden fijo: `{}` y `{"adults": 1}` en passengersBreakdown son la misma petición.
  */
-function huellaDe(solicitud: SolicitudRetencionDto): string {
+function huellaDe(solicitud: SolicitudRetencionDto, vigenciaMinutos?: number): string {
   const p = solicitud.passengersBreakdown;
   const canonica = {
     offerId: solicitud.offerId.toLowerCase(),
@@ -349,6 +357,7 @@ function huellaDe(solicitud: SolicitudRetencionDto): string {
       children: p.children ?? 0,
       infants: p.infants ?? 0,
     },
+    ...(vigenciaMinutos === undefined ? {} : { ttlMinutes: vigenciaMinutos }),
   };
   return createHash('sha256').update(JSON.stringify(canonica)).digest('hex');
 }
@@ -356,12 +365,7 @@ function huellaDe(solicitud: SolicitudRetencionDto): string {
 /** La respuesta guardada con la clave, si el cuerpo es el mismo; si no, 422. */
 function repetir(previa: ClaveGuardada, huella: string): ResultadoCreacion {
   if (previa.huella !== huella) {
-    throw new ErrorNegocio(
-      422,
-      CODIGO_SIN_EQUIVALENTE,
-      'This Idempotency-Key was already used with a different request body',
-      { invalidParams: [{ name: 'Idempotency-Key', reason: 'already used with another body' }] },
-    );
+    throw claveConOtroCuerpo();
   }
   if (previa.codigoHttp !== 201 || previa.respuesta === null) throw claveEnCurso();
   const guardada = previa.respuesta as unknown as RetencionCreadaDto;

@@ -1,4 +1,4 @@
-import { concepto_pago, Prisma } from '../../../../generated/prisma/client';
+import { concepto_pago, Prisma, proveedor_pago } from '../../../../generated/prisma/client';
 
 /**
  * Lo que dice la Payment API de un pago:
@@ -20,6 +20,17 @@ export interface CobroEsperado {
    * de la Payment API lo manda sin cambios en la cabecera X-Correlation-Id.
    */
   correlationId?: string;
+}
+
+/**
+ * El pago como lo manda la fachada v2 (PaymentReference): quién cobró y, si llegó, el monto que
+ * cobró. v1 no lo pasa (la Payment API de la aerolínea juzga la referencia).
+ */
+export interface PagoDeFachada {
+  /** BOOKING_PROTOTIPO: cobró Booking; aquí no se llama a la Payment API. */
+  proveedor: proveedor_pago;
+  /** payment.amount: tiene que ser exactamente lo que cobra la operación (AMOUNT_MISMATCH). */
+  monto?: { moneda: string; total: string };
 }
 
 /** Un reembolso de lo que se cobró con `referenciaPago`. */

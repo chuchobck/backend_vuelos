@@ -96,6 +96,23 @@ export interface ReservaNueva {
   }>;
   pasajeros: PasajeroNuevo[];
   asientos: Array<{ codigoPasajero: string; salidaId: string; asientoId: bigint }>;
+  /** Solo de la fachada v2: el partner, su usuario final y el canal de venta. */
+  origen?: OrigenReserva;
+}
+
+/** Quién vendió la reserva por la fachada v2 (reserva_cabecera.id_cliente y canal_*). */
+export interface OrigenReserva {
+  /** client_id del token de partner; sin partner (una persona por v2), no hay origen. */
+  idCliente: string;
+  /** X-User-Id que mandó el partner. */
+  usuarioExterno?: string;
+  canal?: {
+    socio?: string;
+    orden?: string;
+    paquete?: string | null;
+    promocion?: boolean;
+    descuento?: number;
+  };
 }
 
 export interface CambioDeEstado {
@@ -108,6 +125,8 @@ export interface CambioDeEstado {
 export interface FiltrosReservas {
   /** El dueño; `null` solo lo pasa la administración, que lista las de todos los clientes. */
   idPropietario: string | null;
+  /** Solo un partner por la fachada v2: las de ese usuario final (X-User-Id). */
+  usuarioExterno?: string;
   pnr?: string;
   /** Solo administración: correo exacto (ya normalizado) del dueño. */
   correoPropietario?: string;
@@ -358,11 +377,19 @@ export class ReservaRepository {
     let creada: { id: string; pnr: string } | undefined;
     for (let intento = 0; intento < INTENTOS_PNR && !creada; intento++) {
       const pnr = this.generador.pnr();
+      const origen = nueva.origen;
+      const canal = origen?.canal;
       const [fila] = await tx.$queryRaw<Array<{ id: string }>>`
         INSERT INTO vuelos.reserva_cabecera
-               (id, retencion_id, pnr, estado, fecha_creacion, fecha_actualizacion)
+               (id, retencion_id, pnr, estado, fecha_creacion, fecha_actualizacion,
+                id_cliente, id_usuario_externo, canal_socio, canal_orden, canal_paquete,
+                canal_promocion, canal_descuento)
         VALUES (${nueva.id}::uuid, ${nueva.retencionId}::uuid, ${pnr}, 'PENDIENTE',
-                ${nueva.ahora}::timestamptz, ${nueva.ahora}::timestamptz)
+                ${nueva.ahora}::timestamptz, ${nueva.ahora}::timestamptz,
+                ${origen?.idCliente ?? null}::text, ${origen?.usuarioExterno ?? null}::text,
+                ${canal?.socio ?? null}::text, ${canal?.orden ?? null}::text,
+                ${canal?.paquete ?? null}::text, ${canal?.promocion ?? null}::boolean,
+                ${canal?.descuento ?? null}::numeric)
         ON CONFLICT ON CONSTRAINT uq_reserva_cabecera_pnr DO NOTHING
         RETURNING id`;
       if (fila) creada = { id: fila.id, pnr };
@@ -689,6 +716,8 @@ export class ReservaRepository {
                  JOIN vuelos.aerolinea fa           ON fa.id = fv.aerolinea_id
                 WHERE fi.reserva_id = rc.id AND fi.vigente
                   AND fa.codigo_iata || fv.numero = ${filtros.numeroVuelo ?? null}))
+         AND (${filtros.usuarioExterno ?? null}::text IS NULL
+              OR rc.id_usuario_externo = ${filtros.usuarioExterno ?? null})
          AND (${filtros.pnr ?? null}::text IS NULL OR rc.pnr = ${filtros.pnr ?? null})
          AND (${filtros.estado ?? null}::text IS NULL OR rc.estado::text = ${filtros.estado ?? null})
          AND (${filtros.desde ?? null}::timestamptz IS NULL OR rc.fecha_creacion >= ${filtros.desde ?? null})

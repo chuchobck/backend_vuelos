@@ -201,6 +201,7 @@ model cotizacion_cancelacion {
   fecha_aceptacion DateTime?        @db.Timestamptz(6)
   motivo           String?
   fecha_completada DateTime?        @db.Timestamptz(6)
+  codigo_motivo    String?
   reserva_cabecera reserva_cabecera @relation(fields: [reserva_id], references: [id], onUpdate: NoAction, map: "fk_cotizacion_cancelacion_reserva")
 
   @@index([reserva_id], map: "ix_cotizacion_cancelacion_reserva")

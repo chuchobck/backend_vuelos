@@ -5,6 +5,7 @@ import { ejecutarEnContexto, obtenerContexto } from '../contexto/contexto-petici
 import { contextoDeLaPeticion } from '../contexto/contexto.middleware';
 import { ErrorNegocio } from '../errores/error-negocio';
 import { CONTENT_TYPE_PROBLEMA } from '../errores/problem-details';
+import { aProblemaV2, esRutaV2 } from '../errores/problem-details-v2';
 import { traducirExcepcion } from '../errores/traducir-excepcion';
 
 /** Forma mínima de la capa de ruta de Express, que no tiene tipos públicos. */
@@ -16,7 +17,8 @@ interface CapaExpress {
 /**
  * Filtro global: todo error de la API sale como `application/problem+json` con el esquema
  * ProblemDetails del contrato, sea de una excepción de Nest, de una regla de negocio, de una
- * ruta inexistente o de un fallo que nadie previó.
+ * ruta inexistente o de un fallo que nadie previó. En /api/v2 sale con el ProblemDetails del
+ * contrato v2 (`instance`, `correlation_id`, `timestamp` y su enum de `code`).
  */
 @Catch()
 export class ProblemDetailsFilter implements ExceptionFilter {
@@ -31,11 +33,19 @@ export class ProblemDetailsFilter implements ExceptionFilter {
     const respuesta = host.switchToHttp().getResponse<Response>();
     const ruta = peticion.originalUrl.split('?')[0].slice(0, 200);
 
-    const { problema, cabeceras, esErrorInterno, causa } = traducirExcepcion(excepcion, {
+    const traducido = traducirExcepcion(excepcion, {
       metodo: peticion.method,
       ruta,
       metodosPermitidos: this.metodosDeLaRuta(ruta),
     });
+    const { cabeceras, esErrorInterno, causa } = traducido;
+    const problema = esRutaV2(ruta)
+      ? aProblemaV2(traducido.problema, excepcion, {
+          instancia: ruta,
+          correlationId: contextoDeLaPeticion(peticion)?.correlationId,
+          ahora: new Date(),
+        })
+      : traducido.problema;
 
     const registrar = () => {
       if (esErrorInterno) {
