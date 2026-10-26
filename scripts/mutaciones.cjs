@@ -30,6 +30,25 @@ const RELEVO = 'src/modules/vuelos/operaciones/webhook/relevo-eventos.ts';
 const TOKEN = 'src/modules/vuelos/operaciones/webhook/cliente-token-identity.ts';
 const PUBLICADOR = 'src/modules/vuelos/operaciones/webhook/publicador-eventos.ts';
 const NOTIFIER = 'test/eventos-notifier.e2e-spec.ts';
+// Fachada del contrato v2 (fase V1)
+const CONTRATO_V2 = 'test/contrato-v2.e2e-spec.ts';
+const SALUD_V2 = 'test/salud-v2.e2e-spec.ts';
+const USUARIO_V2 = 'src/modules/vuelos/v2/partner/usuario-v2.ts';
+const COBROS = 'src/modules/vuelos/compartido/pagos/cobros.ts';
+const CORRELACION = 'src/common/contexto/correlation-id.ts';
+const PROBLEMA_V2 = 'src/common/errores/problem-details-v2.ts';
+const CODIGO_V2 = 'src/common/errores/codigo-error-v2.ts';
+const RESERVAS_V2 = 'src/modules/vuelos/v2/reservas.v2.controller.ts';
+const VUELOS_V2 = 'src/modules/vuelos/v2/vuelos.v2.controller.ts';
+const FACHADA_V2 = 'src/modules/vuelos/v2/fachada-v2.service.ts';
+const MAPPER_V2 = 'src/modules/vuelos/v2/v2.mapper.ts';
+const SALUD_SERVICIO_V2 = 'src/modules/vuelos/v2/salud/salud-v2.service.ts';
+const ERRORES_VUELOS = 'src/modules/vuelos/compartido/errores.ts';
+const CANCELACION = 'src/modules/vuelos/operaciones/cancelacion/cancelacion.service.ts';
+const CLIENTE_NOTIFIER = 'src/modules/vuelos/operaciones/webhook/cliente-notifier.ts';
+const CONTEXTO_GRPC = 'src/common/contexto/contexto-grpc.ts';
+const LOGGER = 'src/common/logger/logger-por-peticion.ts';
+const GUARD_OPERACION = 'src/common/guards/operacion.guard.ts';
 
 /** [nombre, archivo, [[buscar, reemplazo], ...], archivo de pruebas, filtro -t (opcional)] */
 const MUTACIONES = [
@@ -333,6 +352,266 @@ const MUTACIONES = [
     ],
     NOTIFIER,
     '404',
+  ],
+  // --- Fachada del contrato v2 (fase V1) ---
+  [
+    '[v2] se confía en X-User-Id sin un token de partner',
+    USUARIO_V2,
+    [
+      [
+        'if (usuario.clienteId === undefined) return { ...usuario };',
+        "if (usuario.clienteId === undefined && cabeceras['x-user-id'] === undefined) return { ...usuario };",
+      ],
+    ],
+    CONTRATO_V2,
+    'token de persona',
+  ],
+  [
+    '[v2] con BOOKING_PROTOTIPO se cobra con la Payment API',
+    COBROS,
+    [
+      [
+        "      return 'APROBADO';\n    }",
+        "      await this.pagos.autorizar(cobro);\n      return 'APROBADO';\n    }",
+      ],
+    ],
+    CONTRATO_V2,
+    'sin llamar a la Payment API',
+  ],
+  [
+    '[v2] se cambia el X-Correlation-Id que llega',
+    CORRELACION,
+    [
+      [
+        'esCorrelationIdValido(valor) ? valor :',
+        'esCorrelationIdValido(valor) ? valor.toLowerCase() :',
+      ],
+    ],
+    CONTRATO_V2,
+    'SIN cambios',
+  ],
+  [
+    '[v2] el error no devuelve el correlation_id',
+    PROBLEMA_V2,
+    [['correlation_id: datos.correlationId,', 'correlation_id: undefined,']],
+    CONTRATO_V2,
+    'SIN cambios',
+  ],
+  [
+    '[v2] el reintento de createBooking no marca Idempotent-Replayed',
+    RESERVAS_V2,
+    [
+      [
+        "    if (repetida) respuesta.setHeader(CABECERA_REPETIDA, 'true');\n    return this.fachada",
+        '    return this.fachada',
+      ],
+    ],
+    CONTRATO_V2,
+    'el reintento es 200',
+  ],
+  [
+    '[v2] un partner con X-User-Id opera la reserva de otro usuario final',
+    FACHADA_V2,
+    [['if (usuario.usuarioExterno === undefined) return;', 'return;']],
+    CONTRATO_V2,
+    'otro usuario final',
+  ],
+  [
+    '[v2] el listado no filtra por X-User-Id',
+    RESERVAS_V2,
+    [
+      [
+        '      usuario.id,\n      usuario.usuarioExterno,\n    );',
+        '      usuario.id,\n      undefined,\n    );',
+      ],
+    ],
+    CONTRATO_V2,
+    've solo las de ese usuario',
+  ],
+  [
+    '[v2] no se compara payment.amount',
+    COBROS,
+    [['if (fachada?.monto) exigirMismoMonto(cobro, fachada.monto);', '']],
+    CONTRATO_V2,
+    'AMOUNT_MISMATCH',
+  ],
+  [
+    '[v2] la referencia de Booking ya usada no se rechaza',
+    COBROS,
+    [
+      [
+        '      if (await this.registrados.referenciaUsada(cobro.referencia)) {\n        throw new ErrorNegocio(\n          422,',
+        '      if (Number.isNaN(0)) {\n        throw new ErrorNegocio(\n          422,',
+      ],
+    ],
+    CONTRATO_V2,
+    'PAYMENT_REFERENCE_INVALID',
+  ],
+  [
+    '[v2] la clave con otro cuerpo sigue siendo 422 como en v1',
+    ERRORES_VUELOS,
+    [
+      [
+        'v2: { status: 409, code: CodigoErrorV2.IDEMPOTENCY_KEY_REUSED },',
+        'v2: { code: CodigoErrorV2.IDEMPOTENCY_KEY_REUSED },',
+      ],
+    ],
+    CONTRATO_V2,
+    'Idempotencia v2',
+  ],
+  [
+    '[v2] la cancelación de una reserva cobrada por Booking pide el reembolso a la Payment API',
+    CANCELACION,
+    [["    if (emision.proveedor === 'BOOKING_PROTOTIPO') return 'APROBADO';\n", '']],
+    CONTRATO_V2,
+    'refund CALCULATED',
+  ],
+  [
+    '[v2] la compensación cobra penalidad',
+    CANCELACION,
+    [
+      [
+        '(await this.cotizar(reservaId, idPropietario, true)).id',
+        '(await this.cotizar(reservaId, idPropietario)).id',
+      ],
+    ],
+    CONTRATO_V2,
+    'SAGA_COMPENSATION: sin quoteId',
+  ],
+  [
+    '[v2] repetir la compensación sobre una reserva cancelada es un error',
+    CANCELACION,
+    [["if (solicitud.reasonCode === 'SAGA_COMPENSATION') {", 'if (Number.isNaN(0)) {']],
+    CONTRATO_V2,
+    'repetirla responde lo mismo',
+  ],
+  [
+    '[v2] ttlMinutes se ignora',
+    RESERVAS_V2,
+    [
+      [
+        '      clave,\n      solicitud.ttlMinutes,\n    );',
+        '      clave,\n      undefined,\n    );',
+      ],
+    ],
+    CONTRATO_V2,
+    'createHold: 201 con ttlMinutes',
+  ],
+  [
+    '[v2] el mapa de asientos no trae status',
+    MAPPER_V2,
+    [
+      [
+        'return estado === undefined ? asiento : { ...asiento, status: estado };',
+        'return asiento;',
+      ],
+    ],
+    CONTRATO_V2,
+    'getSeatMap',
+  ],
+  [
+    '[v2] issueTickets responde 200 en una reserva cancelada',
+    FACHADA_V2,
+    [
+      [
+        "if (!['CONFIRMADA', 'PENDIENTE_PAGO', 'EMITIENDO_BOLETOS'].includes(reserva.estado)) {",
+        'if (Number.isNaN(0)) {',
+      ],
+    ],
+    CONTRATO_V2,
+    'issueTickets: 200 issued 0',
+  ],
+  [
+    '[v2] ProblemDetails v2 deja VALIDATION_FAILED en un 404',
+    CODIGO_V2,
+    [['  if (status === 404) return CodigoErrorV2.NOT_FOUND;\n', '']],
+    CONTRATO_V2,
+    'getBooking, listTickets',
+  ],
+  [
+    '[v2] la bandeja no guarda el X-Correlation-Id del hecho',
+    PUBLICADOR,
+    [['correlationId: correlacionActual() ?? null,', 'correlationId: null,']],
+    CONTRATO_V2,
+    'evento_saliente',
+  ],
+  [
+    '[v2] el relevo no manda X-Correlation-Id al notifier',
+    CLIENTE_NOTIFIER,
+    [
+      [
+        '          ...(correlationId === null ? {} : { [CABECERA_CORRELACION]: correlationId }),\n',
+        '',
+      ],
+    ],
+    CONTRATO_V2,
+    'evento_saliente',
+  ],
+  [
+    '[v2] la Payment API no recibe el X-Correlation-Id',
+    COBROS,
+    [
+      [
+        'this.pagos.autorizar({ ...cobro, correlationId: correlacionActual() })',
+        'this.pagos.autorizar(cobro)',
+      ],
+    ],
+    CONTRATO_V2,
+    'evento_saliente',
+  ],
+  [
+    '[v2] gRPC no lee la metadata x-correlation-id',
+    CONTEXTO_GRPC,
+    [['correlaciones.length === 1 ? String(correlaciones[0]) : undefined,', 'undefined,']],
+    CONTRATO_V2,
+    'gRPC',
+  ],
+  [
+    '[v2] las líneas de log no llevan [corr=]',
+    LOGGER,
+    [
+      [
+        'return `${linea.slice(0, fin)} [corr=${correlacion}]${linea.slice(fin)}`;',
+        'return linea;',
+      ],
+    ],
+    CONTRATO_V2,
+    'cada línea de log',
+  ],
+  [
+    '[v2] la línea de acceso no trae el operationId',
+    GUARD_OPERACION,
+    [['this.reflector.get<string>(OPERACION_CONTRATO, contexto.getHandler()) ??', 'undefined ??']],
+    CONTRATO_V2,
+    'cada línea de log',
+  ],
+  [
+    '[v2] health responde 200 con la base caída',
+    VUELOS_V2,
+    [["if (salud.status === 'DOWN') respuesta.status(503);", '']],
+    SALUD_V2,
+    '503 DOWN',
+  ],
+  [
+    '[v2] health espera a una dependencia colgada',
+    SALUD_SERVICIO_V2,
+    [['await conPlazo(chequeo(), REGLAS_SALUD_V2.plazoMs);', 'await chequeo();']],
+    SALUD_V2,
+    'menos de 1 s',
+  ],
+  [
+    '[v2] health no reusa el resultado',
+    SALUD_SERVICIO_V2,
+    [['if (this.guardado && ahora.getTime() < this.guardado.hasta) {', 'if (Number.isNaN(0)) {']],
+    SALUD_V2,
+    'se reusa 5 s',
+  ],
+  [
+    '[v2] identity caído deja el nodo HEALTHY',
+    SALUD_SERVICIO_V2,
+    [["externas.some((d) => d.status !== 'UP')", 'Number.isNaN(0)']],
+    SALUD_V2,
+    'DEGRADED',
   ],
 ];
 

@@ -243,6 +243,36 @@ describe('Contrato v2 (/api/v2/vuelos): pruebas de proveedor', () => {
     return respuesta.body;
   };
 
+  /** Como `comprar`, con la primera opción de precio que cumple esa regla de tarifa. */
+  const comprarConRegla = async (
+    token: string,
+    dias: number,
+    regla: 'isRefundable' | 'isChangeable',
+  ): Promise<Json> => {
+    const oferta = await buscar(dias);
+    const itinerario = oferta.itineraries[0];
+    const opcion = (itinerario.pricingOptions as Json[]).find((p) => p.fareRules[regla]);
+    if (!opcion) throw new Error(`La oferta no tiene una tarifa con ${regla}`);
+    const hold = await v2('post', '/offers/hold', token, { 'Idempotency-Key': randomUUID() })
+      .send({
+        offerId: oferta.offerId,
+        itinerarySelections: [
+          {
+            itineraryId: itinerario.itineraryId,
+            cabinClass: opcion.cabinClass,
+            fareBrand: opcion.fareBrand,
+          },
+        ],
+        passengersBreakdown: { adults: 1 },
+      })
+      .expect(201);
+    return (
+      await v2('post', '/bookings', token, { 'Idempotency-Key': randomUUID() })
+        .send(cuerpoReserva(hold.body.holdId, { paymentReference: referenciaBooking() }))
+        .expect(201)
+    ).body as Json;
+  };
+
   beforeAll(async () => {
     u = { ...(await import('./utils/reserva')), ...(await import('./utils/busqueda')) };
     const { crearApp } = await import('./utils/crear-app');
@@ -285,8 +315,8 @@ describe('Contrato v2 (/api/v2/vuelos): pruebas de proveedor', () => {
       const probados = [...cobertura.get(op)!].sort().join(', ');
       return `| ${op} | ${metodo} ${ruta} | ${probados} |`;
     });
-    console.log(
-      ['| operationId | ruta | status probados |', '| --- | --- | --- |', ...filas].join('\n'),
+    process.stdout.write(
+      `${['| operationId | ruta | status probados |', '| --- | --- | --- |', ...filas].join('\n')}\n`,
     );
   });
 
@@ -1050,12 +1080,14 @@ describe('Contrato v2 (/api/v2/vuelos): pruebas de proveedor', () => {
     });
 
     it('getCancellationQuote y cancelBooking con quoteId: refund CALCULATED (cobró Booking, no se reembolsa aquí)', async () => {
-      const reserva = await comprar(tokenPartner(), 64);
+      // Una tarifa reembolsable: hay algo que devolver, y aun así la Payment API no se llama
+      const reserva = await comprarConRegla(tokenPartner(), 64, 'isRefundable');
       const cotizacion = esperarV2(
         'getCancellationQuote',
         await v2('get', `/bookings/${reserva.bookingId}/cancellation-quote`, tokenPartner()),
         200,
       );
+      expect(cotizacion.isRefundable).toBe(true);
       const antes = pagos.reembolsos.length;
       const cancelada = esperarV2(
         'cancelBooking',
@@ -1074,7 +1106,7 @@ describe('Contrato v2 (/api/v2/vuelos): pruebas de proveedor', () => {
           penaltyAmount: cotizacion.penaltyAmount,
           currency: cotizacion.currency,
           originalPaymentReference: reserva.paymentReference,
-          status: cotizacion.isRefundable ? 'CALCULATED' : 'NOT_REFUNDABLE',
+          status: 'CALCULATED',
         },
         inventoryRestoration: { status: 'RESTORED', seatsReleased: 1, newSeatStatus: 'AVAILABLE' },
         ticketsVoided: [reserva.tickets[0].ticketId],
