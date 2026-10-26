@@ -246,8 +246,8 @@ const MUTACIONES = [
     BANDEJA,
     [
       [
-        '    return tx.$executeRaw`\n      INSERT INTO vuelos.evento_saliente\n             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)\n      SELECT ${eventId}::uuid, ${tipo}::text,',
-        '    return this.prisma.db.$executeRaw`\n      INSERT INTO vuelos.evento_saliente\n             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)\n      SELECT ${eventId}::uuid, ${tipo}::text,',
+        '    return tx.$executeRaw`\n      INSERT INTO vuelos.evento_saliente\n             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en,\n              correlation_id)\n      SELECT ${eventId}::uuid, ${tipo}::text,',
+        '    return this.prisma.db.$executeRaw`\n      INSERT INTO vuelos.evento_saliente\n             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en,\n              correlation_id)\n      SELECT ${eventId}::uuid, ${tipo}::text,',
       ],
     ],
     NOTIFIER,
@@ -258,8 +258,8 @@ const MUTACIONES = [
     RELEVO,
     [
       [
-        'let envio = await this.enviar(e.sobre);',
-        "let envio = await this.enviar(JSON.stringify({ ...JSON.parse(e.sobre), eventId: require('node:crypto').randomUUID() }));",
+        'let envio = await this.enviar(e.sobre, e.correlationId);',
+        "let envio = await this.enviar(JSON.stringify({ ...JSON.parse(e.sobre), eventId: require('node:crypto').randomUUID() }), e.correlationId);",
       ],
     ],
     NOTIFIER,
@@ -270,7 +270,7 @@ const MUTACIONES = [
     RELEVO,
     [
       [
-        'let envio = await this.enviar(e.sobre);',
+        'let envio = await this.enviar(e.sobre, e.correlationId);',
         'let envio = await this.enviar(JSON.stringify(JSON.parse(e.sobre)));',
       ],
     ],
@@ -315,8 +315,8 @@ const MUTACIONES = [
     RELEVO,
     [
       [
-        '      this.tokens.invalidar(envio.token);\n      envio = await this.enviar(e.sobre);',
-        '      envio = await this.enviar(e.sobre);',
+        '      this.tokens.invalidar(envio.token);\n      envio = await this.enviar(e.sobre, e.correlationId);',
+        '      envio = await this.enviar(e.sobre, e.correlationId);',
       ],
     ],
     NOTIFIER,
