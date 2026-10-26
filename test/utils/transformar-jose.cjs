@@ -1,6 +1,8 @@
-// Transformador de Jest para `jose`, que desde la versión 6 solo se publica como ESM: lo pasa a
-// CommonJS con el compilador de TypeScript (el mismo de identity_vuelos). En la API compilada no
-// hace falta: Node 22 carga jose con require (require de un módulo ESM).
+// Transformador de Jest para dos paquetes que la VM de Jest no carga tal cual, con el compilador de
+// TypeScript (el mismo de identity_vuelos), pasándolos a CommonJS. En la API compilada no hace falta:
+// - `jose`, que desde la versión 6 solo se publica como ESM (Node 22 lo carga con require).
+// - `@opentelemetry/otlp-exporter-base`, CommonJS pero con `import('http')` dinámico, que dentro de
+//   la VM de Jest falla sin --experimental-vm-modules (en producción funciona).
 //
 // Con target es2022 las clases quedan nativas; con es2021 TypeScript mueve los campos de clase
 // antes del super() de sus errores (que va dentro de una expresión con comas) y `new JOSEError()`

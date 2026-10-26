@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MetricasBandeja } from '../../../../observabilidad/metricas-bandeja';
 import { ClienteNotifier } from './cliente-notifier';
 import { ClienteTokenIdentity } from './cliente-token-identity';
 import { PurgaBandeja } from './purga-bandeja';
@@ -11,6 +12,6 @@ import { WebhookModule } from './webhook.module';
  */
 @Module({
   imports: [WebhookModule],
-  providers: [ClienteTokenIdentity, ClienteNotifier, RelevoEventos, PurgaBandeja],
+  providers: [ClienteTokenIdentity, ClienteNotifier, RelevoEventos, PurgaBandeja, MetricasBandeja],
 })
 export class RelevoEventosModule {}

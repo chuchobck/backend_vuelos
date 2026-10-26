@@ -33,6 +33,15 @@ const NOTIFIER = 'test/eventos-notifier.e2e-spec.ts';
 const PURGA = 'src/modules/vuelos/operaciones/webhook/purga-bandeja.ts';
 const PURGAR = 'scripts/purgar-eventos.cjs';
 const PRUEBA_PURGA = 'test/purga-bandeja.e2e-spec.ts';
+const OBS_PRUEBA = 'test/observabilidad.e2e-spec.ts';
+const OBS_LOCAL = 'test/observabilidad-local.e2e-spec.ts';
+const OBS_EXPRESS = 'src/observabilidad/express.ts';
+const OBS_GRPC = 'src/observabilidad/grpc.ts';
+const OBS_SERVICIO = 'src/observabilidad/observabilidad.ts';
+const OBS_BANDEJA = 'src/observabilidad/metricas-bandeja.ts';
+const CLIENTE_HTTP = 'src/modules/vuelos/operaciones/webhook/cliente-webhook-http.ts';
+const RESERVA = 'src/modules/vuelos/operaciones/reserva/reserva.service.ts';
+const CONTEXTO_MW = 'src/common/contexto/contexto.middleware.ts';
 
 /** [nombre, archivo, [[buscar, reemplazo], ...], archivo de pruebas, filtro -t (opcional)] */
 const MUTACIONES = [
@@ -467,6 +476,127 @@ const MUTACIONES = [
     ],
     PRUEBA_PURGA,
     'eventos:purgar',
+  ],
+  [
+    'no se guarda el traceparent en la bandeja',
+    PUBLICADOR,
+    [
+      [
+        'ESTADOS_DEL_CONTRATO,\n        traceparentActivo(),\n      );\n      return;\n    }\n    await this.entregas.encolarDeReserva(',
+        'ESTADOS_DEL_CONTRATO,\n        null,\n      );\n      return;\n    }\n    await this.entregas.encolarDeReserva(',
+      ],
+    ],
+    OBS_PRUEBA,
+    'traceparent del contexto activo',
+  ],
+  [
+    'la entrega a terceros manda traceparent',
+    CLIENTE_HTTP,
+    [
+      [
+        "headers: { ...cabeceras, 'Content-Length': Buffer.byteLength(cuerpo) },",
+        "headers: { ...cabeceras, 'Content-Length': Buffer.byteLength(cuerpo), traceparent: '00-11111111111111111111111111111111-2222222222222222-01' },",
+      ],
+    ],
+    OBS_LOCAL,
+    'no lleva traceparent',
+  ],
+  [
+    'no se continúa la traza gRPC',
+    OBS_GRPC,
+    [
+      [
+        "valores.length === 1 && typeof valores[0] === 'string' ? valores[0] : undefined,",
+        'undefined,',
+      ],
+    ],
+    OBS_PRUEBA,
+    'gRPC',
+  ],
+  [
+    'la ruta cruda como etiqueta de las métricas',
+    OBS_EXPRESS,
+    [
+      [
+        'metricas.registrarServidor(\n        metodo,\n        ruta,\n        status,',
+        "metricas.registrarServidor(\n        metodo,\n        peticion.originalUrl.split('?')[0],\n        status,",
+      ],
+    ],
+    OBS_PRUEBA,
+    'cardinalidad|plantilla',
+  ],
+  [
+    'el pnr como atributo de un span',
+    RESERVA,
+    [
+      [
+        "import { Inject, Injectable } from '@nestjs/common';",
+        "import { Inject, Injectable } from '@nestjs/common';\nimport { trace } from '@opentelemetry/api';",
+      ],
+      [
+        '    const reserva = await this.leer(id);\n    this.contarReserva(reserva.estado);',
+        "    const reserva = await this.leer(id);\n    trace.getActiveSpan()?.setAttribute('quinde.request_id', reserva.pnr);\n    this.contarReserva(reserva.estado);",
+      ],
+    ],
+    OBS_PRUEBA,
+    'ni pnr',
+  ],
+  [
+    'el relevo no continúa la traza del hecho',
+    RELEVO,
+    [['contextoDeTraceparent(e.traceparent),', 'contextoDeTraceparent(null),']],
+    OBS_PRUEBA,
+    'relevo continúa',
+  ],
+  [
+    'el relevo no manda traceparent al notifier',
+    RELEVO,
+    [
+      [
+        'this.notifier.publicar(e.sobre, token, traceparentDe(span));',
+        'this.notifier.publicar(e.sobre, token);',
+      ],
+    ],
+    OBS_PRUEBA,
+    'relevo continúa',
+  ],
+  [
+    'una corrida de job cuelga de la traza activa en vez de ser raíz',
+    OBS_SERVICIO,
+    [['SpanKind.INTERNAL, {}, ROOT_CONTEXT);', 'SpanKind.INTERNAL, {});']],
+    OBS_PRUEBA,
+    'su propia traza raíz',
+  ],
+  [
+    'el raspado de la bandeja espera a la base sin plazo',
+    OBS_BANDEJA,
+    [
+      [
+        'return await Promise.race([this.lectura.datos, tope]);',
+        'return await this.lectura.datos;',
+      ],
+    ],
+    OBS_PRUEBA,
+    'no contesta a tiempo',
+  ],
+  [
+    'la respuesta REST no lleva X-Trace-Id',
+    OBS_EXPRESS,
+    [["respuesta.setHeader('X-Trace-Id', traceId);", '']],
+    OBS_PRUEBA,
+    'REST',
+  ],
+  [
+    'la línea de acceso lleva la URL pedida y no la plantilla',
+    CONTEXTO_MW,
+    [
+      [
+        '${plantillaDeRuta(peticion) ?? SIN_PLANTILLA} ${respuesta.statusCode}',
+        "${peticion.originalUrl.split('?')[0]} ${respuesta.statusCode}",
+      ],
+    ],
+    OBS_PRUEBA,
+    'ni pnr',
   ],
 ];
 

@@ -29,10 +29,11 @@ export class BandejaEventosRepository {
     ahora: Date,
     eventId: string,
     estados: Record<string, string>,
+    traceparent: string | null,
   ): Promise<number> {
     return tx.$executeRaw`
       INSERT INTO vuelos.evento_saliente
-             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)
+             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en, traceparent)
       SELECT ${eventId}::uuid, ${tipo}::text, r.id_propietario,
              jsonb_build_object(
                'eventId', ${eventId}::text, 'eventType', ${tipo}::text,
@@ -48,7 +49,7 @@ export class BandejaEventosRepository {
                                      AND ${tipo}::text = 'booking.cancelled'))))::text,
              ${ahora}::timestamptz,
              ${ahora}::timestamptz + make_interval(hours => ${PLAZO_REINTENTOS_HORAS}),
-             ${ahora}::timestamptz
+             ${ahora}::timestamptz, ${traceparent}::text
         FROM vuelos.reserva_cabecera rc
         JOIN vuelos.retencion_cabecera r ON r.id = rc.retencion_id
        WHERE rc.id = ${reservaId}::uuid`;
@@ -60,10 +61,11 @@ export class BandejaEventosRepository {
     retencionId: string,
     ahora: Date,
     eventId: string,
+    traceparent: string | null,
   ): Promise<number> {
     return tx.$executeRaw`
       INSERT INTO vuelos.evento_saliente
-             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)
+             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en, traceparent)
       SELECT ${eventId}::uuid, 'hold.expired', r.id_propietario,
              jsonb_build_object(
                'eventId', ${eventId}::text, 'eventType', 'hold.expired',
@@ -73,7 +75,7 @@ export class BandejaEventosRepository {
                'data', jsonb_build_object('holdId', r.id::text, 'status', 'EXPIRED'))::text,
              ${ahora}::timestamptz,
              ${ahora}::timestamptz + make_interval(hours => ${PLAZO_REINTENTOS_HORAS}),
-             ${ahora}::timestamptz
+             ${ahora}::timestamptz, ${traceparent}::text
         FROM vuelos.retencion_cabecera r
        WHERE r.id = ${retencionId}::uuid`;
   }
@@ -88,6 +90,7 @@ export class BandejaEventosRepository {
     tipo: string,
     ahora: Date,
     estados: Record<string, string>,
+    traceparent: string | null,
   ): Promise<number> {
     return tx.$executeRaw`
       WITH afectadas AS (
@@ -106,7 +109,7 @@ export class BandejaEventosRepository {
                           AND i.vuelo_programado_id = vp.id)
       )
       INSERT INTO vuelos.evento_saliente
-             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en)
+             (id_evento, tipo, id_propietario, sobre, proximo_intento, reintentar_hasta, creado_en, traceparent)
       SELECT a.evento, ${tipo}::text, a.id_propietario,
              jsonb_build_object(
                'eventId', a.evento::text, 'eventType', ${tipo}::text,
@@ -119,7 +122,7 @@ export class BandejaEventosRepository {
                  'flightNumber', a.vuelo, 'segmentId', ${salidaId}::text))::text,
              ${ahora}::timestamptz,
              ${ahora}::timestamptz + make_interval(hours => ${PLAZO_REINTENTOS_HORAS}),
-             ${ahora}::timestamptz
+             ${ahora}::timestamptz, ${traceparent}::text
         FROM afectadas a`;
   }
 
@@ -147,7 +150,8 @@ export class BandejaEventosRepository {
         FROM elegidos
        WHERE e.id_evento = elegidos.id_evento
       RETURNING e.id_evento::text AS "idEvento", e.tipo AS "tipo", e.intentos::int AS "intentos",
-                e.sobre AS "sobre", e.reintentar_hasta AS "reintentarHasta"`;
+                e.sobre AS "sobre", e.reintentar_hasta AS "reintentarHasta",
+                e.traceparent AS "traceparent"`;
   }
 
   /**
@@ -177,6 +181,21 @@ export class BandejaEventosRepository {
        WHERE id_evento = ${idEvento}::uuid AND estado = 'PENDIENTE' AND intentos = ${intentos}
       RETURNING estado::text AS estado`;
     return filas[0]?.estado ?? null;
+  }
+
+  /**
+   * Cuántos eventos están PENDIENTE y desde cuándo espera el más viejo (null si no hay ninguno),
+   * para los gauges de /metrics. Una consulta sobre el índice parcial de PENDIENTE, con un plazo
+   * en la base (`statement_timeout` de esta transacción): si tarda más, falla en vez de colgar.
+   */
+  async resumenPendientes(plazoMs: number): Promise<{ pendientes: number; desde: Date | null }> {
+    const [, filas] = await this.prisma.db.$transaction([
+      this.prisma.db.$executeRaw`SELECT set_config('statement_timeout', ${String(plazoMs)}, true)`,
+      this.prisma.db.$queryRaw<Array<{ n: number; desde: Date | null }>>`
+        SELECT count(*)::int AS n, min(creado_en) AS desde
+          FROM vuelos.evento_saliente WHERE estado = 'PENDIENTE'`,
+    ]);
+    return { pendientes: filas[0]?.n ?? 0, desde: filas[0]?.desde ?? null };
   }
 
   /** Desde cuándo espera el evento PENDIENTE más viejo, o null si no hay ninguno. */
@@ -237,4 +256,6 @@ export interface EventoReclamado {
   /** El sobre tal como se guardó: se envía sin tocarlo. */
   sobre: string;
   reintentarHasta: Date;
+  /** La traza del hecho que lo originó (null en un evento anterior a la fase 7c). */
+  traceparent: string | null;
 }

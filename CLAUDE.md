@@ -8,8 +8,8 @@ Quinde · API de Vuelos: backend NestJS 10 + TypeScript + Prisma 7 que implement
 GDS Flight Core API v1.5.0.0 (`contracts/vuelos-openapi.yaml`), solo vuelos nacionales de Ecuador.
 Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`; las
 diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.1.0 (`CHANGELOG.md`),
-más las fases 4b (auth externa, `AUTH_MODE`) y 5b (eventos al notifier, `WEBHOOKS_MODE`, con la
-purga de su bandeja) sin publicar.
+más las fases 4b (auth externa, `AUTH_MODE`), 5b (eventos al notifier, `WEBHOOKS_MODE`, con la
+purga de su bandeja) y 7c (observabilidad) sin publicar.
 Además de REST, un servidor gRPC interno para el BFF (`docs/GRPC.md`), apagado por defecto.
 
 ## Alcance
@@ -70,7 +70,8 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   guarda `***`.
 - Quién reparte los webhooks lo decide `WEBHOOKS_MODE`: `local` (por defecto, el core con
   `webhook_entrega` y `EntregaWebhooks`) o `notifier` (el core guarda un evento por hecho en
-  `evento_saliente` y `RelevoEventos` lo publica al notifier; `/webhooks` no se monta). Los que
+  `evento_saliente`, con el `traceparent` del hecho, y `RelevoEventos` lo publica al notifier;
+  `/webhooks` no se monta). Los que
   publican usan siempre `PublicadorEventos`, con las mismas firmas en los dos modos. El sobre se
   congela al guardarlo y se manda byte a byte; su forma es la de `contracts/notifier-eventos` (no se
   edita a mano: `npm run eventos:sync`). Ni el `client_secret` ni el token del notifier van al log.
@@ -79,11 +80,38 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   misma transacción del hecho. Su URL se valida (https, sin redes internas) al registrar y otra vez
   al conectar (SSRF), y no se siguen redirecciones.
 
+## Observabilidad
+
+- El estándar es `docs/OBSERVABILIDAD.md` del gateway (chuchobck/gateway_vuelos): un cambio de
+  nombres, etiquetas, atributos o propagación se hace allí primero. Los cuatro archivos de
+  `src/observabilidad/` (`traceparent`, `atributos`, `trazas`, `metricas`) se copian de ahí y no se
+  editan aquí (la única divergencia, los atributos `rpc.*`, está anotada en su README).
+- El SDK de trazas siempre arranca; el exportador, solo con `OTEL_EXPORTER_OTLP_ENDPOINT`. Una
+  petición nunca espera al recolector. El core continúa el `traceparent` que recibe
+  (`TRACE_TRUST_INCOMING=true`): solo lo alcanzan el gateway y el BFF.
+- El middleware de `express.ts` va **primero** en `configurar-app.ts`. Una llamada gRPC abre su
+  span en `contextoDeLlamada` y lo cierra `registrarLlamada` (el interceptor en éxito, el filtro en
+  error).
+- Spans manuales con `Observabilidad`: `interno(nombre)` con nombre FIJO para una operación de
+  negocio (nunca un span por consulta SQL), `cliente(...)` para un servicio al que se llama (la
+  Payment API, detrás de `PagosObservados`) y `corridaDeJob(job)`: cada corrida de un proceso
+  periódico es su propia traza raíz. El relevo abre su CLIENT hacia el notifier como hijo del
+  `traceparent` que guardó la bandeja.
+- `route` (nombre del span, etiqueta y línea de log) es siempre la **plantilla** o `__unmatched__`,
+  nunca la URL pedida. Ni pnr, ni ids de reserva, ni correos, ni IPs, ni tokens, ni cuerpos en un
+  atributo, una etiqueta o un log; las etiquetas de `core_*` son de listas cerradas.
+- La entrega de un webhook a un **tercero** (`EntregaWebhooks`, `ClienteWebhook`) NUNCA manda
+  `traceparent` ni `tracestate`.
+- `/metrics` solo en `METRICS_PORT`, aparte de `PORT`; el ingress no lo expone. Los gauges de la
+  bandeja se leen al raspar, con plazo, y solo con `WEBHOOKS_MODE=notifier`.
+- Cada línea del log lleva `traceId` y `spanId` (el span activo, o el SERVER de la petición).
+
 ## Datos
 
 - La base es la fuente de verdad (`db/*.sql`); no se usa `prisma migrate`. Un cambio de esquema va
   en `db/esquema_vuelos.sql` y, para las bases que ya existen, en una migración idempotente de
-  `db/migraciones/` que aplica `./db/migrar.sh`.
+  `db/migraciones/` que aplica `./db/migrar.sh`. CI comprueba (`scripts/comprobar-migraciones.sh`) que
+  el esquema de `main` más las migraciones deja una base igual a una nueva.
 - Eliminación lógica siempre; nada de `DELETE` físico en datos de negocio.
 - Las fechas van siempre en UTC (un `date` llega a medianoche UTC).
 - El dinero llega como `Decimal` y se convierte en el mapper; un `bigint` nunca sale al cliente.

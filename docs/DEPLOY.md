@@ -57,7 +57,7 @@ auditoría: `psql "$NEON_URL" -c "DROP SCHEMA vuelos CASCADE"` y repetir los pas
 
 **Una base que ya existe** se pone al día con `./db/migrar.sh` (usa `DATABASE_URL`; con
 `DATABASE_URL="$NEON_URL&schema=vuelos" ./db/migrar.sh` contra Neon): aplica `db/migraciones/*.sql`
-en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b y la 002 los índices de su purga.
+en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b, la 002 los índices de su purga y la 003 le agrega la columna `traceparent` (fase 7c).
 
 ## 3. Servicio en Render
 
@@ -115,6 +115,11 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `WEBHOOK_DELIVERY_JOB_ENABLED`, `WEBHOOK_DELIVERY_JOB_INTERVAL_SECONDS` | `true` y 10 | Enviar y reintentar los webhooks |
 | `BOARDING_PASS_SECRET` | `JWT_SECRET` | Clave de la firma de los códigos de barras de los pases. Con el mismo valor que el `JWT_SECRET` con que se emitieron, los pases ya emitidos siguen verificando; con otro, dejan de verificar. Obligatoria con `AUTH_MODE=external` si se quita `JWT_SECRET` |
 | `GRPC_ENABLED`, `GRPC_PORT` | `false` y 50051 | Servidor gRPC interno para el BFF (`docs/GRPC.md`). En Render queda apagado: el tráfico público llega solo al puerto HTTP (`PORT`); el despliegue de gRPC es la fase de Azure |
+| `OTEL_SERVICE_NAME` | `quinde-core` | `service.name` de las trazas y las métricas |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | (vacía) | Base OTLP/HTTP del recolector (`http://jaeger:4318`). Sin ella las trazas se generan y se propagan, pero no se exportan |
+| `OTEL_TRACES_SAMPLER_ARG` | `1.0` (desarrollo) / `0.1` (producción) | Fracción de trazas raíz que se registran (0 a 1). Un span hijo sigue a su padre |
+| `TRACE_TRUST_INCOMING` | `true` | Continuar el `traceparent` que llega (REST y gRPC). El core es interno: solo lo alcanzan el gateway y el BFF |
+| `METRICS_PORT` | `9464` (en local, `9466`) | Puerto aparte de `/metrics`, que el ingress nunca expone; `0` lo apaga. Distinto de `PORT` y `GRPC_PORT` |
 
 `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` y `DB_PORT` son solo para el entorno local
 (`./db/reset.sh` y docker compose); en Render no se usan.
@@ -308,6 +313,19 @@ El procedimiento del corte, el retroceso y cómo seguir la bandeja están en
 - El job (`PurgaBandeja`, cada 1 min) borró en su primera corrida 3 `PUBLICADO` de 9 días con
   «Purga de la bandeja: 3 PUBLICADO y 0 FALLIDO borrados en 17 ms»; el log del core no tenía ningún
   `eventId`, PNR ni sobre.
+### Fase 7c (2026-10-21): observabilidad con el gateway, el BFF, identity y el notifier
+
+- identity y notifier (`main`, con sus bases locales), el core compilado de esta rama con
+  `AUTH_MODE=external`, `WEBHOOKS_MODE=notifier` y gRPC, el BFF y el gateway (`main`, con sus
+  trazas), todos con `TRUST_PROXY=1`; el core y el gateway exportando a un recolector OTLP falso
+  (el `scripts/e2e/recolector-otlp.mjs` del gateway, en el 4318) y un proxy delante del notifier que
+  anota el `traceparent` que le llega. Base propia del core (`quinde7c_booking`).
+- Una reserva por el gateway dio una sola traza `gateway → core → pago`, con los tres eventos de la
+  bandeja publicados en la misma traza; el notifier recibió un `traceparent` con ese trace-id.
+- Lo que **no** se pudo cerrar: el BFF y el notifier de `main` todavía no tienen observabilidad
+  (fase 7b/7c de sus repos), así que `/graphql` da la traza del gateway y la llamada gRPC del BFF al
+  core abre una traza raíz aparte. La cadena `gateway → bff → core` se comprobó con un cliente gRPC
+  que hace de BFF instrumentado.
 
 ### Fase 4b (2026-10-15): AUTH_MODE=external con identity_vuelos
 

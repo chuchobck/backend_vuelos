@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Observabilidad } from '../../../../observabilidad/observabilidad';
 import { Reloj } from '../../../../common/reloj';
 import { IdempotenciaRepository } from '../../compartido/idempotencia.repository';
 import { RetencionRepository } from './retencion.repository';
@@ -44,6 +45,7 @@ export class VencimientoRetenciones implements OnApplicationBootstrap, OnModuleD
     private readonly repositorio: RetencionRepository,
     private readonly claves: IdempotenciaRepository,
     private readonly reloj: Reloj,
+    private readonly observabilidad: Observabilidad,
     config: ConfigService,
   ) {
     this.habilitado = config.get<string>('HOLD_EXPIRY_JOB_ENABLED') !== 'false';
@@ -74,7 +76,9 @@ export class VencimientoRetenciones implements OnApplicationBootstrap, OnModuleD
    * se registra y no detiene las corridas siguientes.
    */
   ejecutar(): Promise<ResultadoVencimiento> {
-    this.corriendo ??= this.corrida().finally(() => (this.corriendo = undefined));
+    this.corriendo ??= this.observabilidad
+      .corridaDeJob('vencimiento-retenciones', () => this.corrida())
+      .finally(() => (this.corriendo = undefined));
     return this.corriendo;
   }
 
