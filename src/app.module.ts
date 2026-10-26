@@ -10,6 +10,7 @@ import { AdministradoresModule } from './modules/auth/administradores/administra
 import { AuthModule } from './modules/auth/auth.module';
 import { AutenticacionModule } from './modules/auth/autenticacion.module';
 import { SaludModule } from './modules/salud/salud.module';
+import { FachadaV2Module } from './modules/vuelos/v2/v2.module';
 import { VuelosModule } from './modules/vuelos/vuelos.module';
 
 /** AUTH_MODE sin definir o local (entorno.ts ya validó el valor). */
@@ -38,6 +39,8 @@ function esModoLocal(entorno: NodeJS.ProcessEnv): boolean {
     ConditionalModule.registerWhen(AdministradoresModule, esModoLocal, { debug: false }),
 
     VuelosModule,
+    // La fachada del contrato v2 (/api/v2/vuelos), sobre los services de VuelosModule
+    FachadaV2Module,
 
     // Tabla de rutas: src/routes/index.routes.ts
     RouterModule.register(rutas),

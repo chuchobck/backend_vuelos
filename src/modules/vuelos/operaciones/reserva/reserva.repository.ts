@@ -102,9 +102,9 @@ export interface ReservaNueva {
 
 /** Quién vendió la reserva por la fachada v2 (reserva_cabecera.id_cliente y canal_*). */
 export interface OrigenReserva {
-  /** client_id del token de partner; sin partner (una persona por v2), no hay origen. */
-  idCliente: string;
-  /** X-User-Id que mandó el partner. */
+  /** client_id del token de partner; sin él (una persona por v2), solo el canal. */
+  idCliente?: string;
+  /** X-User-Id que mandó el partner (solo con idCliente). */
   usuarioExterno?: string;
   canal?: {
     socio?: string;

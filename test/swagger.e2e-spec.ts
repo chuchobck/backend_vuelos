@@ -324,6 +324,8 @@ describe('Swagger (/api/docs) contra el contrato', () => {
       .flatMap((capa) =>
         Object.keys(capa.route!.methods).map((m) => `${m.toUpperCase()} ${capa.route!.path}`),
       )
+      // Las de la fachada v2 están en su propio documento (/api/v2/docs): test/contrato-v2.e2e-spec.ts
+      .filter((r) => !/^[A-Z]+ \/api\/v2\//.test(r))
       .filter((r) => !documentadas.has(r) && !r.includes('/api/docs') && r !== 'GET /');
     expect(sinDocumentar).toEqual([]);
   });
