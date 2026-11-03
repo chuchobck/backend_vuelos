@@ -229,7 +229,10 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
    * Cambia el cupo total de una cabina sin perder lo ya retenido o vendido: los disponibles
    * se mueven lo mismo que el total. Es un solo UPDATE condicionado, así que una retención
    * que llegue al mismo tiempo no puede dejar `cupos_disponibles` negativo. Devuelve false
-   * si el total nuevo queda por debajo de lo comprometido (y no cambia nada).
+   * si el total nuevo queda por debajo de lo comprometido (y no cambia nada). La orden de empuje
+   * de stock no se registra aquí: `modificar`, que siempre corre antes en la misma transacción, ya
+   * dejó la de todas las cabinas que existían; `agregarCupo` sí registra la suya porque la cabina
+   * nace después.
    */
   async ajustarCupo(
     vueloProgramadoId: string,
@@ -244,9 +247,7 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
        WHERE vuelo_programado_id = ${vueloProgramadoId}::uuid
          AND clase_cabina = ${claseCabina}::vuelos.clase_cabina
          AND ${total}::smallint >= cupos_totales - cupos_disponibles`;
-    if (cambiadas !== 1) return false;
-    await this.stock.registrar(tx, [{ salidaId: vueloProgramadoId, cabina: claseCabina }]);
-    return true;
+    return cambiadas === 1;
   }
 
   async agregarCupo(vueloProgramadoId: string, cupo: CupoNuevo, tx: Ejecutor): Promise<void> {
