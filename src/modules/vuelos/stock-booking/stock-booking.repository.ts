@@ -130,15 +130,24 @@ export class StockBookingRepository {
     return { pendientes: filas[0]?.n ?? 0, desde: filas[0]?.desde ?? null };
   }
 
-  /** Órdenes PENDIENTE que ya se pueden tomar (para saber si la sincronización terminó o solo espera). */
-  async contar(ahora: Date): Promise<{ listas: number; enEspera: number; fallidas: number }> {
+  /**
+   * Las órdenes de las salidas con fecha local entre `desde` y `hasta`: PENDIENTE ya tomables
+   * (`listas`), PENDIENTE esperando un reintento y FALLIDO. Dice si la sincronización terminó.
+   */
+  async contar(
+    ahora: Date,
+    desde: Date,
+    hasta: Date,
+  ): Promise<{ listas: number; enEspera: number; fallidas: number }> {
     const [fila] = await this.prisma.db.$queryRaw<
       Array<{ listas: number; en_espera: number; fallidas: number }>
     >`
-      SELECT count(*) FILTER (WHERE estado = 'PENDIENTE' AND proximo_intento <= ${ahora}::timestamptz)::int AS listas,
-             count(*) FILTER (WHERE estado = 'PENDIENTE' AND proximo_intento > ${ahora}::timestamptz)::int AS en_espera,
-             count(*) FILTER (WHERE estado = 'FALLIDO')::int AS fallidas
-        FROM vuelos.orden_stock_booking`;
+      SELECT count(*) FILTER (WHERE o.estado = 'PENDIENTE' AND o.proximo_intento <= ${ahora}::timestamptz)::int AS listas,
+             count(*) FILTER (WHERE o.estado = 'PENDIENTE' AND o.proximo_intento > ${ahora}::timestamptz)::int AS en_espera,
+             count(*) FILTER (WHERE o.estado = 'FALLIDO')::int AS fallidas
+        FROM vuelos.orden_stock_booking o
+        JOIN vuelos.vuelo_programado vp ON vp.id = o.vuelo_programado_id
+       WHERE vp.fecha_salida BETWEEN ${desde}::date AND ${hasta}::date`;
     return { listas: fila.listas, enEspera: fila.en_espera, fallidas: fila.fallidas };
   }
 

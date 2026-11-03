@@ -68,10 +68,10 @@ export async function main(argumentos: string[]): Promise<number> {
           `rechazados ${total.rechazados}, fallidos ${total.fallidos}`,
       );
       const sinNovedad = Object.values(corrida).every((n) => n === 0);
-      const { listas } = await cola.contar(reloj.ahora());
+      const { listas } = await cola.contar(reloj.ahora(), desde, hasta);
       if (sinNovedad || listas === 0 || corrida.bloqueados > 0) break;
     }
-    const { listas, enEspera, fallidas } = await cola.contar(reloj.ahora());
+    const { listas, enEspera, fallidas } = await cola.contar(reloj.ahora(), desde, hasta);
     console.error(
       `Listo: ${total.enviados} enviados; ${fallidas} FALLIDAS, ${enEspera} esperando un reintento, ` +
         `${listas} sin mandar${total.bloqueados > 0 ? ' (el cortacircuitos de Booking está abierto)' : ''}.`,
