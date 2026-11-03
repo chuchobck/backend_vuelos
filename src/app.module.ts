@@ -12,6 +12,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { AutenticacionModule } from './modules/auth/autenticacion.module';
 import { SaludModule } from './modules/salud/salud.module';
 import { FachadaV2Module } from './modules/vuelos/v2/v2.module';
+import { OrdenesStockModule } from './modules/vuelos/stock-booking/ordenes-stock.module';
 import { VuelosModule } from './modules/vuelos/vuelos.module';
 
 /** AUTH_MODE sin definir o local (entorno.ts ya validó el valor). */
@@ -33,6 +34,8 @@ function esModoLocal(entorno: NodeJS.ProcessEnv): boolean {
     ObservabilidadModule,
     PrismaModule,
     CommonModule,
+    // Registro de las órdenes de empuje de stock a Booking (no hace nada con BOOKING_STOCK_ENABLED=false)
+    OrdenesStockModule,
     SaludModule,
     AutenticacionModule,
     // El proveedor de identidad simulado (/auth) y /admin/users solo con AUTH_MODE=local. Con

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { clase_cabina } from '../../../generated/prisma/client';
 import { TransaccionVuelos } from '../../../prisma/prisma.service';
+import { OrdenesStock } from '../stock-booking/ordenes-stock';
 
 /** Cuánto cambia el cupo de una cabina de una salida: negativo toma, positivo devuelve. */
 export interface MovimientoDeCupo {
@@ -17,6 +18,8 @@ export interface MovimientoDeCupo {
  */
 @Injectable()
 export class InventarioRepository {
+  constructor(private readonly stock: OrdenesStock) {}
+
   /**
    * Devuelve si se aplicaron todos. Si no (a una cabina no le alcanzó), quien llama debe
    * deshacer la transacción: lo que sí se aplicó no puede quedar.
@@ -48,6 +51,8 @@ export class InventarioRepository {
         FROM bloqueadas b
        WHERE ic.id = b.id
          AND ic.cupos_disponibles + b.delta >= 0`;
-    return cambiadas === filas.length;
+    if (cambiadas !== filas.length) return false;
+    await this.stock.registrar(tx, filas);
+    return true;
   }
 }

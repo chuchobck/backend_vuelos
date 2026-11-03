@@ -3,6 +3,7 @@ import { clase_cabina, estado_vuelo, Prisma } from '../../../../generated/prisma
 import { Reloj } from '../../../../common/reloj';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { PublicadorEventos } from '../../operaciones/webhook/publicador-eventos';
+import { OrdenesStock } from '../../stock-booking/ordenes-stock';
 import { Ejecutor, FiltroCatalogo, RepositorioCatalogo } from '../base/repositorio-catalogo';
 
 const CON_DETALLE = {
@@ -92,6 +93,7 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
     prisma: PrismaService,
     private readonly publicador: PublicadorEventos,
     private readonly reloj: Reloj,
+    private readonly stock: OrdenesStock,
   ) {
     super(prisma);
   }
@@ -153,6 +155,8 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
       where: { id: fila.id },
       data: { estado: activo ? 'PROGRAMADO' : 'CANCELADO' },
     });
+    // Cancelada o reactivada, la salida deja de ser vendible o vuelve a serlo: Booking se entera
+    await this.stock.registrarSalida(tx, fila.id);
     // Cancelar avisa (flight.cancelled) a los dueños de las reservas vivas de esta salida
     if (!activo) await this.publicador.deVuelo(tx, fila.id, 'flight.cancelled', this.reloj.ahora());
   }
@@ -190,6 +194,10 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
       },
       select: { id: true },
     });
+    await this.stock.registrar(
+      tx,
+      datos.cupos.map((cupo) => ({ salidaId: fila.id, cabina: cupo.claseCabina })),
+    );
     return fila.id;
   }
 
@@ -209,6 +217,8 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
         estado: cambios.estado,
       },
     });
+    // El estado o el horario cambian lo que Booking vende de esta salida (date, time_slot, 0 si se canceló)
+    await this.stock.registrarSalida(tx, fila.id);
     // Un horario o una hora estimada nueva, o pasar a DELAYED, avisa (flight.schedule_changed)
     if (cambiaElHorario(fila, cambios)) {
       await this.publicador.deVuelo(tx, fila.id, 'flight.schedule_changed', this.reloj.ahora());
@@ -234,7 +244,9 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
        WHERE vuelo_programado_id = ${vueloProgramadoId}::uuid
          AND clase_cabina = ${claseCabina}::vuelos.clase_cabina
          AND ${total}::smallint >= cupos_totales - cupos_disponibles`;
-    return cambiadas === 1;
+    if (cambiadas !== 1) return false;
+    await this.stock.registrar(tx, [{ salidaId: vueloProgramadoId, cabina: claseCabina }]);
+    return true;
   }
 
   async agregarCupo(vueloProgramadoId: string, cupo: CupoNuevo, tx: Ejecutor): Promise<void> {
@@ -246,6 +258,7 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
         cupos_disponibles: cupo.total,
       },
     });
+    await this.stock.registrar(tx, [{ salidaId: vueloProgramadoId, cabina: cupo.claseCabina }]);
   }
 
   /** Retenciones vigentes y reservas no canceladas con un itinerario que pasa por la salida. */
