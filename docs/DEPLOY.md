@@ -106,6 +106,14 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `EVENT_OUTBOX_RETENTION_DAYS` | `7` | Días que un evento `PUBLICADO` se conserva desde `publicado_en` (1 a 365) |
 | `EVENT_OUTBOX_FAILED_RETENTION_DAYS` | `30` | Días que un evento `FALLIDO` se conserva desde que falló, para diagnosticar y usar `eventos:reencolar` (7 a 365). Un `PENDIENTE` no se borra nunca |
 | `EVENT_ENVELOPE_CORRELATION_ID` | `false` | Con `true`, el sobre de cada evento lleva `correlationId`. Encenderlo solo cuando el notifier acepte el campo (sus esquemas 1.0 lo rechazan). La columna `correlation_id` y la cabecera `X-Correlation-Id` al notifier van siempre |
+| `BOOKING_STOCK_ENABLED` | `false` | Empujar nuestro stock (`available_units` por vuelo, cabina y fecha) a Booking por REST. Apagado: no se registra ni se llama nada. Ver `docs/STOCK-BOOKING.md` |
+| `BOOKING_STOCK_SERVICE_ID` | — | Obligatoria con `BOOKING_STOCK_ENABLED=true`: nuestro `service_id` en Booking, fijo y único por equipo (nunca `vuelos`) |
+| `BOOKING_STOCK_URL` | `https://booking-core-api.azurewebsites.net/api/v2/inventory/stock` | A dónde se manda el stock |
+| `BOOKING_STOCK_TIMEOUT_MS` | `5000` | Plazo de cada llamada (100 a 30000); el ESB de Booking corta a los 5 s |
+| `BOOKING_STOCK_DIAS` | `90` | Días hacia adelante que recorre la sincronización completa (1 a 365) |
+| `BOOKING_STOCK_SYNC_AL_ARRANCAR` | `false` | Con `true`, al arrancar se registran todas las claves de la ventana (la sincronización completa) |
+| `BOOKING_STOCK_JOB_ENABLED` | `true` | El proceso periódico que empuja las órdenes (las pruebas lo apagan y lo llaman a mano) |
+| `BOOKING_STOCK_JOB_INTERVAL_SECONDS` | `5` | Cada cuántos segundos corre (1 a 3600) |
 | `NODO_ID` | `NODE_VUE_QUINDE` | `nodo_id` de `GET /api/v2/vuelos/health`: cómo identifica Booking a este nodo (3 a 60 mayúsculas, dígitos o `_`) |
 | `NOMBRE_PROVEEDOR` | `Quinde` | `nombre_proveedor` de `GET /api/v2/vuelos/health` (la aerolínea) |
 | `SEARCH_OFFER_TTL_MINUTES` | 30 | Vigencia de una oferta de búsqueda |

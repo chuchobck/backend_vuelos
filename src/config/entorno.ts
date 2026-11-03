@@ -111,6 +111,9 @@ class PuertoMetricas implements ValidatorConstraintInterface {
   }
 }
 
+/** Solo con BOOKING_STOCK_ENABLED=true se validan (y se exigen) las variables del stock a Booking. */
+const conStockBooking = (v: VariablesEntorno) => v.BOOKING_STOCK_ENABLED === 'true';
+
 /** Solo con WEBHOOKS_MODE=notifier se validan (y se exigen) las variables del relevo. */
 const conNotifier = (v: VariablesEntorno) => v.WEBHOOKS_MODE === 'notifier';
 
@@ -323,6 +326,61 @@ export class VariablesEntorno {
   @IsIn(['true', 'false'], { message: 'EVENT_ENVELOPE_CORRELATION_ID debe ser true o false' })
   @IsOptional()
   EVENT_ENVELOPE_CORRELATION_ID?: string;
+
+  /** Empujar nuestro stock a Booking (docs/STOCK-BOOKING.md). Sin valor: false, nada se registra ni se llama. */
+  @IsIn(['true', 'false'], { message: 'BOOKING_STOCK_ENABLED debe ser true o false' })
+  @IsOptional()
+  BOOKING_STOCK_ENABLED?: string;
+
+  /** POST de Booking donde llega el stock. Sin valor: la de su ESB (src/config/stock-booking.ts). */
+  @Validate(UrlServicio)
+  @IsOptional()
+  @ValidateIf(conStockBooking)
+  BOOKING_STOCK_URL?: string;
+
+  /** Nuestro service_id en Booking: fijo y único por equipo (nunca "vuelos"). Obligatoria si está activo. */
+  @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/, {
+    message: 'BOOKING_STOCK_SERVICE_ID debe tener de 3 a 64 letras, números, . _ - (sin espacios)',
+  })
+  @IsString({ message: 'BOOKING_STOCK_SERVICE_ID es obligatoria con BOOKING_STOCK_ENABLED=true' })
+  @ValidateIf(conStockBooking)
+  BOOKING_STOCK_SERVICE_ID?: string;
+
+  /** Plazo de cada llamada a Booking, en ms (su ESB corta a los 5 s). Sin valor: 5000. */
+  @Max(30000, { message: 'BOOKING_STOCK_TIMEOUT_MS debe estar entre 100 y 30000' })
+  @Min(100, { message: 'BOOKING_STOCK_TIMEOUT_MS debe estar entre 100 y 30000' })
+  @IsInt({ message: 'BOOKING_STOCK_TIMEOUT_MS debe ser un número entero' })
+  @IsOptional()
+  @ValidateIf(conStockBooking)
+  BOOKING_STOCK_TIMEOUT_MS?: number;
+
+  /** Días hacia adelante que recorre la sincronización completa. Sin valor: 90. */
+  @Max(365, { message: 'BOOKING_STOCK_DIAS debe estar entre 1 y 365' })
+  @Min(1, { message: 'BOOKING_STOCK_DIAS debe estar entre 1 y 365' })
+  @IsInt({ message: 'BOOKING_STOCK_DIAS debe ser un número entero' })
+  @IsOptional()
+  @ValidateIf(conStockBooking)
+  BOOKING_STOCK_DIAS?: number;
+
+  /** Registrar al arrancar todas las claves de la ventana (la sincronización completa). Sin valor: false. */
+  @IsIn(['true', 'false'], { message: 'BOOKING_STOCK_SYNC_AL_ARRANCAR debe ser true o false' })
+  @IsOptional()
+  @ValidateIf(conStockBooking)
+  BOOKING_STOCK_SYNC_AL_ARRANCAR?: string;
+
+  /** El proceso periódico que empuja las órdenes (las pruebas lo apagan y lo llaman a mano). Sin valor: true. */
+  @IsIn(['true', 'false'], { message: 'BOOKING_STOCK_JOB_ENABLED debe ser true o false' })
+  @IsOptional()
+  @ValidateIf(conStockBooking)
+  BOOKING_STOCK_JOB_ENABLED?: string;
+
+  /** Cada cuántos segundos corre. Sin valor: 5. */
+  @Max(3600, { message: 'BOOKING_STOCK_JOB_INTERVAL_SECONDS debe estar entre 1 y 3600' })
+  @Min(1, { message: 'BOOKING_STOCK_JOB_INTERVAL_SECONDS debe estar entre 1 y 3600' })
+  @IsInt({ message: 'BOOKING_STOCK_JOB_INTERVAL_SECONDS debe ser un número entero' })
+  @IsOptional()
+  @ValidateIf(conStockBooking)
+  BOOKING_STOCK_JOB_INTERVAL_SECONDS?: number;
 
   /**
    * nodo_id de GET /api/v2/vuelos/health: cómo identifica Booking a este nodo en su Monitor de
