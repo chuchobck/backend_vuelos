@@ -29,8 +29,8 @@ export async function registrarOrdenes(
   origen: Prisma.Sql,
   ahora: Date,
   correlacion: string | null,
-): Promise<void> {
-  await ejecutor.$executeRaw`
+): Promise<number> {
+  return ejecutor.$executeRaw`
     INSERT INTO vuelos.orden_stock_booking AS o
            (vuelo_programado_id, clase_cabina, estado, version, intentos, proximo_intento,
             correlation_id, solicitado_en)
@@ -117,7 +117,7 @@ export class OrdenesStock {
     );
   }
 
-  private guardar(tx: EjecutorOrdenes, origen: Prisma.Sql): Promise<void> {
-    return registrarOrdenes(tx, origen, this.reloj.ahora(), correlacionActual() ?? null);
+  private async guardar(tx: EjecutorOrdenes, origen: Prisma.Sql): Promise<void> {
+    await registrarOrdenes(tx, origen, this.reloj.ahora(), correlacionActual() ?? null);
   }
 }

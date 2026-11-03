@@ -18,7 +18,12 @@ export interface ConfiguracionStockBooking {
   dias: number;
 }
 
-/** BOOKING_STOCK_ENABLED=true, leído del entorno o de ConfigService. */
+/** BOOKING_STOCK_ENABLED=true, leído del entorno (para ConditionalModule, antes de ConfigService). */
+export function esStockBookingActivo(entorno: NodeJS.ProcessEnv): boolean {
+  return entorno.BOOKING_STOCK_ENABLED === 'true';
+}
+
+/** BOOKING_STOCK_ENABLED=true, leído de ConfigService. */
 export function stockBookingActivo(config: Pick<ConfigService, 'get'>): boolean {
   return config.get<string>('BOOKING_STOCK_ENABLED') === 'true';
 }

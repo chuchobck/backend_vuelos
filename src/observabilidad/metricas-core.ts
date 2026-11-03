@@ -9,6 +9,10 @@ export type ResultadoReserva = (typeof RESULTADOS_RESERVA)[number];
 export const RESULTADOS_PUBLICACION = ['published', 'retry', 'failed'] as const;
 export type ResultadoPublicacion = (typeof RESULTADOS_PUBLICACION)[number];
 
+/** Resultados de `core_stock_push_total`: ok, retry (se reintenta), rejected (Booking lo rechazó) o failed (se agotaron los intentos). */
+export const RESULTADOS_STOCK = ['ok', 'retry', 'rejected', 'failed'] as const;
+export type ResultadoStock = (typeof RESULTADOS_STOCK)[number];
+
 /** Los procesos periódicos del core (etiqueta `job`): una lista cerrada. */
 export const JOBS = [
   'relevo-eventos',
@@ -16,6 +20,7 @@ export const JOBS = [
   'vencimiento-retenciones',
   'emision-pendiente',
   'pendientes-postventa',
+  'stock-booking',
 ] as const;
 export type NombreJob = (typeof JOBS)[number];
 
@@ -27,6 +32,7 @@ export type NombreJob = (typeof JOBS)[number];
 export class MetricasCore {
   readonly reservas: Counter<'result'>;
   readonly publicaciones: Counter<'result'>;
+  readonly empujesStock: Counter<'result'>;
   readonly duracionJob: Histogram<'job'>;
 
   constructor(registro: Registry) {
@@ -42,6 +48,12 @@ export class MetricasCore {
       labelNames: ['result'] as const,
       registers: [registro],
     });
+    this.empujesStock = new Counter({
+      name: 'core_stock_push_total',
+      help: 'Envíos de stock a Booking por resultado: ok, retry (se reintenta), rejected (Booking lo rechazó) o failed (se agotaron los intentos)',
+      labelNames: ['result'] as const,
+      registers: [registro],
+    });
     this.duracionJob = new Histogram({
       name: 'core_job_run_duration_seconds',
       help: 'Duración de cada corrida de un proceso periódico, por job',
@@ -52,5 +64,6 @@ export class MetricasCore {
     // Las series existen en cero desde el arranque: un rate() no empieza ciego
     for (const result of RESULTADOS_RESERVA) this.reservas.inc({ result }, 0);
     for (const result of RESULTADOS_PUBLICACION) this.publicaciones.inc({ result }, 0);
+    for (const result of RESULTADOS_STOCK) this.empujesStock.inc({ result }, 0);
   }
 }
