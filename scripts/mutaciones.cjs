@@ -1219,6 +1219,13 @@ const MUTACIONES = [
     STOCK_PRUEBA,
     'validación del entorno',
   ],
+  [
+    '[stock] el comando sale sin esperar a vaciar stdout (--dry-run por un pipe sale cortado)',
+    'scripts/sincronizar-stock.cjs',
+    [['  .then(salir)\n', '  .then((codigo) => process.exit(codigo))\n']],
+    STOCK_PRUEBA,
+    'dry-run imprime',
+  ],
 ];
 
 const originales = new Map();

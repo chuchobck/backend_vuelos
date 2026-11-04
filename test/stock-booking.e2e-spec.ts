@@ -988,6 +988,8 @@ describe('Empuje de stock a Booking', () => {
         time_slot: '10:00',
       });
       expect(stderr).toMatch(/--dry-run: \d+ registros/);
+      // Por un pipe la salida llega completa: el comando espera a vaciar stdout antes de salir
+      expect(lineas).toHaveLength(Number(/--dry-run: (\d+) registros/.exec(stderr)![1]));
       expect(falso.recibidas).toHaveLength(0);
       expect(await orden(k.salida)).toEqual(antes);
     }, 130_000);
@@ -1008,7 +1010,7 @@ describe('Empuje de stock a Booking', () => {
         env: {
           ...process.env,
           ...ENTORNO(falso.url),
-          BOOKING_STOCK_DIAS: '1',
+          BOOKING_STOCK_DIAS: '2',
         } as NodeJS.ProcessEnv,
         maxBuffer: 64 * 1024 * 1024,
         timeout: 170_000,

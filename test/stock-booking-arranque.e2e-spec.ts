@@ -22,7 +22,9 @@ describe('Sincronización al arrancar', () => {
       BOOKING_STOCK_ENABLED: 'true',
       BOOKING_STOCK_URL: falso.url,
       BOOKING_STOCK_SERVICE_ID: 'quinde-e2e',
-      BOOKING_STOCK_DIAS: '1',
+      // 2 días y no 1: la ventana cuenta desde HOY en Ecuador, que entre las 00:00 y las 05:00 UTC va un
+      // día detrás de la fecha UTC con que se siembra la semilla; con 2 siempre alcanza su primer día
+      BOOKING_STOCK_DIAS: '2',
       BOOKING_STOCK_SYNC_AL_ARRANCAR: 'true',
       BOOKING_STOCK_JOB_ENABLED: 'false',
     };

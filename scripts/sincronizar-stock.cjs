@@ -47,11 +47,20 @@ Object.assign(process.env, {
   METRICS_PORT: '0',
 });
 
+/**
+ * Sale cuando stdout y stderr terminaron de escribir. Con `process.exit` a secas, una salida grande
+ * hacia un pipe (`--dry-run | head`, o quien lo corre desde otro proceso) se corta a la mitad: lo
+ * escrito y no vaciado todavía se pierde.
+ */
+function salir(codigo) {
+  process.stdout.write('', () => process.stderr.write('', () => process.exit(codigo)));
+}
+
 require(CLI)
   .main(argumentos)
-  .then((codigo) => process.exit(codigo))
+  .then(salir)
   .catch((error) => {
     // Solo el nombre y el mensaje de validación de entorno (nombran la variable, nunca su valor)
     console.error(`stock:sincronizar falló: ${error?.name ?? 'Error'}: ${error?.message ?? ''}`);
-    process.exit(1);
+    salir(1);
   });
