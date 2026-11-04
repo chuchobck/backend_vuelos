@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-10-26 (cierre de la fase V1, fachada del contrato v2) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-11-04 (cierre de la fase S1, stock a Booking) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1. Las fases de RDA2 (R2-...) la integran con el resto del Booking: la R2-1 agrega un servidor gRPC interno para el BFF GraphQL la 4b deja que los tokens los emita el servicio de identidad (`AUTH_MODE=external`) y la 5b, que los webhooks los reparta el notifier (`WEBHOOKS_MODE=notifier`).
 
@@ -26,6 +26,7 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | 5b-2. Purga de la bandeja | Hecha en local (2026-10-16); solo actúa con `WEBHOOKS_MODE=notifier` | `lint`, `format:check` y `build` pasan en cada uno de los 6 commits. `purga-bandeja` (29 pruebas, contra PostgreSQL con `Reloj` inyectado) y `purga-bandeja-local` (2): borra los `PUBLICADO` de más de 7 días y deja los de 6,99; borra los `FALLIDO` de más de 30 y deja los de 29,99; deja todos los `PENDIENTE` sea cual sea su edad o su arrendamiento; no borra lo que tiene un arrendamiento vigente, lo que el relevo tiene tomado ni una fila bloqueada por otra conexión (sin esperarla); respeta el lote de 1000 y el tope por corrida (con 3 700 filas y un tope de 2 500 borra exactamente 2 500 y sigue en la siguiente); dos instancias a la vez sobre 7 500 filas borran cada una una sola vez y sin errores; con el relevo publicando a la vez no se estorban; en modo local el job no existe; las variables inválidas no arrancan y el mensaje nombra la variable; `--dry-run` no borra y sus conteos son los del borrado real; el log solo lleva conteos. 12 mutaciones nuevas, 12 muertas. Verificación real: ver DEPLOY.md, «Purga de la bandeja». No verificado: contra una base desplegada (Neon) ni con el notifier real |
 | 7c. Observabilidad | Hecha en local (2026-10-21); sin `OTEL_EXPORTER_OTLP_ENDPOINT` las trazas se generan y propagan pero no se exportan | `lint`, `format:check` y `build` pasan en cada uno de los 12 commits. `test:e2e`: 1053 pruebas en 40 suites (62 nuevas en `observabilidad` y `observabilidad-local`); pasan 1050 y fallan las 2 de `errores-bd` de siempre en esta máquina (IPv6) y la paginación de `admin-auditoria` por datos acumulados en la base local (ver Hallazgos). Contra un recolector OTLP falso y un cliente gRPC: REST y gRPC continúan el `traceparent` recibido (mismo trace-id, parent correcto) y sin él abren una raíz (también con uno inválido: mayúsculas, versión `ff`, campos de más, ids en cero); la jerarquía de una reserva es `SERVER POST /flights/v1/bookings → INTERNAL reserva.crear → {CLIENT POST /payments/authorize, INTERNAL reserva.emitir-boletos}`; los tres eventos de la reserva guardan el `traceparent` del span de la emisión y el relevo los publica con spans CLIENT hijos de esa traza, y el notifier falso recibe un `traceparent` con el mismo trace-id; la entrega a un tercero (modo local) no lleva `traceparent` ni `tracestate`; cada corrida de un job es una traza raíz aunque se llame dentro de otra; ni pnr, ni correos, ni ids de reserva ni de usuario, ni tokens, ni IPs, ni nombres, ni la referencia de pago salen en un span ni en `/metrics`; 60 rutas distintas son una sola serie; `/metrics` solo en el puerto aparte; los gauges de la bandeja coinciden con la base y, si la base no contesta, el raspado termina y el gauge no se publica. 11 mutaciones nuevas, todas muertas. Verificación real: ver DEPLOY.md, «Fase 7c». No verificado: el árbol `gateway → bff → core` con el BFF real (ver Hallazgos), Jaeger y Prometheus reales, ni una base desplegada |
 | V1. Fachada del contrato v2 | Hecha en local (2026-10-26); Booking integra por `/api/v2/vuelos` con un token de partner de identity | `lint`, `format:check` y `build` pasan en cada commit. `test:e2e`: v1 sin cambios (1011 de 1014; las 3 que fallan son las de siempre en esta máquina: 2 de IPv6 en `errores-bd` y `admin-auditoria` por datos acumulados) más 49 nuevas en `contrato-v2` (36), `salud-v2` (8) y `fachada-v2` (5): cada operación implementada contra su esquema del contrato v2 por status (tabla de cobertura en `docs/V2-DIFERENCIAS.md`), correlación (sin cambios, generada, en la respuesta, el error, el log, la Payment API, gRPC, `evento_saliente` y la cabecera al notifier), partner (X-User-Id ignorado sin token de partner, aislamiento entre partners y usuarios finales), pagos de Booking (sin llamar a la Payment API, referencia reusada, `AMOUNT_MISMATCH`), idempotencia (reintento 200, otro cuerpo 409, 24 h con el reloj de la prueba), saga (compensación sin cotización ni penalidad, repetida) y salud con dependencias caídas, lentas y en caché. `npm run test:mutaciones`: 27 de 27 de esta fase muertas. Migración 004: base de `main` + 004 (dos veces) igual a una base nueva (`pg_dump -s`). Real: identity_vuelos (`main`) + el core compilado con `AUTH_MODE=external`, cliente `booking-prototipo` creado con `cliente:crear`; search → hold → booking (`PAY-BKP-...`) → reintento → tickets → cancel `SAGA_COMPENSATION` (y repetida) → 404, todo con el mismo `X-Correlation-Id`, que salió en cada respuesta, en el error y en las 18 líneas de log de la compra |
+| S1. Stock a Booking | Hecha en local (2026-11-04); apagado por defecto (`BOOKING_STOCK_ENABLED=false`) y sin probar contra el Booking real | `lint`, `format:check` y `build` pasan en cada commit. `test:e2e` en una base nueva como la de CI: 1188 pruebas, 1186 pasan (las 2 que fallan son las de IPv6 de `errores-bd`: esta máquina no tiene IPv6); 55 nuevas en `stock-booking`, `stock-booking-apagado` y `stock-booking-arranque`, contra un Booking falso: los campos del contrato, cada operación que mueve el cupo (hold, liberar, vencer con el proceso, reservar y cancelar, cambio de fecha y catálogo), el valor absoluto y el coalesce, un envío superado por un cambio en vuelo, Booking caído, 503, plazo, `success:false`, 4xx sin reintento, el cortacircuitos, que un cambio de fecha que se deshace no deja orden, el apagado, el arranque con sincronización y el comando `stock:sincronizar` (`--dry-run` y real). `npm run test:mutaciones`: 35 de 35 de esta fase muertas. Migración `005`: una base de `main` + las migraciones (dos veces) igual a una nueva. `--dry-run` contra la semilla: 7 316 registros para 90 días. **No verificado:** nada contra el Booking real (no hay servicio de pruebas ni `service_id` definido) |
 
 ## Decisiones
 
@@ -462,6 +463,7 @@ Las fases 0 a 3 son la base, la 4 fija el patrón de módulo y las 5 a 7 son el 
 | 5b-2. Purga de la bandeja | `feat/r2-purga-bandeja` | Variables `EVENT_OUTBOX_*`, índices con migración 002, job `PurgaBandeja`, `npm run eventos:purgar`, pruebas y mutaciones | Una reserva real publicada y envejecida 8 días se borra con `--dry-run` primero y con el borrado real después, y un `PENDIENTE` de 100 días sobrevive |
 | 7c. Observabilidad | `feat/r2-observabilidad` | Módulo copiado del gateway, spans REST y gRPC, INTERNAL de negocio, CLIENT de pagos y notifier, traza por la bandeja (migración 003), trazas de los procesos periódicos, métricas `core_*`, CI de migraciones, pruebas y mutaciones | Una reserva por el gateway da una sola traza `gateway → core → pago`, y el notifier recibe el `traceparent` de esa misma traza |
 | V1. Fachada del contrato v2 | `feat/v2-fachada` | `/api/v2/vuelos` con las 21 operaciones de v1, `issueTickets` y `health`; partner, pagos de Booking, `ProblemDetails` v2, idempotencia v2, `X-Correlation-Id` en v1 y v2, migración 004, Swagger aparte, pruebas de proveedor y mutaciones | Booking compra y compensa con un token de partner y el mismo `X-Correlation-Id` aparece en cada respuesta y en cada línea de log |
+| S1. Stock a Booking | `feat/stock-booking` | Variables `BOOKING_STOCK_*`, cola `orden_stock_booking` con migración 005, registro de la orden en la misma transacción de cada cambio de cupo, `StockBookingWorker` con cliente HTTP y cortacircuitos, `npm run stock:sincronizar`, métricas, pruebas y mutaciones | Con el empuje activo, un hold, su liberación y un cambio de fecha llegan a un Booking falso con el valor absoluto, y con Booking caído la compra sigue |
 
 Si el tiempo aprieta antes de RDA1, lo primero que se recorta es la fase 10: se dejan alta, listado y baja de suscripciones y se pospone la entrega de eventos.
 
@@ -696,6 +698,23 @@ dueño del repo después de mezclar.
 El commit 5 también agrega `cotizacion_cancelacion.codigo_motivo` a la migración 004 (que no estaba
 subida). Las decisiones de la fase están en `docs/V2-DIFERENCIAS.md`.
 
+### Fase S1 · Stock a Booking
+
+1. `feat(stock): agregar las variables BOOKING_STOCK_* del empuje de stock a Booking al entorno`
+2. `feat(stock): agregar la cola orden_stock_booking al esquema y su migración 005`
+3. `feat(stock): registrar la orden de empuje en la misma transacción de cada cambio de cupo`
+4. `feat(stock): mandar el stock a Booking con un trabajador, un cliente HTTP y un cortacircuitos`
+5. `feat(stock): agregar npm run stock:sincronizar con --dry-run para la sincronización completa`
+6. `test(stock): probar el empuje de stock a Booking contra un Booking falso y arreglar contar`
+7. `refactor(stock): no registrar la orden en ajustarCupo, que modificar ya cubre`
+8. `test(stock): probar rollback del cambio de fecha, arranque con sincronización y cortacircuitos`
+9. `test(stock): agregar 33 mutaciones del empuje de stock a Booking`
+10. `fix(stock): rechazar "vuelos" como BOOKING_STOCK_SERVICE_ID y probar la validación del entorno`
+11. `fix(stock): vaciar stdout antes de salir en stock:sincronizar y usar 2 días en las pruebas`
+12. `docs(stock): documentar el empuje de stock a Booking y cerrar la fase S1`
+
+Las decisiones, el diseño y las preguntas abiertas para Booking están en `docs/STOCK-BOOKING.md`.
+
 ### Fase 5b · Eventos al notifier
 
 1. `feat(eventos): agregar WEBHOOKS_MODE y las variables del notifier al entorno`
@@ -753,6 +772,38 @@ la prueba de la exportación: la mutación que quita el rechazo de las rutas del
 dos exportaciones (ocultas por `.gitignore`, que funcionó como segunda barrera) y se borraron.
 
 ## Hallazgos
+
+### Fase S1
+
+- `ConditionalModule` decide al importar `AppModule`, no al compilar: una suite que fija
+  `BOOKING_STOCK_ENABLED` carga sus utilitarios con `await import(...)` DESPUÉS de fijar el entorno
+  (como `contrato-v2`), y la prueba del apagado vive en su propio archivo
+  (`stock-booking-apagado.e2e-spec.ts`).
+- Las ofertas de la búsqueda todavía vencen con la hora de la máquina, no con la del `Reloj`: tras
+  adelantar el reloj de la prueba un hold da 409 (`OFFER_NO_LONGER_AVAILABLE`). Las pruebas del
+  reintento crean sus cambios de cupo por el catálogo cuando el reloj ya está adelantado. Es el pendiente
+  de siempre ("las ofertas de la búsqueda con el `Reloj`").
+- Tres mutaciones sobrevivieron al principio y cada una enseñó algo: (1) la creación de una salida estaba
+  cubierta solo porque la prueba la tocaba con un PATCH después, y todo PATCH registra todas las cabinas;
+  se agregó una prueba que solo crea la salida. (2) y (3) el cortacircuitos del cliente y la revisión
+  previa del trabajador se tapaban entre sí; ahora la prueba exige que con el circuito abierto las
+  órdenes queden sin tomar y que al vencer entre UNA sola llamada de prueba.
+- La orden de `ajustarCupo` era redundante (todo PATCH pasa por `modificar`, que registra las cabinas
+  que existen) y ninguna prueba la distinguía: se quitó. La de `agregarCupo` se queda: la cabina nace
+  después de esa llamada.
+- Dos fallos reales los encontró el comando, no el servicio: (1) la columna `estado` ambigua de
+  `StockBookingRepository.contar` y (2) `--dry-run` por un pipe salía cortado a la mitad (3 561 de 7 310
+  líneas) porque el wrapper llamaba a `process.exit` con stdout sin vaciar; ahora espera a que stdout y
+  stderr terminen. La prueba lo detectó solo a veces, hasta que exigió que las líneas sean las que el
+  propio comando dice (y tiene su mutación).
+- Una prueba que usaba una ventana de 1 día falló pasada la medianoche UTC: la ventana cuenta desde HOY en
+  Ecuador (hasta 5 h detrás de la fecha UTC con que se siembra la semilla). Con 2 días siempre alcanza el
+  primer día sembrado.
+- Una orden registrada fuera de la transacción (mutación) se nota con un cambio de fecha que se deshace
+  DESPUÉS de mover el cupo (un asiento que no existe): la orden y el envío no deben existir.
+- `time_slot` es un supuesto (hora local de salida `HH:mm` en la zona del origen) y vive en un solo lugar
+  (`item-stock.ts`). Si una salida cambia de fecha u hora, el core manda el registro nuevo pero no sabe
+  borrar el viejo de Booking: pregunta abierta.
 
 ### Fase V1
 
@@ -1102,3 +1153,5 @@ Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corr
 - [ ] Antes de una RPC con usuario (hold, reservas): aceptar el JWT en la metadata `authorization` en gRPC (hoy `GuardSoloPublicoGrpc` solo deja pasar las `@Publico()`).
 - [ ] BFF: decidir cómo obtiene `flights.proto` (copia, submódulo o paquete); `npm run proto:breaking` protege este lado.
 - [ ] Dueño del repo: crear el tag `v1.1.0` después de mezclar `feat/r2-grpc`.
+- [ ] S1: activar el empuje de stock con el `service_id` real: migración `005` (`./db/migrar.sh`), `BOOKING_STOCK_ENABLED=true` y `BOOKING_STOCK_SERVICE_ID`, `npm run stock:sincronizar -- --dry-run` y después la carga real (pasos en `docs/STOCK-BOOKING.md`). Nada se probó contra el Booking real.
+- [ ] Equipo: preguntar a Booking qué es `time_slot`, si el `item_id` debe existir antes en su catálogo, qué pasa con el registro viejo cuando una salida cambia de fecha u hora, y su límite de peticiones (la carga completa son unas 7 300).
