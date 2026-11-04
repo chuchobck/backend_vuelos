@@ -15,7 +15,7 @@ import {
   CortaCircuito,
   REGLAS_CORTACIRCUITO,
 } from '../src/modules/vuelos/stock-booking/corta-circuito';
-import { itemId, timeSlot } from '../src/modules/vuelos/stock-booking/item-stock';
+import { fechaYHora, itemId } from '../src/modules/vuelos/stock-booking/item-stock';
 import { SincronizadorStock } from '../src/modules/vuelos/stock-booking/sincronizador-stock';
 import { StockBookingRepository } from '../src/modules/vuelos/stock-booking/stock-booking.repository';
 import {
@@ -51,11 +51,11 @@ describe('Campos del contrato de Booking', () => {
     expect(itemId('LA1400', 'PRIMERA')).toBe('LA1400-FIRST');
   });
 
-  it('time_slot es la hora local de salida (HH:mm) en la zona del origen, Galápagos una hora detrás', () => {
-    const salida = new Date('2026-11-02T13:30:00.000Z');
-    expect(timeSlot(salida, 'America/Guayaquil')).toBe('08:30');
-    expect(timeSlot(salida, 'Pacific/Galapagos')).toBe('07:30');
-    expect(timeSlot(new Date('2026-11-02T05:05:00.000Z'), 'America/Guayaquil')).toBe('00:05');
+  it('date y time_slot son la hora de Ecuador (UTC-5), vengan de donde vengan', () => {
+    expect(fechaYHora(new Date('2026-11-02T13:30:00.000Z'), 'America/Guayaquil')).toEqual({
+      date: '2026-11-02',
+      time_slot: '08:30',
+    });
   });
 
   it('el plazo por defecto es de 5 s, la ventana de 90 días y el service_id no tiene valor por defecto', () => {

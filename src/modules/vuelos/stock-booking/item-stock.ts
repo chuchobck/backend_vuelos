@@ -15,11 +15,8 @@ export interface DatosStock {
   /** Aerolínea comercializadora y número: AV1632. */
   numeroVuelo: string;
   cabina: clase_cabina;
-  /** `vuelo_programado.fecha_salida`: la fecha local en el aeropuerto de origen (medianoche UTC). */
-  fechaSalida: Date;
+  /** El instante de salida (UTC). `date` y `time_slot` salen de aquí, en la zona de Booking. */
   salidaProgramada: Date;
-  /** Zona horaria IANA de la ciudad del aeropuerto de origen. */
-  zonaHoraria: string;
   /** El cupo disponible ahora; 0 si la salida está cancelada. */
   unidades: number;
 }
@@ -30,33 +27,42 @@ export function itemId(numeroVuelo: string, cabina: clase_cabina): string {
 }
 
 /**
- * time_slot: PREGUNTA ABIERTA con Booking (docs/STOCK-BOOKING.md). Se supone la hora LOCAL de salida
- * en HH:mm, en la zona del aeropuerto de origen (Galápagos va una hora detrás del continente).
- * Es el ÚNICO lugar donde se decide: si Booking dice otra cosa (la hora de llegada, un bloque, UTC),
- * se cambia aquí y nada más.
+ * `date` y `time_slot`, confirmados por Booking: la hora REAL de salida en hora de Ecuador
+ * (`BOOKING_STOCK_TZ`, America/Guayaquil por defecto: UTC-5 y sin horario de verano), que Booking
+ * toma tal cual, sin convertirla. Salen los dos del MISMO instante de salida (UTC) convertido a esa
+ * zona, en este único lugar: ni la zona ni la fecha del aeropuerto de origen cuentan (un vuelo de
+ * Galápagos, UTC-6, sale una hora "adelante" en Ecuador continental, y cerca de medianoche la
+ * fecha en Ecuador puede ser la del día anterior o siguiente a la del aeropuerto).
  */
-export function timeSlot(salidaProgramada: Date, zonaHoraria: string): string {
-  const partes = new Intl.DateTimeFormat('en-GB', {
+export function fechaYHora(
+  salidaProgramada: Date,
+  zonaHoraria: string,
+): { date: string; time_slot: string } {
+  const partes = new Intl.DateTimeFormat('en-CA', {
     timeZone: zonaHoraria,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
   }).formatToParts(salidaProgramada);
   const de = (tipo: string) => partes.find((p) => p.type === tipo)?.value ?? '00';
-  return `${de('hour')}:${de('minute')}`;
+  return {
+    date: `${de('year')}-${de('month')}-${de('day')}`,
+    time_slot: `${de('hour')}:${de('minute')}`,
+  };
 }
 
-/** date: la fecha de salida como YYYY-MM-DD (un `date` de la base llega a medianoche UTC). */
-export function fechaDelContrato(fechaSalida: Date): string {
-  return fechaSalida.toISOString().slice(0, 10);
-}
-
-export function armarRegistro(serviceId: string, datos: DatosStock): RegistroStock {
+export function armarRegistro(
+  serviceId: string,
+  datos: DatosStock,
+  zonaHoraria: string,
+): RegistroStock {
   return {
     service_id: serviceId,
     item_id: itemId(datos.numeroVuelo, datos.cabina),
-    date: fechaDelContrato(datos.fechaSalida),
-    time_slot: timeSlot(datos.salidaProgramada, datos.zonaHoraria),
+    ...fechaYHora(datos.salidaProgramada, zonaHoraria),
     available_units: datos.unidades,
   };
 }

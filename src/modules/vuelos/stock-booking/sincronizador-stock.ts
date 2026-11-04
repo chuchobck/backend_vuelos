@@ -41,9 +41,9 @@ export class SincronizadorStock {
   /** Lo que mandaría, sin escribir ni llamar a nadie (--dry-run). */
   async simular(): Promise<RegistroStock[]> {
     const { desde, hasta } = this.ventana();
-    const { serviceId } = configuracionStockBooking(this.config);
+    const { serviceId, zonaHoraria } = configuracionStockBooking(this.config);
     return (await this.cola.listarVentana(desde, hasta)).map((datos) =>
-      armarRegistro(serviceId, datos),
+      armarRegistro(serviceId, datos, zonaHoraria),
     );
   }
 }
