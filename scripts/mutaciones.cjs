@@ -63,6 +63,20 @@ const RESERVA = 'src/modules/vuelos/operaciones/reserva/reserva.service.ts';
 const CONTEXTO_MW = 'src/common/contexto/contexto.middleware.ts';
 
 /** [nombre, archivo, [[buscar, reemplazo], ...], archivo de pruebas, filtro -t (opcional)] */
+// Empuje de stock a Booking (fase S1)
+const STOCK_PRUEBA = 'test/stock-booking.e2e-spec.ts';
+const STOCK_APAGADO = 'test/stock-booking-apagado.e2e-spec.ts';
+const STOCK_ARRANQUE = 'test/stock-booking-arranque.e2e-spec.ts';
+const STOCK_ORDENES = 'src/modules/vuelos/stock-booking/ordenes-stock.ts';
+const STOCK_CLIENTE = 'src/modules/vuelos/stock-booking/cliente-stock-booking.ts';
+const STOCK_WORKER = 'src/modules/vuelos/stock-booking/stock-booking.worker.ts';
+const STOCK_COLA = 'src/modules/vuelos/stock-booking/stock-booking.repository.ts';
+const STOCK_ITEM = 'src/modules/vuelos/stock-booking/item-stock.ts';
+const STOCK_RETENCION = 'src/modules/vuelos/operaciones/retencion/retencion.repository.ts';
+const STOCK_RESERVA = 'src/modules/vuelos/operaciones/reserva/reserva.repository.ts';
+const STOCK_INVENTARIO = 'src/modules/vuelos/compartido/inventario.repository.ts';
+const STOCK_SALIDAS = 'src/modules/vuelos/catalogo/vuelo-programado/vuelo-programado.repository.ts';
+
 const MUTACIONES = [
   [
     'el verificador externo acepta HS256 con la clave pública como secreto',
@@ -876,6 +890,322 @@ const MUTACIONES = [
     ],
     OBS_PRUEBA,
     'ni pnr',
+  ],
+  [
+    '[stock] manda lo vendido en vez del cupo disponible (un valor relativo)',
+    STOCK_COLA,
+    [
+      [
+        'ELSE ic.cupos_disponibles END)::int',
+        'ELSE (ic.cupos_totales - ic.cupos_disponibles) END)::int',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'crear un hold manda el cupo absoluto',
+  ],
+  [
+    '[stock] manda un delta (-1) en vez del valor absoluto',
+    STOCK_ITEM,
+    [['available_units: datos.unidades,', 'available_units: -1,']],
+    STOCK_PRUEBA,
+    'crear un hold manda el cupo absoluto',
+  ],
+  [
+    '[stock] una salida cancelada sigue vendiendo su cupo',
+    STOCK_COLA,
+    [["CASE WHEN vp.estado::text = 'CANCELADO' THEN 0 ELSE", 'CASE WHEN false THEN 0 ELSE']],
+    STOCK_PRUEBA,
+    'el catálogo: ajustar',
+  ],
+  [
+    '[stock] el item_id lleva la cabina de la base y no la del contrato',
+    STOCK_ITEM,
+    [
+      [
+        'return `${numeroVuelo}-${CABINA.aContrato(cabina)}`;',
+        'return `${numeroVuelo}-${cabina}`;',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'Campos del contrato',
+  ],
+  [
+    '[stock] el time_slot sale en UTC y no en la zona del origen',
+    STOCK_ITEM,
+    [['timeZone: zonaHoraria,', "timeZone: 'UTC',"]],
+    STOCK_PRUEBA,
+    'Campos del contrato',
+  ],
+  [
+    '[stock] empuja antes de confirmar: registra la orden fuera de la transacción del cambio',
+    STOCK_INVENTARIO,
+    [
+      [
+        '    await this.stock.registrar(tx, filas);\n',
+        "    { const { Client } = require('pg'); const cl = new Client({ connectionString: String(process.env.DATABASE_URL).split('?')[0] }); await cl.connect(); try { for (const f of filas) await cl.query(\"INSERT INTO vuelos.orden_stock_booking (vuelo_programado_id, clase_cabina, proximo_intento, solicitado_en) VALUES ($1::uuid, $2::vuelos.clase_cabina, now(), now()) ON CONFLICT (vuelo_programado_id, clase_cabina) DO UPDATE SET estado = 'PENDIENTE', version = orden_stock_booking.version + 1, intentos = 0, proximo_intento = now(), enviado_en = NULL\", [f.salidaId, f.cabina]); } finally { await cl.end(); } }\n",
+      ],
+    ],
+    STOCK_PRUEBA,
+    'que se deshace',
+  ],
+  [
+    '[stock] olvida el camino: crear un hold',
+    STOCK_RETENCION,
+    [['        await this.stock.registrar(tx, retencion.cupos);\n', '']],
+    STOCK_PRUEBA,
+    'crear un hold manda',
+  ],
+  [
+    '[stock] olvida el camino: liberar un hold',
+    STOCK_RETENCION,
+    [['        await this.stock.registrarRetencion(tx, id);\n', '']],
+    STOCK_PRUEBA,
+    'liberar un hold devuelve',
+  ],
+  [
+    '[stock] olvida el camino: vencer un hold con el proceso periódico',
+    STOCK_RETENCION,
+    [['        await this.stock.registrarRetencion(tx, fila.id);\n', '']],
+    STOCK_PRUEBA,
+    'un hold que vence por el proceso',
+  ],
+  [
+    '[stock] olvida el camino: cancelar una reserva',
+    STOCK_RESERVA,
+    [['    await this.stock.registrarReserva(tx, reservaId);\n', '']],
+    STOCK_PRUEBA,
+    'reservar consume el hold',
+  ],
+  [
+    '[stock] olvida el camino: el cambio de fecha',
+    STOCK_INVENTARIO,
+    [['    await this.stock.registrar(tx, filas);\n', '']],
+    STOCK_PRUEBA,
+    'el cambio de fecha mueve el cupo',
+  ],
+  [
+    '[stock] olvida el camino: crear una salida con sus cupos',
+    STOCK_SALIDAS,
+    [
+      [
+        '    await this.stock.registrar(\n      tx,\n      datos.cupos.map((cupo) => ({ salidaId: fila.id, cabina: cupo.claseCabina })),\n    );\n',
+        '',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'crear una salida manda sus cabinas',
+  ],
+  [
+    '[stock] olvida el camino: modificar una salida (cupo, horario)',
+    STOCK_SALIDAS,
+    [
+      [
+        '    // El estado o el horario cambian lo que Booking vende de esta salida (date, time_slot, 0 si se canceló)\n    await this.stock.registrarSalida(tx, fila.id);\n',
+        '',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'el catálogo: ajustar',
+  ],
+  [
+    '[stock] olvida el camino: cancelar o reactivar una salida',
+    STOCK_SALIDAS,
+    [
+      [
+        '    // Cancelada o reactivada, la salida deja de ser vendible o vuelve a serlo: Booking se entera\n    await this.stock.registrarSalida(tx, fila.id);\n',
+        '',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'el catálogo: ajustar',
+  ],
+  [
+    '[stock] olvida el camino: agregar una cabina a una salida',
+    STOCK_SALIDAS,
+    [
+      [
+        '    await this.stock.registrar(tx, [{ salidaId: vueloProgramadoId, cabina: cupo.claseCabina }]);\n',
+        '',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'agregar a una salida una cabina',
+  ],
+  [
+    '[stock] una orden nueva sobre una ya enviada se ignora (no se junta)',
+    STOCK_ORDENES,
+    [
+      [
+        "ON CONFLICT (vuelo_programado_id, clase_cabina) DO UPDATE\n       SET estado = 'PENDIENTE',",
+        'ON CONFLICT (vuelo_programado_id, clase_cabina) DO UPDATE\n       SET estado = o.estado,',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'liberar un hold devuelve',
+  ],
+  [
+    '[stock] da por mandada la orden aunque llegó otra mientras tanto',
+    STOCK_COLA,
+    [
+      [
+        'estado = CASE WHEN o.version = ${orden.version}::bigint\n                           THEN ${r.estado}::vuelos.estado_orden_stock ELSE o.estado END,',
+        'estado = ${r.estado}::vuelos.estado_orden_stock,',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'esa orden no se da por mandada',
+  ],
+  [
+    '[stock] ignora success:false (lo da por bueno)',
+    STOCK_CLIENTE,
+    [
+      [
+        "if (json.success) return { tipo: 'ok', codigoHttp };",
+        "if (json) return { tipo: 'ok', codigoHttp };",
+      ],
+    ],
+    STOCK_PRUEBA,
+    'success:false',
+  ],
+  [
+    '[stock] reintenta un 4xx de validación',
+    STOCK_CLIENTE,
+    [
+      [
+        'export const RECHAZOS_DEFINITIVOS = new Set([400, 404, 409, 413, 415, 422]);',
+        'export const RECHAZOS_DEFINITIVOS = new Set<number>([]);',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'de validación no se reintenta',
+  ],
+  [
+    '[stock] la compra espera a Booking (y falla si Booking cae)',
+    STOCK_RETENCION,
+    [
+      [
+        '        await this.stock.registrar(tx, retencion.cupos);\n',
+        "        await this.stock.registrar(tx, retencion.cupos);\n        if (process.env.BOOKING_STOCK_URL) { const r = await fetch(process.env.BOOKING_STOCK_URL, { method: 'POST', body: '{}', signal: AbortSignal.timeout(300) }).catch(() => undefined); if (!r || !r.ok) throw new Error('Booking no contesta'); }\n",
+      ],
+    ],
+    STOCK_PRUEBA,
+    'Booking no contesta bien',
+  ],
+  [
+    '[stock] el reintento no espera (siempre listo en el acto)',
+    STOCK_WORKER,
+    [
+      [
+        'return REGLAS_STOCK.esperasSegundos[intento - 1] ?? REGLAS_STOCK.esperaMaximaSegundos;',
+        'return 0;',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'con Booking respondiendo 503',
+  ],
+  [
+    '[stock] reintenta para siempre (sin tope de intentos)',
+    STOCK_WORKER,
+    [['} else if (orden.intentos >= REGLAS_STOCK.maximoIntentos) {', '} else if (false) {']],
+    STOCK_PRUEBA,
+    'tras 10 intentos',
+  ],
+  [
+    '[stock] ignora el Retry-After de un 429',
+    STOCK_WORKER,
+    [['segundosDeRetryAfter(envio.retryAfter) ?? 0,', '0,']],
+    STOCK_PRUEBA,
+    'se reintenta',
+  ],
+  [
+    '[stock] la llamada a Booking no tiene plazo',
+    STOCK_CLIENTE,
+    [['        signal: AbortSignal.timeout(plazoMs),\n', '']],
+    STOCK_PRUEBA,
+    'un plazo agotado',
+  ],
+  [
+    '[stock] no manda el X-Correlation-Id a Booking',
+    STOCK_CLIENTE,
+    [['          [CABECERA_CORRELACION]: correlationId,\n', '']],
+    STOCK_PRUEBA,
+    'el alta y el ajuste',
+  ],
+  [
+    '[stock] manda traceparent a Booking (un tercero)',
+    STOCK_CLIENTE,
+    [
+      [
+        '          [CABECERA_CORRELACION]: correlationId,\n',
+        "          [CABECERA_CORRELACION]: correlationId,\n          traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',\n",
+      ],
+    ],
+    STOCK_PRUEBA,
+    'el alta y el ajuste',
+  ],
+  [
+    '[stock] sin cortacircuitos: sigue llamando a Booking caído',
+    STOCK_CLIENTE,
+    [['if (!this.cortacircuito.permite(ahora)) {', 'if (false) {']],
+    STOCK_PRUEBA,
+    'tras 5 fallos seguidos',
+  ],
+  [
+    '[stock] el trabajador no mira el cortacircuitos antes de tomar órdenes',
+    STOCK_WORKER,
+    [['if (!this.cliente.cortacircuito.disponible(this.reloj.ahora())) break;', '']],
+    STOCK_PRUEBA,
+    'tras 5 fallos seguidos',
+  ],
+  [
+    '[stock] un rechazo de validación cuenta como caída de Booking',
+    STOCK_CLIENTE,
+    [
+      [
+        "if (resultado.tipo === 'reintentar') this.cortacircuito.fallo(this.reloj.ahora());",
+        "if (resultado.tipo !== 'ok') this.cortacircuito.fallo(this.reloj.ahora());",
+      ],
+    ],
+    STOCK_PRUEBA,
+    'no cuenta como caída',
+  ],
+  [
+    '[stock] apagado también registra órdenes',
+    STOCK_ORDENES,
+    [['this.activo = stockBookingActivo(config);', 'this.activo = true;']],
+    STOCK_APAGADO,
+    'no hay trabajador',
+  ],
+  [
+    '[stock] el arranque registra la ventana aunque no se pida',
+    STOCK_WORKER,
+    [
+      [
+        "this.sincronizarAlArrancar = config.get<string>('BOOKING_STOCK_SYNC_AL_ARRANCAR') === 'true';",
+        'this.sincronizarAlArrancar = true;',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'el arranque no registra ninguna orden',
+  ],
+  [
+    '[stock] la sincronización al arrancar no registra nada',
+    STOCK_WORKER,
+    [['    if (this.sincronizarAlArrancar) {', '    if (false) {']],
+    STOCK_ARRANQUE,
+    'registra la ventana al arrancar',
+  ],
+  [
+    '[stock] la sincronización omite las salidas del último día de la ventana',
+    STOCK_COLA,
+    [
+      [
+        '    for (let dia = new Date(desde); dia.getTime() <= hasta.getTime();) {',
+        '    for (let dia = new Date(desde); dia.getTime() < hasta.getTime();) {',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'registra una orden por cada',
   ],
 ];
 
