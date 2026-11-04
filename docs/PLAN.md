@@ -801,9 +801,10 @@ dos exportaciones (ocultas por `.gitignore`, que funcionó como segunda barrera)
   primer día sembrado.
 - Una orden registrada fuera de la transacción (mutación) se nota con un cambio de fecha que se deshace
   DESPUÉS de mover el cupo (un asiento que no existe): la orden y el envío no deben existir.
-- `time_slot` es un supuesto (hora local de salida `HH:mm` en la zona del origen) y vive en un solo lugar
-  (`item-stock.ts`). Si una salida cambia de fecha u hora, el core manda el registro nuevo pero no sabe
-  borrar el viejo de Booking: pregunta abierta.
+- `time_slot` fue un supuesto (hora local del aeropuerto de origen) y Booking lo corrigió (rama
+  `fix/stock-time-slot`): es la hora real de salida en hora de Ecuador (`BOOKING_STOCK_TZ`), tomada tal
+  cual, y `date` sale del mismo instante. Si una salida cambia de fecha u hora, el core manda el registro
+  nuevo pero no sabe borrar el viejo de Booking: pregunta abierta.
 
 ### Fase V1
 
@@ -1154,4 +1155,4 @@ Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corr
 - [ ] BFF: decidir cómo obtiene `flights.proto` (copia, submódulo o paquete); `npm run proto:breaking` protege este lado.
 - [ ] Dueño del repo: crear el tag `v1.1.0` después de mezclar `feat/r2-grpc`.
 - [ ] S1: activar el empuje de stock con el `service_id` real: migración `005` (`./db/migrar.sh`), `BOOKING_STOCK_ENABLED=true` y `BOOKING_STOCK_SERVICE_ID`, `npm run stock:sincronizar -- --dry-run` y después la carga real (pasos en `docs/STOCK-BOOKING.md`). Nada se probó contra el Booking real.
-- [ ] Equipo: preguntar a Booking qué es `time_slot`, si el `item_id` debe existir antes en su catálogo, qué pasa con el registro viejo cuando una salida cambia de fecha u hora, y su límite de peticiones (la carga completa son unas 7 300).
+- [ ] Equipo: preguntar a Booking si el `item_id` debe existir antes en su catálogo, qué pasa con el registro viejo cuando una salida cambia de fecha u hora, y su límite de peticiones (la carga completa son unas 7 300).
