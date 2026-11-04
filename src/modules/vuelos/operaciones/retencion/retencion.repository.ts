@@ -9,6 +9,7 @@ import {
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { ActorAuditoria } from '../../../../prisma/extensiones/transaccion-auditada';
 import { ClaveNueva, IdempotenciaRepository } from '../../compartido/idempotencia.repository';
+import { OrdenesStock } from '../../stock-booking/ordenes-stock';
 import { PublicadorEventos } from '../webhook/publicador-eventos';
 import { Retencion } from './retencion.modelo';
 
@@ -117,6 +118,7 @@ export class RetencionRepository {
     private readonly prisma: PrismaService,
     private readonly claves: IdempotenciaRepository,
     private readonly publicador: PublicadorEventos,
+    private readonly stock: OrdenesStock,
   ) {}
 
   async oferta(ofertaId: string): Promise<OfertaParaRetener | null> {
@@ -235,6 +237,7 @@ export class RetencionRepository {
         if ((await tomarCupos(tx, retencion.cupos)) !== retencion.cupos.length) {
           throw new Rechazo('sin-cupo');
         }
+        await this.stock.registrar(tx, retencion.cupos);
 
         await tx.retencion_cabecera.create({
           data: {
@@ -327,7 +330,10 @@ export class RetencionRepository {
                 OR (${cierre}::text = 'consumir' AND fecha_expiracion > ${ahora}::timestamptz))
         RETURNING estado::text AS estado`;
       if (!fila) return null;
-      if (cierre !== 'consumir') await devolverCupos(tx, id);
+      if (cierre !== 'consumir') {
+        await devolverCupos(tx, id);
+        await this.stock.registrarRetencion(tx, id);
+      }
       if (fila.estado === 'EXPIRADA') await this.publicador.deRetencionVencida(tx, id, ahora);
       return fila.estado;
     };
@@ -363,6 +369,7 @@ export class RetencionRepository {
              SET estado = 'EXPIRADA', fecha_cierre = ${ahora}::timestamptz
            WHERE id = ${fila.id}::uuid`;
         await devolverCupos(tx, fila.id);
+        await this.stock.registrarRetencion(tx, fila.id);
         await this.publicador.deRetencionVencida(tx, fila.id, ahora);
         return fila.id;
       },

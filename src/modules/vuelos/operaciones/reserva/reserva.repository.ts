@@ -11,6 +11,7 @@ import {
 } from '../../../../generated/prisma/client';
 import { PrismaService, TransaccionVuelos } from '../../../../prisma/prisma.service';
 import { GeneradorCodigos } from '../../compartido/generador-codigos';
+import { OrdenesStock } from '../../stock-booking/ordenes-stock';
 import { SalidaVendible } from '../busqueda/busqueda.modelo';
 import { ItinerarioDeReserva, PasajeroDeReserva, Reserva, ResumenReserva } from './reserva.modelo';
 
@@ -216,6 +217,7 @@ export class ReservaRepository {
   constructor(
     private readonly prisma: PrismaService,
     private readonly generador: GeneradorCodigos,
+    private readonly stock: OrdenesStock,
   ) {}
 
   async holdParaReservar(holdId: string): Promise<HoldParaReservar | null> {
@@ -605,6 +607,7 @@ export class ReservaRepository {
          SET cupos_disponibles = LEAST(ic.cupos_totales, ic.cupos_disponibles + b.cantidad)
         FROM bloqueadas b
        WHERE ic.id = b.id`;
+    await this.stock.registrarReserva(tx, reservaId);
   }
 
   /**

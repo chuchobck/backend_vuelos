@@ -282,6 +282,27 @@ model inventario_cabina {
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model orden_stock_booking {
+  vuelo_programado_id String             @db.Uuid
+  clase_cabina        clase_cabina
+  estado              estado_orden_stock @default(PENDIENTE)
+  version             BigInt             @default(1)
+  intentos            Int                @default(0) @db.SmallInt
+  proximo_intento     DateTime           @db.Timestamptz(6)
+  arrendamiento_hasta DateTime?          @db.Timestamptz(6)
+  ultimo_codigo_http  Int?               @db.SmallInt
+  ultimo_error        String?
+  correlation_id      String?
+  solicitado_en       DateTime           @db.Timestamptz(6)
+  enviado_en          DateTime?          @db.Timestamptz(6)
+  unidades_enviadas   Int?               @db.SmallInt
+  vuelo_programado    vuelo_programado   @relation(fields: [vuelo_programado_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_orden_stock_booking_vuelo_programado")
+
+  @@id([vuelo_programado_id, clase_cabina], map: "pk_orden_stock_booking")
+  @@index([proximo_intento], map: "ix_orden_stock_booking_pendiente", where: raw("(estado = 'PENDIENTE'::estado_orden_stock)"))
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model itinerario_cabecera {
   id                         String                       @id(map: "pk_itinerario_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   fecha_creacion             DateTime                     @default(now()) @db.Timestamptz(6)
@@ -702,6 +723,7 @@ model vuelo_programado {
   boleto_detalle          boleto_detalle[]
   checkin                 checkin[]
   inventario_cabina       inventario_cabina[]
+  orden_stock_booking     orden_stock_booking[]
   itinerario_detalle      itinerario_detalle[]
   reserva_detalle_asiento reserva_detalle_asiento[]
   tarifa_cabecera         tarifa_cabecera[]
@@ -1002,6 +1024,13 @@ enum estado_entrega_webhook {
 enum estado_evento_saliente {
   PENDIENTE
   PUBLICADO
+  FALLIDO
+}
+
+/// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+enum estado_orden_stock {
+  PENDIENTE
+  ENVIADO
   FALLIDO
 }
 

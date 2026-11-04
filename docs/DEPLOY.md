@@ -57,7 +57,7 @@ auditoría: `psql "$NEON_URL" -c "DROP SCHEMA vuelos CASCADE"` y repetir los pas
 
 **Una base que ya existe** se pone al día con `./db/migrar.sh` (usa `DATABASE_URL`; con
 `DATABASE_URL="$NEON_URL&schema=vuelos" ./db/migrar.sh` contra Neon): aplica `db/migraciones/*.sql`
-en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b, la 002 los índices de su purga, la 003 le agrega la columna `traceparent` (fase 7c) y la 004 lo de la fachada v2 (`correlation_id` en la bandeja, el partner y el canal en la reserva, el proveedor del pago y el motivo de la cancelación).
+en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b, la 002 los índices de su purga, la 003 le agrega la columna `traceparent` (fase 7c), la 004 lo de la fachada v2 (`correlation_id` en la bandeja, el partner y el canal en la reserva, el proveedor del pago y el motivo de la cancelación) y la 005 la cola del stock a Booking (fase S1).
 
 ## 3. Servicio en Render
 
@@ -106,6 +106,14 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `EVENT_OUTBOX_RETENTION_DAYS` | `7` | Días que un evento `PUBLICADO` se conserva desde `publicado_en` (1 a 365) |
 | `EVENT_OUTBOX_FAILED_RETENTION_DAYS` | `30` | Días que un evento `FALLIDO` se conserva desde que falló, para diagnosticar y usar `eventos:reencolar` (7 a 365). Un `PENDIENTE` no se borra nunca |
 | `EVENT_ENVELOPE_CORRELATION_ID` | `false` | Con `true`, el sobre de cada evento lleva `correlationId`. Encenderlo solo cuando el notifier acepte el campo (sus esquemas 1.0 lo rechazan). La columna `correlation_id` y la cabecera `X-Correlation-Id` al notifier van siempre |
+| `BOOKING_STOCK_ENABLED` | `false` | Empujar nuestro stock (`available_units` por vuelo, cabina y fecha) a Booking por REST. Apagado: no se registra ni se llama nada. Ver `docs/STOCK-BOOKING.md` |
+| `BOOKING_STOCK_SERVICE_ID` | — | Obligatoria con `BOOKING_STOCK_ENABLED=true`: nuestro `service_id` en Booking, fijo y único por equipo (nunca `vuelos`: el arranque lo rechaza) |
+| `BOOKING_STOCK_URL` | `https://booking-core-api.azurewebsites.net/api/v2/inventory/stock` | A dónde se manda el stock |
+| `BOOKING_STOCK_TIMEOUT_MS` | `5000` | Plazo de cada llamada (100 a 30000); el ESB de Booking corta a los 5 s |
+| `BOOKING_STOCK_DIAS` | `90` | Días hacia adelante que recorre la sincronización completa (1 a 365) |
+| `BOOKING_STOCK_SYNC_AL_ARRANCAR` | `false` | Con `true`, al arrancar se registran todas las claves de la ventana (la sincronización completa) |
+| `BOOKING_STOCK_JOB_ENABLED` | `true` | El proceso periódico que empuja las órdenes (las pruebas lo apagan y lo llaman a mano) |
+| `BOOKING_STOCK_JOB_INTERVAL_SECONDS` | `5` | Cada cuántos segundos corre (1 a 3600) |
 | `NODO_ID` | `NODE_VUE_QUINDE` | `nodo_id` de `GET /api/v2/vuelos/health`: cómo identifica Booking a este nodo (3 a 60 mayúsculas, dígitos o `_`) |
 | `NOMBRE_PROVEEDOR` | `Quinde` | `nombre_proveedor` de `GET /api/v2/vuelos/health` (la aerolínea) |
 | `SEARCH_OFFER_TTL_MINUTES` | 30 | Vigencia de una oferta de búsqueda |
@@ -283,6 +291,15 @@ de cada rechazo, nunca el token ni el JWKS.
 variables arriba), el core no monta `/flights/v1/webhooks` y `RelevoEventos` publica cada evento.
 El procedimiento del corte, el retroceso y cómo seguir la bandeja están en
 [MIGRACION-WEBHOOKS.md](MIGRACION-WEBHOOKS.md). **No se activa hasta tener el gateway (fase 6).**
+
+## 8. Stock a Booking
+
+`BOOKING_STOCK_ENABLED` (por defecto `false`) decide si el core manda a Booking sus cupos. Con `true`
+es obligatoria `BOOKING_STOCK_SERVICE_ID` (tabla de variables arriba) y hace falta la migración `005`
+(`./db/migrar.sh`; con el empuje apagado la tabla ni se toca, así que desplegar antes de migrar es
+seguro). Arranca un proceso periódico más, `StockBookingWorker` (una línea en el log: `Activo: cada 5 s`).
+La primera carga, el `--dry-run`, cómo leer los fallos y las preguntas abiertas están en
+[STOCK-BOOKING.md](STOCK-BOOKING.md). **No se activa hasta tener el `service_id` real de Booking.**
 
 ## Qué se verificó en local
 

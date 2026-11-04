@@ -36,6 +36,7 @@ gRPC interno, en [docs/GRPC.md](docs/GRPC.md).
 | 5b. Eventos al notifier (`WEBHOOKS_MODE`) | Hecha en local; `local` por defecto hasta tener el gateway |
 | 7c. Observabilidad (trazas y métricas) | Hecha en local; sin `OTEL_EXPORTER_OTLP_ENDPOINT` las trazas se propagan pero no se exportan |
 | V1. Fachada del contrato v2 (`/api/v2/vuelos`) | Hecha en local; Booking entra por aquí con un token de partner |
+| S1. Stock a Booking (`BOOKING_STOCK_ENABLED`) | Hecha en local; apagado por defecto y sin probar contra el Booking real |
 
 Hoy la API expone `GET /flights/v1/health`, la autenticación en `/flights/v1/auth`, el CRUD de
 administración del catálogo, la auditoría, los administradores y las reservas de administración
@@ -143,6 +144,7 @@ Documentación Swagger: <http://localhost:3000/api/docs>
 | `npm run webhooks:exportar -- <archivo>` | Exporta las suscripciones a JSON Lines para el notifier (al pasar a `WEBHOOKS_MODE=notifier`; [docs/MIGRACION-WEBHOOKS.md](docs/MIGRACION-WEBHOOKS.md)) |
 | `npm run eventos:reencolar -- <eventId\|--todos-los-fallidos>` | Devuelve a PENDIENTE eventos FALLIDO de la bandeja hacia el notifier (mientras la purga no los haya borrado) |
 | `npm run eventos:purgar -- [--dry-run]` | Purga la bandeja `evento_saliente` (PUBLICADO a 7 días, FALLIDO a 30, PENDIENTE nunca); con `--dry-run` solo cuenta |
+| `npm run stock:sincronizar -- [--dry-run]` | Manda a Booking el stock de todas las salidas de los próximos `BOOKING_STOCK_DIAS` días (primera carga o recuperación); con `--dry-run` solo imprime lo que mandaría ([docs/STOCK-BOOKING.md](docs/STOCK-BOOKING.md)) |
 | `npm run eventos:sync` / `eventos:check` | Trae o compara los esquemas de eventos del notifier ([contracts/notifier-eventos](contracts/notifier-eventos/)) |
 | `./db/migrar.sh` | Aplica `db/migraciones/*.sql` a una base que ya existe (idempotente, no borra) |
 | `scripts/comprobar-migraciones.sh <ref-base>` | Comprueba que el esquema de `<ref-base>` más las migraciones deja una base igual a una nueva (lo corre CI) |
@@ -471,6 +473,17 @@ reintentando con espera creciente hasta 48 h si el notifier no responde. `/webho
 core: lo sirve el notifier, detrás del gateway. La bandeja se purga sola (`PUBLICADO` a los 7 días,
 `FALLIDO` a los 30, `PENDIENTE` nunca). Variables, orden del corte, retroceso y purga:
 [docs/MIGRACION-WEBHOOKS.md](docs/MIGRACION-WEBHOOKS.md). No se activa hasta tener el gateway.
+
+## Stock a Booking
+
+Con `BOOKING_STOCK_ENABLED=true` el core le manda a Booking, por `POST .../api/v2/inventory/stock`, los
+cupos que quedan de cada vuelo, cabina y fecha (`item_id` = `AV1632-ECONOMY`). Cada operación que
+mueve el cupo (hold, liberar o vencer, cancelar una reserva, cambio de fecha, catálogo) deja una orden
+en la **misma transacción**, y `StockBookingWorker` manda después el valor **absoluto** de ese
+momento, juntando los cambios repetidos de una clave. Reintenta con espera creciente, no reintenta
+un 4xx de validación ni un `success:false`, y tiene cortacircuitos: **la venta no espera a Booking**.
+Apagado por defecto. Diseño, variables, cómo activarlo, cómo leer los fallos y las preguntas abiertas
+(el significado de `time_slot`): [docs/STOCK-BOOKING.md](docs/STOCK-BOOKING.md).
 
 ## Contrato v2 (/api/v2/vuelos)
 

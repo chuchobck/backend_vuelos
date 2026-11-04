@@ -11,7 +11,8 @@ diferencias y decisiones, en `docs/V2-DIFERENCIAS.md`.
 Los pagos y el GDS son simulados. El plan y el estado de las fases están en `docs/PLAN.md`; las
 diferencias con el contrato, en `docs/DISCREPANCIAS-CONTRATO.md`. Versión 1.1.0 (`CHANGELOG.md`),
 más las fases 4b (auth externa, `AUTH_MODE`), 5b (eventos al notifier, `WEBHOOKS_MODE`, con la
-purga de su bandeja), 7c (observabilidad) y V1 (fachada v2) sin publicar.
+purga de su bandeja), 7c (observabilidad), V1 (fachada v2) y S1 (stock a Booking,
+`BOOKING_STOCK_ENABLED`) sin publicar.
 Además de REST, un servidor gRPC interno para el BFF (`docs/GRPC.md`), apagado por defecto.
 
 ## Alcance
@@ -133,6 +134,24 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 - `/metrics` solo en `METRICS_PORT`, aparte de `PORT`; el ingress no lo expone. Los gauges de la
   bandeja se leen al raspar, con plazo, y solo con `WEBHOOKS_MODE=notifier`.
 - Cada línea del log lleva `traceId` y `spanId` (el span activo, o el SERVER de la petición).
+
+## Stock a Booking
+
+- `BOOKING_STOCK_ENABLED` (apagado por defecto) decide si el core empuja su stock a Booking
+  (`docs/STOCK-BOOKING.md`). Apagado no se registra ni se llama a nada: `OrdenesStock` es global y
+  no hace nada, y `StockBookingModule` (cola, cliente, trabajador) ni se importa.
+- **Toda operación que modifique `inventario_cabina`, o haga una salida vendible o no, llama a
+  `OrdenesStock` en la MISMA transacción** (`registrar`, `registrarSalida`, `registrarRetencion`,
+  `registrarReserva`). Es una tabla de caminos con una mutación por cada uno: una operación nueva de
+  cupo sin su llamada es un cupo que Booking no se entera de que cambió.
+- La orden no lleva cifra: el trabajador lee `cupos_disponibles` al mandar y envía el valor ABSOLUTO,
+  nunca un delta. Una orden nueva de una clave ya mandada sube su `version` y la vuelve `PENDIENTE`;
+  el trabajador solo da por `ENVIADA` la versión que mandó.
+- Nunca una llamada a Booking dentro de una transacción de negocio ni esperada por una petición. Un
+  4xx de validación o un `success:false` no se reintenta; red, plazo, 5xx y 429 sí, con cortacircuitos.
+- `item_id`, `date` y `time_slot` se arman SOLO en `stock-booking/item-stock.ts`. Nunca `traceparent`
+  hacia Booking (es un tercero). Al log no van la URL, el cuerpo de Booking ni datos de pasajeros.
+- `orden_stock_booking` no se borra: tiene a lo más una fila por salida y cabina.
 
 ## Datos
 

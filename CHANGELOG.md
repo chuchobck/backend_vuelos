@@ -6,6 +6,29 @@ está en [docs/PLAN.md](docs/PLAN.md).
 
 ## [Sin publicar]
 
+### Fase S1 · Stock a Booking
+
+El core puede mandarle a Booking, por REST, cuántos cupos quedan de cada vuelo, cabina y fecha
+(`POST /api/v2/inventory/stock`). **Apagado por defecto** (`BOOKING_STOCK_ENABLED=false`): no cambia
+nada para quien no lo active. Diseño, variables y preguntas abiertas en
+[docs/STOCK-BOOKING.md](docs/STOCK-BOOKING.md).
+
+- Cola `orden_stock_booking` (migración `005`, una fila por salida y cabina) y `OrdenesStock`: cada
+  operación que mueve el cupo (hold, liberar o vencer, cancelar una reserva, cambio de fecha, y el
+  catálogo) deja su orden en la misma transacción.
+- `StockBookingWorker`: manda el valor **absoluto** del cupo al momento de enviar, junta los cambios
+  repetidos de una clave, reintenta con espera creciente (hasta 10 intentos), no reintenta un 4xx de
+  validación ni un `success:false`, y la venta nunca espera. `ClienteStockBooking` con plazo de 5 s y
+  cortacircuitos.
+- `npm run stock:sincronizar [-- --dry-run]` y `BOOKING_STOCK_SYNC_AL_ARRANCAR`: la primera carga o la
+  recuperación de las salidas de los próximos `BOOKING_STOCK_DIAS` días (90).
+- Observabilidad: span CLIENT por llamada, `core_stock_push_total`, `core_stock_pending` y
+  `core_stock_oldest_pending_seconds`.
+- Variables nuevas, todas opcionales salvo el `service_id` si está activo: `BOOKING_STOCK_ENABLED`,
+  `BOOKING_STOCK_SERVICE_ID`, `BOOKING_STOCK_URL`, `BOOKING_STOCK_TIMEOUT_MS`, `BOOKING_STOCK_DIAS`,
+  `BOOKING_STOCK_SYNC_AL_ARRANCAR`, `BOOKING_STOCK_JOB_ENABLED` y `BOOKING_STOCK_JOB_INTERVAL_SECONDS`.
+- Sin probar contra el Booking real de Azure; `time_slot` es un supuesto (hora local de salida).
+
 ### Fase V1 · Fachada del contrato v2
 
 Booking Prototipo integra el core por `/api/v2/vuelos/*`, la fachada del

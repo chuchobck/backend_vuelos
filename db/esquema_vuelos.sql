@@ -114,6 +114,8 @@ COMMENT ON TYPE estado_entrega_webhook IS 'Ciclo de la entrega de un evento a un
 
 CREATE TYPE estado_evento_saliente AS ENUM ('PENDIENTE', 'PUBLICADO', 'FALLIDO');
 COMMENT ON TYPE estado_evento_saliente IS 'Ciclo de un evento en la bandeja hacia el notifier (WEBHOOKS_MODE=notifier): PENDIENTE (por publicar o por reintentar), PUBLICADO (el notifier respondió 200 o 202) o FALLIDO (el notifier lo rechazó o pasaron 48 h sin poder publicarlo).';
+CREATE TYPE estado_orden_stock AS ENUM ('PENDIENTE', 'ENVIADO', 'FALLIDO');
+COMMENT ON TYPE estado_orden_stock IS 'Ciclo de una orden de empuje de stock a Booking: PENDIENTE (por mandar o por reintentar), ENVIADO (Booking respondió success) o FALLIDO (Booking la rechazó, o se agotaron los intentos). Un cambio de cupo posterior la vuelve PENDIENTE.';
 
 CREATE TYPE operacion_auditoria AS ENUM ('INSERCION', 'ACTUALIZACION', 'ELIMINACION');
 COMMENT ON TYPE operacion_auditoria IS 'Operación registrada en la auditoría: INSERCION=INSERT, ACTUALIZACION=UPDATE (incluye la eliminación lógica), ELIMINACION=DELETE físico.';
@@ -883,6 +885,36 @@ CREATE TABLE evento_entrega (
     CONSTRAINT ck_evento_entrega_entregado CHECK (NOT entregado OR COALESCE(codigo_http BETWEEN 200 AND 299, false))
 );
 
+-- Cola del empuje de stock a Booking (BOOKING_STOCK_ENABLED=true): una fila por (salida, cabina)
+CREATE TABLE orden_stock_booking (
+    vuelo_programado_id  uuid                NOT NULL,
+    clase_cabina         clase_cabina        NOT NULL,
+    estado               estado_orden_stock  NOT NULL DEFAULT 'PENDIENTE',
+    -- Sube con cada orden nueva de la misma clave: el trabajador solo da por ENVIADA la versión que mandó
+    version              bigint              NOT NULL DEFAULT 1,
+    intentos             smallint            NOT NULL DEFAULT 0,
+    proximo_intento      timestamptz         NOT NULL,
+    arrendamiento_hasta  timestamptz,
+    ultimo_codigo_http   smallint,
+    ultimo_error         text,
+    correlation_id       text,
+    solicitado_en        timestamptz         NOT NULL,
+    enviado_en           timestamptz,
+    unidades_enviadas    smallint,
+    CONSTRAINT pk_orden_stock_booking PRIMARY KEY (vuelo_programado_id, clase_cabina),
+    CONSTRAINT fk_orden_stock_booking_vuelo_programado FOREIGN KEY (vuelo_programado_id) REFERENCES vuelo_programado (id) ON DELETE CASCADE,
+    CONSTRAINT ck_orden_stock_booking_version CHECK (version >= 1),
+    CONSTRAINT ck_orden_stock_booking_intentos CHECK (intentos >= 0),
+    CONSTRAINT ck_orden_stock_booking_codigo_http CHECK (ultimo_codigo_http IS NULL OR ultimo_codigo_http BETWEEN 100 AND 599),
+    -- Solo un código corto (HTTP_503, TIMEOUT, SUCCESS_FALSE...): ni URL, ni cuerpo de Booking
+    CONSTRAINT ck_orden_stock_booking_error CHECK (ultimo_error IS NULL OR ultimo_error ~ '^[A-Z0-9_]{1,60}$'),
+    CONSTRAINT ck_orden_stock_booking_correlacion CHECK (correlation_id IS NULL OR correlation_id ~ '^[A-Za-z0-9._:-]{1,100}$'),
+    CONSTRAINT ck_orden_stock_booking_enviado CHECK ((estado = 'ENVIADO') = (enviado_en IS NOT NULL)),
+    CONSTRAINT ck_orden_stock_booking_unidades CHECK (unidades_enviadas IS NULL OR unidades_enviadas >= 0)
+);
+
+CREATE INDEX ix_orden_stock_booking_pendiente ON orden_stock_booking (proximo_intento) WHERE estado = 'PENDIENTE';
+
 
 -- =============================================================================
 -- 12. IDEMPOTENCIA
@@ -1392,6 +1424,11 @@ COMMENT ON COLUMN evento_saliente.reintentar_hasta IS 'Hasta cuándo se reintent
 COMMENT ON COLUMN evento_saliente.proximo_intento IS 'Cuándo se vuelve a intentar publicar; de un evento FALLIDO es cuándo falló (la purga cuenta los días de retención desde ahí).';
 COMMENT ON COLUMN evento_saliente.traceparent IS 'traceparent (W3C Trace Context) del contexto activo cuando ocurrió el hecho: el relevo abre su span hacia el notifier como continuación de esa traza. NULL en los eventos anteriores a la fase 7c. Nunca se manda a un tercero.';
 COMMENT ON COLUMN evento_saliente.correlation_id IS 'X-Correlation-Id de la petición que produjo el hecho; el relevo lo manda al notifier sin cambios. NULL si lo produjo un proceso periódico.';
+COMMENT ON TABLE orden_stock_booking IS 'Cola del empuje de stock a Booking (BOOKING_STOCK_ENABLED=true): UNA fila por (salida, cabina) con el cupo por mandar. La escribe, en la misma transacción del cambio, quien mueve inventario_cabina; StockBookingWorker lee el cupo ACTUAL y manda el valor absoluto. Órdenes repetidas de la misma clave se juntan (upsert). No se borra: queda acotada por inventario_cabina.';
+COMMENT ON COLUMN orden_stock_booking.version IS 'Cuántas órdenes ha recibido la clave. El trabajador marca ENVIADA solo la versión que mandó: si llegó una nueva mientras tanto, sigue PENDIENTE.';
+COMMENT ON COLUMN orden_stock_booking.arrendamiento_hasta IS 'Hasta cuándo el trabajador que tomó la fila la tiene apartada (una clave nunca se manda en paralelo); vencido, otro proceso puede retomarla.';
+COMMENT ON COLUMN orden_stock_booking.unidades_enviadas IS 'available_units de la última vez que Booking respondió success (diagnóstico).';
+COMMENT ON COLUMN orden_stock_booking.correlation_id IS 'X-Correlation-Id de la petición que produjo el último cambio; el trabajador lo manda a Booking. NULL si lo produjo un proceso periódico o la sincronización.';
 COMMENT ON TABLE evento_entrega             IS 'Intentos de entrega de un evento a un webhook.';
 COMMENT ON TABLE clave_idempotencia         IS 'Registro de las cabeceras Idempotency-Key ya procesadas y su respuesta.';
 COMMENT ON TABLE auditoria                  IS 'Log de cambios: una fila por cada alta, cambio o baja en las tablas de negocio. La escribe el disparador fn_auditar y es de solo inserción. No es el historial que ve el cliente: ese es reserva_detalle_historial.';
