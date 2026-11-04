@@ -1207,6 +1207,18 @@ const MUTACIONES = [
     STOCK_PRUEBA,
     'registra una orden por cada',
   ],
+  [
+    '[stock] el service_id "vuelos" se acepta',
+    'src/config/entorno.ts',
+    [
+      [
+        '@Matches(/^(?!vuelos$)[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/i, {',
+        '@Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/i, {',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'validación del entorno',
+  ],
 ];
 
 const originales = new Map();

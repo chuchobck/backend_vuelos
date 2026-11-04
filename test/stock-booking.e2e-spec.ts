@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { validarEntorno } from '../src/config/entorno';
 import { configuracionStockBooking } from '../src/config/stock-booking';
 import { Observabilidad } from '../src/observabilidad/observabilidad';
 import { VencimientoRetenciones } from '../src/modules/vuelos/operaciones/retencion/vencimiento-retenciones';
@@ -66,6 +67,62 @@ describe('Campos del contrato de Booking', () => {
       url: 'https://booking-core-api.azurewebsites.net/api/v2/inventory/stock',
     });
     expect(() => configuracionStockBooking(new ConfigService({}))).toThrow();
+  });
+
+  describe('validación del entorno', () => {
+    const base = {
+      DATABASE_URL: 'postgresql://u@localhost:5432/booking_db',
+      PORT: '3000',
+      NODE_ENV: 'production',
+      JWT_SECRET: 'j'.repeat(40),
+      WEBHOOK_SECRET_KEY: 'w'.repeat(40),
+    };
+    const errorCon = (variables: Record<string, string>): string => {
+      try {
+        validarEntorno({ ...base, ...variables });
+      } catch (error) {
+        return (error as Error).message;
+      }
+      throw new Error('validarEntorno aceptó la configuración');
+    };
+
+    it('apagado no se pide nada, ni se lee lo que haya puesto', () => {
+      expect(() => validarEntorno(base)).not.toThrow();
+      expect(() =>
+        validarEntorno({ ...base, BOOKING_STOCK_DIAS: '0', BOOKING_STOCK_SERVICE_ID: 'vuelos' }),
+      ).not.toThrow();
+    });
+
+    it('activo exige el service_id (sin valor por defecto) y nunca "vuelos"', () => {
+      const activo = { BOOKING_STOCK_ENABLED: 'true' };
+      expect(errorCon(activo)).toContain('BOOKING_STOCK_SERVICE_ID es obligatoria');
+      for (const malo of ['vuelos', 'Vuelos', 'VUELOS', 'con espacio', 'ab']) {
+        const mensaje = errorCon({ ...activo, BOOKING_STOCK_SERVICE_ID: malo });
+        expect(mensaje).toContain('BOOKING_STOCK_SERVICE_ID');
+        if (malo === 'con espacio') expect(mensaje).not.toContain(malo); // nombra la variable, no el valor
+      }
+      expect(() =>
+        validarEntorno({ ...base, ...activo, BOOKING_STOCK_SERVICE_ID: 'quinde-vuelos' }),
+      ).not.toThrow();
+    });
+
+    it.each([
+      ['BOOKING_STOCK_TIMEOUT_MS', '50'],
+      ['BOOKING_STOCK_TIMEOUT_MS', '99999'],
+      ['BOOKING_STOCK_DIAS', '0'],
+      ['BOOKING_STOCK_DIAS', '400'],
+      ['BOOKING_STOCK_SYNC_AL_ARRANCAR', 'quizas'],
+      ['BOOKING_STOCK_JOB_INTERVAL_SECONDS', '0'],
+      ['BOOKING_STOCK_URL', 'ftp://booking.example/stock'],
+    ])('activo, %s=%s da un error que nombra la variable y no repite el valor', (nombre, valor) => {
+      const mensaje = errorCon({
+        BOOKING_STOCK_ENABLED: 'true',
+        BOOKING_STOCK_SERVICE_ID: 'quinde-vuelos',
+        [nombre]: valor,
+      });
+      expect(mensaje).toContain(nombre);
+      if (valor.length > 2) expect(mensaje).not.toContain(valor);
+    });
   });
 
   it('las esperas crecen y se quedan en una hora', () => {

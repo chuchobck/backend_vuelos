@@ -339,8 +339,9 @@ export class VariablesEntorno {
   BOOKING_STOCK_URL?: string;
 
   /** Nuestro service_id en Booking: fijo y único por equipo (nunca "vuelos"). Obligatoria si está activo. */
-  @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/, {
-    message: 'BOOKING_STOCK_SERVICE_ID debe tener de 3 a 64 letras, números, . _ - (sin espacios)',
+  @Matches(/^(?!vuelos$)[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/i, {
+    message:
+      'BOOKING_STOCK_SERVICE_ID debe tener de 3 a 64 letras, números, . _ - (sin espacios) y no puede ser "vuelos"',
   })
   @IsString({ message: 'BOOKING_STOCK_SERVICE_ID es obligatoria con BOOKING_STOCK_ENABLED=true' })
   @ValidateIf(conStockBooking)
