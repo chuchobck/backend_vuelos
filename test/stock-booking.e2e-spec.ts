@@ -51,11 +51,38 @@ describe('Campos del contrato de Booking', () => {
     expect(itemId('LA1400', 'PRIMERA')).toBe('LA1400-FIRST');
   });
 
-  it('date y time_slot son la hora de Ecuador (UTC-5), vengan de donde vengan', () => {
-    expect(fechaYHora(new Date('2026-11-02T13:30:00.000Z'), 'America/Guayaquil')).toEqual({
+  it('date y time_slot salen del instante de salida convertido a Ecuador (UTC-5, sin horario de verano)', () => {
+    const ecuador = (iso: string) => fechaYHora(new Date(iso), 'America/Guayaquil');
+    expect(ecuador('2026-11-02T13:30:00.000Z')).toEqual({ date: '2026-11-02', time_slot: '08:30' });
+    // Minutos y horas con cero a la izquierda
+    expect(ecuador('2026-11-02T14:05:00.000Z')).toEqual({ date: '2026-11-02', time_slot: '09:05' });
+    expect(ecuador('2026-11-02T05:00:00.000Z')).toEqual({ date: '2026-11-02', time_slot: '00:00' });
+    // La fecha en Ecuador es la del día anterior a la UTC antes de las 05:00 UTC
+    expect(ecuador('2026-11-03T04:59:00.000Z')).toEqual({ date: '2026-11-02', time_slot: '23:59' });
+    expect(ecuador('2026-11-03T05:00:00.000Z')).toEqual({ date: '2026-11-03', time_slot: '00:00' });
+    // Sin horario de verano: igual en enero y en julio
+    expect(ecuador('2027-01-15T15:00:00.000Z').time_slot).toBe('10:00');
+    expect(ecuador('2027-07-15T15:00:00.000Z').time_slot).toBe('10:00');
+  });
+
+  it('la zona es la que se le pasa (BOOKING_STOCK_TZ), no una fija', () => {
+    const instante = new Date('2026-11-02T13:30:00.000Z');
+    expect(fechaYHora(instante, 'UTC')).toEqual({ date: '2026-11-02', time_slot: '13:30' });
+    expect(fechaYHora(instante, 'Pacific/Galapagos')).toEqual({
       date: '2026-11-02',
-      time_slot: '08:30',
+      time_slot: '07:30',
     });
+  });
+
+  it('BOOKING_STOCK_TZ es America/Guayaquil por defecto y se puede cambiar', () => {
+    const base = { BOOKING_STOCK_SERVICE_ID: 'quinde-x' };
+    expect(configuracionStockBooking(new ConfigService(base)).zonaHoraria).toBe(
+      'America/Guayaquil',
+    );
+    expect(
+      configuracionStockBooking(new ConfigService({ ...base, BOOKING_STOCK_TZ: 'UTC' }))
+        .zonaHoraria,
+    ).toBe('UTC');
   });
 
   it('el plazo por defecto es de 5 s, la ventana de 90 días y el service_id no tiene valor por defecto', () => {
@@ -109,6 +136,8 @@ describe('Campos del contrato de Booking', () => {
     it.each([
       ['BOOKING_STOCK_TIMEOUT_MS', '50'],
       ['BOOKING_STOCK_TIMEOUT_MS', '99999'],
+      ['BOOKING_STOCK_TZ', 'Marte/Olimpo'],
+      ['BOOKING_STOCK_TZ', 'UTC+5'],
       ['BOOKING_STOCK_DIAS', '0'],
       ['BOOKING_STOCK_DIAS', '400'],
       ['BOOKING_STOCK_SYNC_AL_ARRANCAR', 'quizas'],
@@ -605,6 +634,89 @@ describe('Empuje de stock a Booking', () => {
       expect(unidades()).toEqual([antes - 1, antes - 2]);
       expect(await orden(k.salida)).toMatchObject({ estado: 'ENVIADO', unidades: antes - 2 });
       expect(log.texto()).toContain('SUPERADA');
+    });
+  });
+
+  describe('date y time_slot son siempre de Ecuador, sea cual sea el huso del aeropuerto', () => {
+    let n = 0;
+    /** Un vuelo (k.aerolinea) desde una ciudad con esa zona hasta el destino de la cadena, con una salida a esa hora UTC. */
+    const salidaDesde = async (zona: string, dias: number, hora: number, minuto: number) => {
+      const numero = String(810 + n++);
+      const ciudad = (
+        await c
+          .admin('post', `${u.ADMIN}/cities`, {
+            country: 'EC',
+            name: `Huso ${zona.slice(-6)} ${n}${Math.random().toString(36).slice(2, 6)}`,
+            timeZone: zona,
+          })
+          .expect(201)
+      ).body.id as string;
+      const origen = await u.codigos.aeropuerto(c.prisma);
+      await c
+        .admin('post', `${u.ADMIN}/airports`, {
+          code: origen,
+          name: `Huso ${origen}`,
+          cityId: ciudad,
+        })
+        .expect(201);
+      await c
+        .admin('post', `${u.ADMIN}/flights`, {
+          marketingCarrier: k.aerolinea,
+          number: numero,
+          origin: origen,
+          destination: k.destino,
+        })
+        .expect(201);
+      const salida = await c
+        .admin('post', `${u.ADMIN}/departures`, {
+          flightNumber: `${k.aerolinea}${numero}`,
+          seatMapId: k.mapa,
+          scheduledDeparture: u.enDias(dias, hora, minuto),
+          scheduledArrival: u.enDias(dias, hora + 1, minuto),
+          cabins: [{ cabinClass: 'ECONOMY', totalSeats: 3 }],
+        })
+        .expect(201);
+      await drenar();
+      const registro = falso
+        .de(`${k.aerolinea}${numero}-`)
+        .find((r) => r.registro.item_id.endsWith('-ECONOMY'))!.registro;
+      // Se da de baja todo lo que creó, para que la cadena de la suite pueda darse de baja al final
+      await c.admin('delete', `${u.ADMIN}/departures/${salida.body.id}`).expect(204);
+      await c.admin('delete', `${u.ADMIN}/flights/${k.aerolinea}${numero}`).expect(204);
+      await c.admin('delete', `${u.ADMIN}/airports/${origen}`).expect(204);
+      await c.admin('delete', `${u.ADMIN}/cities/${ciudad}`).expect(204);
+      return { registro, fechaDelAeropuerto: salida.body.departureDate as string };
+    };
+    const fechaUtc = (dias: number) => u.enDias(dias, 12).slice(0, 10);
+
+    it('un aeropuerto de Galápagos (UTC-6): la hora es la de Ecuador y la fecha puede ser un día después de la del aeropuerto', async () => {
+      // 05:05 UTC: 00:05 en Ecuador, pero 23:05 del día ANTERIOR en Galápagos
+      const { registro, fechaDelAeropuerto } = await salidaDesde('Pacific/Galapagos', 27, 5, 5);
+      expect(registro.time_slot).toBe('00:05');
+      expect(registro.date).toBe(fechaUtc(27));
+      expect(fechaDelAeropuerto).toBe(fechaUtc(26)); // la del aeropuerto es otra
+    });
+
+    it('un aeropuerto muy al este (UTC+13): la fecha en Ecuador es la del día anterior a la del aeropuerto', async () => {
+      // 15:00 UTC: 10:00 en Ecuador, pero 04:00 del día SIGUIENTE en Auckland
+      const { registro, fechaDelAeropuerto } = await salidaDesde('Pacific/Auckland', 28, 15, 0);
+      expect(registro.time_slot).toBe('10:00');
+      expect(registro.date).toBe(fechaUtc(28));
+      expect(fechaDelAeropuerto).toBe(fechaUtc(29));
+    });
+
+    it('un aeropuerto en Ecuador continental, antes de las 05:00 UTC: la fecha es la del día anterior a la UTC, con minutos con cero', async () => {
+      // 04:09 UTC: 23:09 del día anterior en Ecuador (y en el aeropuerto)
+      const { registro, fechaDelAeropuerto } = await salidaDesde('America/Guayaquil', 30, 4, 9);
+      expect(registro.time_slot).toBe('23:09');
+      expect(registro.date).toBe(fechaUtc(29));
+      expect(fechaDelAeropuerto).toBe(fechaUtc(29));
+    });
+
+    it('una salida a las 14:05 UTC sale como 09:05, con el cero a la izquierda', async () => {
+      const { registro } = await salidaDesde('America/Bogota', 31, 14, 5);
+      expect(registro.time_slot).toBe('09:05');
+      expect(registro.date).toBe(fechaUtc(31));
     });
   });
 
