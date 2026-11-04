@@ -137,6 +137,7 @@ type Utilidades = typeof import('./utils/reserva') &
 describe('Empuje de stock a Booking', () => {
   // AppModule decide con ConditionalModule al importarse: los utilitarios se cargan DESPUÉS de fijar el entorno
   let u: Utilidades;
+  let registradasAlArrancar = -1;
   const reloj = new RelojDePrueba();
   const limites = new LimitesReiniciables();
   const log = new LogEnMemoria();
@@ -227,8 +228,15 @@ describe('Empuje de stock a Booking', () => {
       import('./utils/crear-app'),
     ]);
     u = { ...reserva, ...busqueda, ...catalogo, ...postventa, ...auth, ...crear };
+    // Las órdenes llevan la hora del Reloj (el de la prueba está quieto), no la de la máquina
+    const inicioDeLaSuite = reloj.ahora();
     c = await u.crearAppCatalogo({ reloj, limites });
     c.app.useLogger(log);
+    // Sin BOOKING_STOCK_SYNC_AL_ARRANCAR el arranque no registra nada: se espera a que lo haría
+    await new Promise((listo) => setTimeout(listo, 500));
+    [{ n: registradasAlArrancar }] = await c.prisma.db.$queryRaw<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM vuelos.orden_stock_booking
+       WHERE solicitado_en >= ${inicioDeLaSuite}::timestamptz`;
     worker = c.app.get(StockBookingWorker);
     cliente = c.app.get(ClienteStockBooking);
     k = await u.crearCadena(c);
@@ -288,6 +296,10 @@ describe('Empuje de stock a Booking', () => {
     }
   });
 
+  it('sin BOOKING_STOCK_SYNC_AL_ARRANCAR el arranque no registra ninguna orden', () => {
+    expect(registradasAlArrancar).toBe(0);
+  });
+
   describe('qué se manda', () => {
     it('el alta y el ajuste de una salida se juntan en una orden por cabina, con los campos del contrato', async () => {
       // Una salida propia: se crea (2 cupos y 0 de ejecutiva) y se ajusta (5) antes de mandar nada
@@ -326,6 +338,19 @@ describe('Empuje de stock a Booking', () => {
         corr: eco.correlacion,
       });
       await c.admin('delete', `${u.ADMIN}/departures/${extra.salida}`).expect(204);
+    });
+
+    it('crear una salida manda sus cabinas sin que nadie la toque después', async () => {
+      const creada = await u.agregarSalida(c, k, 24, 3, { baseFare: '55.00', taxes: '11.00' });
+      await drenar();
+      const deEsta = falso.de(prefijo()).filter((r) => r.registro.date === creada.fecha);
+      expect(deEsta.map((r) => [r.registro.item_id, r.registro.available_units]).sort()).toEqual(
+        [
+          [`${k.vuelo}-BUSINESS`, 0],
+          [`${k.vuelo}-ECONOMY`, 3],
+        ].sort(),
+      );
+      await c.admin('delete', `${u.ADMIN}/departures/${creada.salida}`).expect(204);
     });
 
     it('crear un hold manda el cupo absoluto que queda', async () => {
@@ -523,6 +548,55 @@ describe('Empuje de stock a Booking', () => {
       expect(unidades()).toEqual([antes - 1, antes - 2]);
       expect(await orden(k.salida)).toMatchObject({ estado: 'ENVIADO', unidades: antes - 2 });
       expect(log.texto()).toContain('SUPERADA');
+    });
+  });
+
+  describe('el empuje sigue a la transacción del cambio', () => {
+    it('un cambio de fecha que se deshace (asiento inexistente) no deja ninguna orden ni manda nada', async () => {
+      const h = await u.buscarYRetener(c.app, duena.token, [[k.origen, k.destino, k.fecha]], {
+        adults: 1,
+      });
+      await u
+        .reservar(c.app, duena.token, u.cuerpoReserva(h.holdId, [u.pasajero('ADULT', 1)]))
+        .expect(201);
+      await drenar();
+      falso.reiniciar();
+      const versiones = {
+        vieja: (await orden(k.salida)).version,
+        nueva: (await orden(nueva.salida)).version,
+      };
+      const nuevaAntes = await disponibles(nueva.salida);
+
+      const reservaId = (
+        await u
+          .con(c.app, duena.token)('get', `${u.RESERVAS}?status=CONFIRMED&limit=50`)
+          .expect(200)
+      ).body.items[0].bookingId as string;
+      const busqueda = await u
+        .con(c.app, duena.token)('post', `${u.RESERVAS}/${reservaId}/date-change/search`)
+        .send({
+          changes: [
+            { itineraryId: h.oferta.itineraries[0].itineraryId, newDepartureDate: nueva.fecha },
+          ],
+        })
+        .expect(200);
+      // El asiento no existe: falla DESPUÉS de mover el cupo, y todo se deshace
+      const respuesta = await u
+        .con(c.app, duena.token)('post', `${u.RESERVAS}/${reservaId}/date-change`)
+        .set('Idempotency-Key', randomUUID())
+        .send({
+          changeOfferId: busqueda.body[0].changeOfferId,
+          payment: { paymentReference: u.referenciaPago() },
+          assignedSeats: [{ segmentId: nueva.salida, seatNumber: '9Z' }],
+        });
+      expect(respuesta.status).toBeGreaterThanOrEqual(400);
+      expect(await disponibles(nueva.salida)).toBe(nuevaAntes);
+
+      await drenar();
+      expect(falso.recibidas).toHaveLength(0);
+      expect((await orden(k.salida)).version).toBe(versiones.vieja);
+      expect((await orden(nueva.salida)).version).toBe(versiones.nueva);
+      await u.cancelarReservasDe(c.app, duena.token);
     });
   });
 
@@ -728,26 +802,38 @@ describe('Empuje de stock a Booking', () => {
       expect(falso.de(prefijo())).toHaveLength(REGLAS_CORTACIRCUITO.fallosParaAbrir);
       expect(cliente.cortacircuito.abierto).toBe(true);
 
-      // Booking ya está bien, pero el cortacircuitos sigue abierto: ni una llamada más. Un cambio
-      // de cupo nuevo (el ajuste del catálogo, sin búsqueda de por medio) deja su orden igual.
-      falso.reiniciar();
+      // Abierto: un cambio de cupo nuevo (el ajuste del catálogo, sin búsqueda de por medio) deja
+      // sus órdenes (la cabina ECONOMY y la BUSINESS), pero el trabajador no las toca ni llama a Booking
+      const ahora = reloj.ahora();
+      const llamadas = falso.recibidas.length; // las 5 que lo abrieron
       await c
         .admin('patch', `${u.ADMIN}/departures/${k.salida}`, {
           cabins: [{ cabinClass: 'ECONOMY', totalSeats: 6 }],
         })
         .expect(200);
       await drenar();
-      expect(falso.recibidas).toHaveLength(0);
-      expect(await orden(k.salida)).toMatchObject({
-        estado: 'PENDIENTE',
-        intentos: 0,
-        lease: null,
-      });
+      expect(falso.recibidas).toHaveLength(llamadas);
+      const intacta = await orden(k.salida);
+      expect(intacta).toMatchObject({ estado: 'PENDIENTE', intentos: 0, lease: null });
+      expect(intacta.proximo.getTime()).toBe(ahora.getTime()); // nadie la tomó ni la soltó
 
-      // Pasada la espera del cortacircuitos entra UNA prueba; sale bien y se cierra
+      // Vencida la espera, Booking sigue caído: entra UNA sola prueba, no las dos órdenes
       reloj.adelantar(REGLAS_CORTACIRCUITO.aperturaInicialMs / MINUTO + 0.1);
       await drenar();
+      expect(falso.recibidas.length).toBe(llamadas + 1);
+      expect(cliente.cortacircuito.abierto).toBe(true);
+
+      // Booking vuelve: la siguiente prueba sale bien, se cierra y se mandan las dos órdenes
+      falso.reiniciar();
+      reloj.adelantar((2 * REGLAS_CORTACIRCUITO.aperturaInicialMs) / MINUTO + 0.1);
+      await drenar();
       expect(cliente.cortacircuito.abierto).toBe(false);
+      expect(
+        falso
+          .de(prefijo())
+          .map((r) => r.registro.item_id)
+          .sort(),
+      ).toEqual([`${k.vuelo}-BUSINESS`, `${k.vuelo}-ECONOMY`].sort());
       expect(unidades().at(-1)).toBe(await disponibles(k.salida));
       expect((await orden(k.salida)).estado).toBe('ENVIADO');
     });
