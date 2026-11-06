@@ -7,6 +7,9 @@ export const URL_STOCK_BOOKING =
 /** Su ESB corta a los 5 s: nuestro plazo no pasa de ahí por defecto. */
 export const PLAZO_STOCK_BOOKING_MS = 5_000;
 
+/** Zona en que Booking toma `date` y `time_slot`, tal cual y sin convertirlos (Ecuador, UTC-5, sin horario de verano). */
+export const ZONA_STOCK_BOOKING = 'America/Guayaquil';
+
 /** Días hacia adelante de la sincronización completa. */
 export const DIAS_STOCK_BOOKING = 90;
 
@@ -16,6 +19,8 @@ export interface ConfiguracionStockBooking {
   serviceId: string;
   plazoMs: number;
   dias: number;
+  /** BOOKING_STOCK_TZ: la zona de `date` y `time_slot`. */
+  zonaHoraria: string;
 }
 
 /** BOOKING_STOCK_ENABLED=true, leído del entorno (para ConditionalModule, antes de ConfigService). */
@@ -34,5 +39,6 @@ export function configuracionStockBooking(config: ConfigService): ConfiguracionS
     serviceId: config.getOrThrow<string>('BOOKING_STOCK_SERVICE_ID'),
     plazoMs: config.get<number>('BOOKING_STOCK_TIMEOUT_MS') ?? PLAZO_STOCK_BOOKING_MS,
     dias: config.get<number>('BOOKING_STOCK_DIAS') ?? DIAS_STOCK_BOOKING,
+    zonaHoraria: config.get<string>('BOOKING_STOCK_TZ') ?? ZONA_STOCK_BOOKING,
   };
 }

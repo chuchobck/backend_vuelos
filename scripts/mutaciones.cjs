@@ -1226,6 +1226,89 @@ const MUTACIONES = [
     STOCK_PRUEBA,
     'dry-run imprime',
   ],
+  [
+    '[stock] time_slot en UTC y no en hora de Ecuador',
+    STOCK_ITEM,
+    [['    timeZone: zonaHoraria,', "    timeZone: 'UTC',"]],
+    STOCK_PRUEBA,
+    'Campos del contrato',
+  ],
+  [
+    '[stock] la zona por defecto es UTC y no America/Guayaquil',
+    'src/config/stock-booking.ts',
+    [
+      [
+        "export const ZONA_STOCK_BOOKING = 'America/Guayaquil';",
+        "export const ZONA_STOCK_BOOKING = 'UTC';",
+      ],
+    ],
+    STOCK_PRUEBA,
+    'Campos del contrato',
+  ],
+  [
+    '[stock] date con la fecha UTC y no la de Ecuador',
+    STOCK_ITEM,
+    [
+      [
+        "    date: `${de('year')}-${de('month')}-${de('day')}`,",
+        '    date: salidaProgramada.toISOString().slice(0, 10),',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'Campos del contrato',
+  ],
+  [
+    '[stock] time_slot sin cero a la izquierda (9:5)',
+    STOCK_ITEM,
+    [
+      [
+        "    time_slot: `${de('hour')}:${de('minute')}`,",
+        "    time_slot: `${Number(de('hour'))}:${Number(de('minute'))}`,",
+      ],
+    ],
+    STOCK_PRUEBA,
+    'Campos del contrato',
+  ],
+  [
+    '[stock] la zona de BOOKING_STOCK_TZ se ignora',
+    'src/config/stock-booking.ts',
+    [
+      [
+        "    zonaHoraria: config.get<string>('BOOKING_STOCK_TZ') ?? ZONA_STOCK_BOOKING,",
+        '    zonaHoraria: ZONA_STOCK_BOOKING,',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'se puede cambiar',
+  ],
+  [
+    '[stock] BOOKING_STOCK_TZ acepta cualquier texto',
+    'src/config/entorno.ts',
+    [
+      [
+        "    if (typeof valor !== 'string' || !/^[A-Za-z_]+(\\/[A-Za-z0-9_+-]+)+$/.test(valor)) return false;",
+        "    if (typeof valor !== 'string') return false;\n    return true;",
+      ],
+    ],
+    STOCK_PRUEBA,
+    'validación del entorno',
+  ],
+  [
+    '[stock] date y time_slot con la hora del aeropuerto de origen y no la de Ecuador',
+    'src/modules/vuelos/stock-booking/stock-booking.repository.ts',
+    [
+      [
+        '  vp.salida_programada AS "salidaProgramada",',
+        '  (vp.salida_programada AT TIME ZONE c.zona_horaria) AT TIME ZONE \'America/Guayaquil\' AS "salidaProgramada",',
+      ],
+      [
+        '        JOIN vuelos.aerolinea ac         ON ac.id = v.aerolinea_id',
+        '        JOIN vuelos.aerolinea ac         ON ac.id = v.aerolinea_id\n        JOIN vuelos.aeropuerto ao ON ao.id = v.aeropuerto_origen_id\n        JOIN vuelos.ciudad c ON c.id = ao.ciudad_id',
+      ],
+    ],
+    STOCK_PRUEBA,
+    'date y time_slot son siempre de Ecuador',
+  ],
 ];
 
 const originales = new Map();

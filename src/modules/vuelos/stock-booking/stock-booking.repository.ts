@@ -29,8 +29,7 @@ export interface ResultadoOrden {
 /** Las columnas que arman un registro, de una salida y su cabina. */
 const DATOS = Prisma.sql`
   ac.codigo_iata || v.numero AS "numeroVuelo", ic.clase_cabina::text AS "cabina",
-  vp.fecha_salida AS "fechaSalida", vp.salida_programada AS "salidaProgramada",
-  c.zona_horaria AS "zonaHoraria",
+  vp.salida_programada AS "salidaProgramada",
   (CASE WHEN vp.estado::text = 'CANCELADO' THEN 0 ELSE ic.cupos_disponibles END)::int AS "unidades"`;
 
 /**
@@ -73,8 +72,6 @@ export class StockBookingRepository {
         JOIN vuelos.vuelo_programado vp  ON vp.id = t.vuelo_programado_id
         JOIN vuelos.vuelo v              ON v.id = vp.vuelo_id
         JOIN vuelos.aerolinea ac         ON ac.id = v.aerolinea_id
-        JOIN vuelos.aeropuerto ao        ON ao.id = v.aeropuerto_origen_id
-        JOIN vuelos.ciudad c             ON c.id = ao.ciudad_id
         JOIN vuelos.inventario_cabina ic ON ic.vuelo_programado_id = t.vuelo_programado_id
                                         AND ic.clase_cabina = t.clase_cabina
        ORDER BY t.vuelo_programado_id, t.clase_cabina`;
@@ -185,8 +182,6 @@ export class StockBookingRepository {
         JOIN vuelos.vuelo_programado vp ON vp.id = ic.vuelo_programado_id
         JOIN vuelos.vuelo v             ON v.id = vp.vuelo_id
         JOIN vuelos.aerolinea ac        ON ac.id = v.aerolinea_id
-        JOIN vuelos.aeropuerto ao       ON ao.id = v.aeropuerto_origen_id
-        JOIN vuelos.ciudad c            ON c.id = ao.ciudad_id
        WHERE vp.fecha_salida BETWEEN ${desde}::date AND ${hasta}::date
        ORDER BY vp.fecha_salida, vp.salida_programada, ac.codigo_iata, v.numero, ic.clase_cabina`;
   }

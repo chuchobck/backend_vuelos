@@ -27,7 +27,11 @@ nada para quien no lo active. Diseño, variables y preguntas abiertas en
 - Variables nuevas, todas opcionales salvo el `service_id` si está activo: `BOOKING_STOCK_ENABLED`,
   `BOOKING_STOCK_SERVICE_ID`, `BOOKING_STOCK_URL`, `BOOKING_STOCK_TIMEOUT_MS`, `BOOKING_STOCK_DIAS`,
   `BOOKING_STOCK_SYNC_AL_ARRANCAR`, `BOOKING_STOCK_JOB_ENABLED` y `BOOKING_STOCK_JOB_INTERVAL_SECONDS`.
-- Sin probar contra el Booking real de Azure; `time_slot` es un supuesto (hora local de salida).
+- Sin probar contra el Booking real de Azure.
+- Corrección (`fix/stock-time-slot`): `date` y `time_slot` son la hora real de salida **en hora de Ecuador**
+  (`BOOKING_STOCK_TZ`, `America/Guayaquil` por defecto), del mismo instante y tomada tal cual por Booking. Antes
+  salían con la zona y la fecha del aeropuerto de origen, lo que fallaba para los vuelos de Galápagos y cerca de
+  medianoche. Variable nueva opcional: `BOOKING_STOCK_TZ`.
 
 ### Fase V1 · Fachada del contrato v2
 

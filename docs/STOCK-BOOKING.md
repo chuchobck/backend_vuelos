@@ -22,12 +22,30 @@ No hay cabecera de autenticación documentada, así que no se manda ninguna.
 | --- | --- |
 | `service_id` | `BOOKING_STOCK_SERVICE_ID`: fijo y único por equipo, **nunca `vuelos`** (el arranque lo rechaza). Obligatorio si está activo, sin valor por defecto. |
 | `item_id` | `<número de vuelo>-<CABINA EN MAYÚSCULAS>`: aerolínea comercializadora + número (`AV1632`) y la cabina del contrato (`ECONOMY`, `PREMIUM_ECONOMY`, `BUSINESS`, `FIRST`). |
-| `date` | `vuelo_programado.fecha_salida`: la fecha local en el aeropuerto de origen, `YYYY-MM-DD`. |
-| `time_slot` | **Supuesto** (ver preguntas abiertas): la hora local de salida `HH:mm`, en la zona horaria de la ciudad del aeropuerto de origen (Galápagos va una hora detrás). |
+| `date` | La fecha de la salida **en hora de Ecuador**, `YYYY-MM-DD`: del mismo instante que `time_slot`, no la fecha local del aeropuerto (ver abajo). |
+| `time_slot` | La hora real de salida **en hora de Ecuador** (`America/Guayaquil`, UTC-5 y sin horario de verano), `HH:mm` con ceros a la izquierda. Booking la toma tal cual, sin convertirla. Confirmado por Booking. |
 | `available_units` | `inventario_cabina.cupos_disponibles`, **el valor absoluto del momento de mandar**; `0` si la salida está cancelada. |
 
-Los cuatro campos salen de **un solo archivo**, `src/modules/vuelos/stock-booking/item-stock.ts`. Si
-Booking dice que `time_slot` significa otra cosa, se cambia `timeSlot()` ahí y nada más.
+Los cuatro campos salen de **un solo archivo**, `src/modules/vuelos/stock-booking/item-stock.ts`.
+
+### Regla de `date` y `time_slot`
+
+Se parte del **instante de salida** (`vuelo_programado.salida_programada`, UTC) y se convierte a
+`BOOKING_STOCK_TZ` (`America/Guayaquil` por defecto): de ahí salen la fecha y la hora, las dos del
+mismo instante. Ni la zona ni la fecha local del aeropuerto de origen cuentan, así que un vuelo de
+Galápagos (UTC-6) sale con la hora de Ecuador continental, y cerca de medianoche la fecha puede ser
+la del día anterior o siguiente a la del aeropuerto:
+
+| Salida (UTC) | Aeropuerto | Hora local del aeropuerto | `date` | `time_slot` |
+| --- | --- | --- | --- | --- |
+| 2026-11-02 13:30 | Quito (UTC-5) | 2026-11-02 08:30 | `2026-11-02` | `08:30` |
+| 2026-11-02 14:05 | Quito (UTC-5) | 2026-11-02 09:05 | `2026-11-02` | `09:05` |
+| 2026-11-03 05:05 | Baltra, Galápagos (UTC-6) | 2026-11-02 23:05 | `2026-11-03` | `00:05` |
+| 2026-11-03 04:09 | Guayaquil (UTC-5) | 2026-11-02 23:09 | `2026-11-02` | `23:09` |
+| 2026-11-02 15:00 | (uno a UTC+13) | 2026-11-03 04:00 | `2026-11-02` | `10:00` |
+
+No se cambia `BOOKING_STOCK_TZ` sin que Booking lo pida. Si la hora de una salida cambia, el registro
+nuevo sale con la hora nueva (qué pasa con el viejo: pregunta abierta 2).
 
 ## Diseño
 
@@ -180,16 +198,14 @@ Cada llamada abre un span CLIENT `POST /api/v2/inventory/stock` (`quinde.upstrea
 
 ## Preguntas abiertas para Booking
 
-1. **`time_slot`.** ¿Es la hora local de salida `HH:mm`? Se supuso eso. Podría ser la de llegada, un
-   bloque horario, o UTC. Se cambia en `item-stock.ts`, en un solo lugar.
-2. **¿El `item_id` debe existir antes en su catálogo?** Si sí, un vuelo nuevo mandará `success:false`
+1. **¿El `item_id` debe existir antes en su catálogo?** Si sí, un vuelo nuevo mandará `success:false`
    hasta que lo den de alta y el core lo dejará `FALLIDO` sin reintentar (la sincronización lo vuelve
    a mandar después). Si es upsert, no hay nada que hacer.
-3. **Si cambia la fecha o la hora de una salida**, ¿el registro viejo `(item_id, date, time_slot)` se
+2. **Si cambia la fecha o la hora de una salida**, ¿el registro viejo `(item_id, date, time_slot)` se
    queda con su último cupo? El core manda el registro nuevo pero no sabe borrar el viejo.
-4. **Autenticación.** No hay cabecera documentada; si piden una, es un cambio en
+3. **Autenticación.** No hay cabecera documentada; si piden una, es un cambio en
    `ClienteStockBooking.enviar`.
-5. **Límite de peticiones.** La sincronización completa son unas 7 300 llamadas (90 días); la
+4. **Límite de peticiones.** La sincronización completa son unas 7 300 llamadas (90 días); la
    concurrencia es 5. ¿Aguanta o piden menos?
 
 ## Lo que no se pudo verificar

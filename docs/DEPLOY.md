@@ -111,6 +111,7 @@ arranca si alguna tiene un formato inválido y dice cuál.
 | `BOOKING_STOCK_URL` | `https://booking-core-api.azurewebsites.net/api/v2/inventory/stock` | A dónde se manda el stock |
 | `BOOKING_STOCK_TIMEOUT_MS` | `5000` | Plazo de cada llamada (100 a 30000); el ESB de Booking corta a los 5 s |
 | `BOOKING_STOCK_DIAS` | `90` | Días hacia adelante que recorre la sincronización completa (1 a 365) |
+| `BOOKING_STOCK_TZ` | `America/Guayaquil` | Zona IANA en que se calculan `date` y `time_slot` desde el instante de salida: la hora de Ecuador (UTC-5, sin horario de verano), que Booking toma tal cual. No cambiarla sin que Booking lo pida |
 | `BOOKING_STOCK_SYNC_AL_ARRANCAR` | `false` | Con `true`, al arrancar se registran todas las claves de la ventana (la sincronización completa) |
 | `BOOKING_STOCK_JOB_ENABLED` | `true` | El proceso periódico que empuja las órdenes (las pruebas lo apagan y lo llaman a mano) |
 | `BOOKING_STOCK_JOB_INTERVAL_SECONDS` | `5` | Cada cuántos segundos corre (1 a 3600) |

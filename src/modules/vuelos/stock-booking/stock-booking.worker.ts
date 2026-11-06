@@ -136,7 +136,7 @@ export class StockBookingWorker implements OnApplicationBootstrap, OnModuleDestr
     };
     // Una correlación por ciclo para las órdenes que no traen la de la petición que las produjo
     const correlacionDelCiclo = `corr-${randomUUID()}`;
-    const { serviceId } = configuracionStockBooking(this.config);
+    const { serviceId, zonaHoraria } = configuracionStockBooking(this.config);
     let atendidas = 0;
     try {
       while (atendidas < REGLAS_STOCK.maximoPorCorrida) {
@@ -150,7 +150,7 @@ export class StockBookingWorker implements OnApplicationBootstrap, OnModuleDestr
         if (lote.length === 0) break;
         atendidas += lote.length;
         const salidas = await Promise.allSettled(
-          lote.map((orden) => this.mandar(orden, serviceId, correlacionDelCiclo)),
+          lote.map((orden) => this.mandar(orden, serviceId, zonaHoraria, correlacionDelCiclo)),
         );
         salidas.forEach((salida, i) => {
           if (salida.status === 'rejected') {
@@ -176,9 +176,10 @@ export class StockBookingWorker implements OnApplicationBootstrap, OnModuleDestr
   private async mandar(
     orden: OrdenReclamada,
     serviceId: string,
+    zonaHoraria: string,
     correlacionDelCiclo: string,
   ): Promise<'enviado' | 'reintento' | 'rechazado' | 'fallido' | 'bloqueado' | null> {
-    const registro = armarRegistro(serviceId, orden);
+    const registro = armarRegistro(serviceId, orden, zonaHoraria);
     const envio = await this.llamar(registro, orden.correlationId ?? correlacionDelCiclo);
     const ahora = this.reloj.ahora();
     let decision: ResultadoOrden & {

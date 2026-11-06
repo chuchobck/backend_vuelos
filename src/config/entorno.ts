@@ -117,6 +117,24 @@ const conStockBooking = (v: VariablesEntorno) => v.BOOKING_STOCK_ENABLED === 'tr
 /** Solo con WEBHOOKS_MODE=notifier se validan (y se exigen) las variables del relevo. */
 const conNotifier = (v: VariablesEntorno) => v.WEBHOOKS_MODE === 'notifier';
 
+/** Una zona horaria IANA que el runtime conoce (America/Guayaquil). */
+@ValidatorConstraint({ name: 'zonaHorariaIana' })
+class ZonaHorariaIana implements ValidatorConstraintInterface {
+  validate(valor: unknown): boolean {
+    if (typeof valor !== 'string' || !/^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)+$/.test(valor)) return false;
+    try {
+      new Intl.DateTimeFormat('en-CA', { timeZone: valor });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  defaultMessage(): string {
+    return 'BOOKING_STOCK_TZ debe ser una zona horaria IANA, como America/Guayaquil';
+  }
+}
+
 @ValidatorConstraint({ name: 'trustProxyValido' })
 class TrustProxyValido implements ValidatorConstraintInterface {
   validate(valor: unknown): boolean {
@@ -362,6 +380,12 @@ export class VariablesEntorno {
   @IsOptional()
   @ValidateIf(conStockBooking)
   BOOKING_STOCK_DIAS?: number;
+
+  /** Zona de `date` y `time_slot` del stock a Booking (hora de Ecuador). Sin valor: America/Guayaquil. */
+  @Validate(ZonaHorariaIana)
+  @IsOptional()
+  @ValidateIf(conStockBooking)
+  BOOKING_STOCK_TZ?: string;
 
   /** Registrar al arrancar todas las claves de la ventana (la sincronización completa). Sin valor: false. */
   @IsIn(['true', 'false'], { message: 'BOOKING_STOCK_SYNC_AL_ARRANCAR debe ser true o false' })

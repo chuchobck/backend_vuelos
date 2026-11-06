@@ -483,7 +483,7 @@ en la **misma transacción**, y `StockBookingWorker` manda después el valor **a
 momento, juntando los cambios repetidos de una clave. Reintenta con espera creciente, no reintenta
 un 4xx de validación ni un `success:false`, y tiene cortacircuitos: **la venta no espera a Booking**.
 Apagado por defecto. Diseño, variables, cómo activarlo, cómo leer los fallos y las preguntas abiertas
-(el significado de `time_slot`): [docs/STOCK-BOOKING.md](docs/STOCK-BOOKING.md).
+(qué pasa con el registro viejo si una salida cambia de hora): [docs/STOCK-BOOKING.md](docs/STOCK-BOOKING.md).
 
 ## Contrato v2 (/api/v2/vuelos)
 
