@@ -61,6 +61,7 @@ export class BandejaEventosRepository {
                'ownerId', r.id_propietario,
                'data', jsonb_strip_nulls(jsonb_build_object(
                  'bookingId', rc.id::text, 'pnr', rc.pnr,
+                 'partnerOrderId', rc.canal_orden,
                  'status', ${JSON.stringify(estados)}::jsonb ->> rc.estado::text,
                  'refundAmount', (SELECT to_char(c.monto_reembolso, 'FM999999990.00')
                                     FROM vuelos.cotizacion_cancelacion c
@@ -123,7 +124,7 @@ export class BandejaEventosRepository {
     return tx.$executeRaw`
       WITH afectadas AS (
         SELECT gen_random_uuid() AS evento, rc.id, rc.pnr, rc.estado, r.id_propietario,
-               ac.codigo_iata || v.numero AS vuelo
+               rc.canal_orden AS orden_socio, ac.codigo_iata || v.numero AS vuelo
           FROM vuelos.reserva_cabecera rc
           JOIN vuelos.retencion_cabecera r ON r.id = rc.retencion_id
           JOIN vuelos.vuelo_programado vp  ON vp.id = ${salidaId}::uuid
@@ -145,10 +146,11 @@ export class BandejaEventosRepository {
                'schemaVersion', ${VERSION_ESQUEMA_EVENTOS}::text,
                'occurredAt', to_char(${ahora}::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
                'ownerId', a.id_propietario,
-               'data', jsonb_build_object(
+               'data', jsonb_strip_nulls(jsonb_build_object(
                  'bookingId', a.id::text, 'pnr', a.pnr,
+                 'partnerOrderId', a.orden_socio,
                  'status', ${JSON.stringify(estados)}::jsonb ->> a.estado::text,
-                 'flightNumber', a.vuelo, 'segmentId', ${salidaId}::text))
+                 'flightNumber', a.vuelo, 'segmentId', ${salidaId}::text)))
                || ${extraDelSobre(origen)}::jsonb)::text,
              ${ahora}::timestamptz,
              ${ahora}::timestamptz + make_interval(hours => ${PLAZO_REINTENTOS_HORAS}),
