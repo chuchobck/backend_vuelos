@@ -43,12 +43,13 @@ model aeropuerto {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model asiento {
-  id                       BigInt                    @id(map: "pk_asiento") @default(autoincrement())
-  mapa_asientos_detalle_id BigInt
-  letra                    String                    @db.VarChar(1)
-  posicion                 posicion_asiento
-  mapa_asientos_detalle    mapa_asientos_detalle     @relation(fields: [mapa_asientos_detalle_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_asiento_fila")
-  reserva_detalle_asiento  reserva_detalle_asiento[]
+  id                        BigInt                      @id(map: "pk_asiento") @default(autoincrement())
+  mapa_asientos_detalle_id  BigInt
+  letra                     String                      @db.VarChar(1)
+  posicion                  posicion_asiento
+  mapa_asientos_detalle     mapa_asientos_detalle       @relation(fields: [mapa_asientos_detalle_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_asiento_fila")
+  reserva_detalle_asiento   reserva_detalle_asiento[]
+  retencion_detalle_asiento retencion_detalle_asiento[]
 
   @@unique([mapa_asientos_detalle_id, letra], map: "uq_asiento_fila_letra")
 }
@@ -596,23 +597,24 @@ model reserva_detalle_pasajero {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model retencion_cabecera {
-  id                String              @id(map: "pk_retencion_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  oferta_id         String              @db.Uuid
-  id_propietario    String
-  moneda_id         BigInt
-  estado            estado_retencion    @default(RETENIDA)
-  adultos           Int                 @default(1) @db.SmallInt
-  jovenes           Int                 @default(0) @db.SmallInt
-  ninos             Int                 @default(0) @db.SmallInt
-  infantes          Int                 @default(0) @db.SmallInt
-  fecha_creacion    DateTime            @default(now()) @db.Timestamptz(6)
-  fecha_expiracion  DateTime            @db.Timestamptz(6)
-  fecha_cierre      DateTime?           @db.Timestamptz(6)
-  evento            evento[]
-  reserva_cabecera  reserva_cabecera?
-  moneda            moneda              @relation(fields: [moneda_id], references: [id], onUpdate: NoAction, map: "fk_retencion_cabecera_moneda")
-  oferta_cabecera   oferta_cabecera     @relation(fields: [oferta_id], references: [id], onUpdate: NoAction, map: "fk_retencion_cabecera_oferta")
-  retencion_detalle retencion_detalle[]
+  id                        String                      @id(map: "pk_retencion_cabecera") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  oferta_id                 String                      @db.Uuid
+  id_propietario            String
+  moneda_id                 BigInt
+  estado                    estado_retencion            @default(RETENIDA)
+  adultos                   Int                         @default(1) @db.SmallInt
+  jovenes                   Int                         @default(0) @db.SmallInt
+  ninos                     Int                         @default(0) @db.SmallInt
+  infantes                  Int                         @default(0) @db.SmallInt
+  fecha_creacion            DateTime                    @default(now()) @db.Timestamptz(6)
+  fecha_expiracion          DateTime                    @db.Timestamptz(6)
+  fecha_cierre              DateTime?                   @db.Timestamptz(6)
+  evento                    evento[]
+  reserva_cabecera          reserva_cabecera?
+  moneda                    moneda                      @relation(fields: [moneda_id], references: [id], onUpdate: NoAction, map: "fk_retencion_cabecera_moneda")
+  oferta_cabecera           oferta_cabecera             @relation(fields: [oferta_id], references: [id], onUpdate: NoAction, map: "fk_retencion_cabecera_oferta")
+  retencion_detalle         retencion_detalle[]
+  retencion_detalle_asiento retencion_detalle_asiento[]
 
   @@index([oferta_id], map: "ix_retencion_cabecera_oferta")
   @@index([fecha_expiracion], map: "ix_retencion_cabecera_por_expirar", where: raw("(estado = 'RETENIDA'::estado_retencion)"))
@@ -707,28 +709,29 @@ model vuelo {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
 model vuelo_programado {
-  id                      String                    @id(map: "pk_vuelo_programado") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  vuelo_id                BigInt
-  mapa_asientos_id        BigInt
-  fecha_salida            DateTime                  @db.Date
-  salida_programada       DateTime                  @db.Timestamptz(6)
-  llegada_programada      DateTime                  @db.Timestamptz(6)
-  salida_estimada         DateTime?                 @db.Timestamptz(6)
-  llegada_estimada        DateTime?                 @db.Timestamptz(6)
-  salida_real             DateTime?                 @db.Timestamptz(6)
-  llegada_real            DateTime?                 @db.Timestamptz(6)
-  terminal_salida         String?
-  terminal_llegada        String?
-  estado                  estado_vuelo              @default(PROGRAMADO)
-  boleto_detalle          boleto_detalle[]
-  checkin                 checkin[]
-  inventario_cabina       inventario_cabina[]
-  orden_stock_booking     orden_stock_booking[]
-  itinerario_detalle      itinerario_detalle[]
-  reserva_detalle_asiento reserva_detalle_asiento[]
-  tarifa_cabecera         tarifa_cabecera[]
-  mapa_asientos_cabecera  mapa_asientos_cabecera    @relation(fields: [mapa_asientos_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_programado_mapa_asientos")
-  vuelo                   vuelo                     @relation(fields: [vuelo_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_programado_vuelo")
+  id                        String                      @id(map: "pk_vuelo_programado") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  vuelo_id                  BigInt
+  mapa_asientos_id          BigInt
+  fecha_salida              DateTime                    @db.Date
+  salida_programada         DateTime                    @db.Timestamptz(6)
+  llegada_programada        DateTime                    @db.Timestamptz(6)
+  salida_estimada           DateTime?                   @db.Timestamptz(6)
+  llegada_estimada          DateTime?                   @db.Timestamptz(6)
+  salida_real               DateTime?                   @db.Timestamptz(6)
+  llegada_real              DateTime?                   @db.Timestamptz(6)
+  terminal_salida           String?
+  terminal_llegada          String?
+  estado                    estado_vuelo                @default(PROGRAMADO)
+  boleto_detalle            boleto_detalle[]
+  checkin                   checkin[]
+  inventario_cabina         inventario_cabina[]
+  itinerario_detalle        itinerario_detalle[]
+  orden_stock_booking       orden_stock_booking[]
+  reserva_detalle_asiento   reserva_detalle_asiento[]
+  retencion_detalle_asiento retencion_detalle_asiento[]
+  tarifa_cabecera           tarifa_cabecera[]
+  mapa_asientos_cabecera    mapa_asientos_cabecera      @relation(fields: [mapa_asientos_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_programado_mapa_asientos")
+  vuelo                     vuelo                       @relation(fields: [vuelo_id], references: [id], onUpdate: NoAction, map: "fk_vuelo_programado_vuelo")
 
   @@unique([vuelo_id, fecha_salida], map: "uq_vuelo_programado_vuelo_fecha")
   @@index([fecha_salida], map: "ix_vuelo_programado_fecha_salida")
@@ -868,6 +871,24 @@ model evento_saliente {
   @@index([estado, proximo_intento], map: "ix_evento_saliente_pendiente", where: raw("(estado = 'PENDIENTE'::estado_evento_saliente)"))
   @@index([proximo_intento], map: "ix_evento_saliente_fallido", where: raw("(estado = 'FALLIDO'::estado_evento_saliente)"))
   @@index([publicado_en], map: "ix_evento_saliente_publicado", where: raw("(estado = 'PUBLICADO'::estado_evento_saliente)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model retencion_detalle_asiento {
+  id                  BigInt             @id(map: "pk_retencion_detalle_asiento") @default(autoincrement())
+  retencion_id        String             @db.Uuid
+  vuelo_programado_id String             @db.Uuid
+  asiento_id          BigInt
+  fecha_asignacion    DateTime           @db.Timestamptz(6)
+  fecha_liberacion    DateTime?          @db.Timestamptz(6)
+  asiento             asiento            @relation(fields: [asiento_id], references: [id], onUpdate: NoAction, map: "fk_retencion_detalle_asiento_asiento")
+  retencion_cabecera  retencion_cabecera @relation(fields: [retencion_id], references: [id], onUpdate: NoAction, map: "fk_retencion_detalle_asiento_cabecera")
+  vuelo_programado    vuelo_programado   @relation(fields: [vuelo_programado_id], references: [id], onUpdate: NoAction, map: "fk_retencion_detalle_asiento_vuelo")
+
+  @@unique([vuelo_programado_id, asiento_id], map: "uq_retencion_detalle_asiento_ocupado", where: raw("(fecha_liberacion IS NULL)"))
+  @@index([asiento_id], map: "ix_retencion_detalle_asiento_asiento")
+  @@index([retencion_id], map: "ix_retencion_detalle_asiento_retencion", where: raw("(fecha_liberacion IS NULL)"))
 }
 
 /// This enum is commented in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -1039,3 +1060,5 @@ enum proveedor_pago {
   AEROLINEA
   BOOKING_PROTOTIPO
 }
+
+
