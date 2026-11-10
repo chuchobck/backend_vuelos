@@ -21,9 +21,11 @@ import { MotivoCancelacionV2 } from '../../operaciones/cancelacion/cancelacion.s
 import { ConsultaReservasDto } from '../../operaciones/reserva/dto/consulta-reservas.dto';
 import { SolicitudEquipajeDto } from '../../operaciones/equipaje/dto/equipaje.dto';
 import {
+  AsientoElegidoDto,
   PasajeroReservaDto,
   SolicitudReservaDto,
 } from '../../operaciones/reserva/dto/solicitud-reserva.dto';
+import { MAXIMO_TRAMOS } from '../../operaciones/busqueda/dto/solicitud-busqueda.dto';
 import { SolicitudRetencionDto } from '../../operaciones/retencion/dto/solicitud-retencion.dto';
 import { CanalVentaDto, PagoV2Dto } from './comunes-v2.dto';
 
@@ -32,7 +34,17 @@ import { CanalVentaDto, PagoV2Dto } from './comunes-v2.dto';
 /** HoldRequest.ttlMinutes: de 5 a 30, 15 por defecto. */
 export const TTL_HOLD_V2 = { minimo: 5, maximo: 30, porDefecto: 15 };
 
-/** components.schemas.HoldRequest (v2): el de v1 más ttlMinutes. */
+/**
+ * Asientos que puede apartar un hold: uno por pasajero con asiento (9 como mucho) en cada
+ * segmento (hasta MAXIMO_TRAMOS itinerarios de hasta 2 segmentos, como en BookingRequest).
+ */
+export const MAXIMO_ASIENTOS_HOLD = 9 * MAXIMO_TRAMOS * 2;
+
+/**
+ * components.schemas.HoldRequest (v2): el de v1 más ttlMinutes y assignedSeats. assignedSeats no
+ * está en el HoldRequest del contrato (que no cierra sus propiedades): lo pidió Booking, con la
+ * misma forma que PassengerItem.assignedSeats (docs/V2-DIFERENCIAS.md).
+ */
 export class SolicitudRetencionV2Dto extends SolicitudRetencionDto {
   @ApiPropertyOptional({
     minimum: TTL_HOLD_V2.minimo,
@@ -45,6 +57,21 @@ export class SolicitudRetencionV2Dto extends SolicitudRetencionDto {
   @Min(TTL_HOLD_V2.minimo)
   @Max(TTL_HOLD_V2.maximo)
   ttlMinutes?: number;
+
+  @ApiPropertyOptional({
+    type: [AsientoElegidoDto],
+    maxItems: MAXIMO_ASIENTOS_HOLD,
+    description:
+      'Asientos que el hold aparta (status HELD en el seatmap) mientras esté vigente. Cada uno, ' +
+      'en un segmento del hold y de la cabina elegida, y no más por segmento que pasajeros con ' +
+      'asiento. Ocupado o apartado por otro hold: 409 SEAT_TAKEN y no se crea el hold',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAXIMO_ASIENTOS_HOLD)
+  @ValidateNested({ each: true })
+  @Type(() => AsientoElegidoDto)
+  assignedSeats?: AsientoElegidoDto[];
 }
 
 /** BookingRequest.passengers: hasta 9 en el contrato v2 (v1 admite 18 con los infantes). */

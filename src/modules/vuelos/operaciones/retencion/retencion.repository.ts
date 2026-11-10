@@ -73,17 +73,37 @@ export interface RetencionNueva {
     impuestos: Prisma.Decimal;
   }>;
   cupos: CupoDeCabina[];
+  /** Los asientos que aparta (HoldRequest.assignedSeats de v2); vacío si no pidió ninguno. */
+  asientos: AsientoApartado[];
+}
+
+/** Un asiento físico que la retención aparta en una salida. */
+export interface AsientoApartado {
+  salidaId: string;
+  asientoId: bigint;
+  /** Número del contrato (12A), para el mensaje de error. */
+  numero: string;
+}
+
+/** Un asiento del mapa de la aeronave de una salida, con su cabina. */
+export interface AsientoDelMapa {
+  salidaId: string;
+  numero: string;
+  asientoId: bigint;
+  cabina: clase_cabina;
 }
 
 /** Por qué no se creó la retención (la transacción se deshizo entera). */
-export type RechazoCreacion = 'clave-en-uso' | 'oferta-vencida' | 'sin-cupo';
+export type RechazoCreacion =
+  | { motivo: 'clave-en-uso' | 'oferta-vencida' | 'sin-cupo' }
+  | { motivo: 'asiento-tomado'; numero: string };
 
 /** Cómo se cierra una retención que sigue RETENIDA. */
 export type Cierre = 'liberar' | 'vencer' | 'consumir';
 
 class Rechazo extends Error {
-  constructor(readonly motivo: RechazoCreacion) {
-    super(motivo);
+  constructor(readonly rechazo: RechazoCreacion) {
+    super(rechazo.motivo);
   }
 }
 
@@ -219,25 +239,37 @@ export class RetencionRepository {
    *    este sigue. Así dos peticiones simultáneas con la misma clave no crean dos retenciones.
    * 2. Comprueba que la oferta siga vigente y la bloquea contra la purga de ofertas vencidas.
    * 3. Toma los cupos (ver la clase). Si a una cabina no le alcanza: 'sin-cupo'.
-   * 4. Inserta la cabecera y las líneas con el precio congelado.
+   * 4. Si pidió asientos: con las cabinas ya bloqueadas (todo hold o reserva que toque un
+   *    asiento de esa cabina espera aquí), suelta los que todavía tenga apartados un hold ya
+   *    vencido y comprueba que ninguno esté reservado ni apartado por un hold vigente:
+   *    'asiento-tomado'. El índice uq_retencion_detalle_asiento_ocupado lo garantiza igual.
+   * 5. Inserta la cabecera, las líneas con el precio congelado y los asientos apartados.
    *
    * Devuelve null si la creó, o el motivo por el que no (y no cambió nada).
    */
   async crear(retencion: RetencionNueva, clave: ClaveNueva): Promise<RechazoCreacion | null> {
     try {
       await this.prisma.transaccionAuditada(async (tx) => {
-        if (!(await this.claves.reclamar(tx, clave))) throw new Rechazo('clave-en-uso');
+        if (!(await this.claves.reclamar(tx, clave))) {
+          throw new Rechazo({ motivo: 'clave-en-uso' });
+        }
 
         const vigente = await tx.$queryRaw<unknown[]>`
           SELECT 1 FROM vuelos.oferta_cabecera
            WHERE id = ${retencion.ofertaId}::uuid AND fecha_expiracion > ${retencion.creada}::timestamptz
              FOR KEY SHARE`;
-        if (vigente.length === 0) throw new Rechazo('oferta-vencida');
+        if (vigente.length === 0) throw new Rechazo({ motivo: 'oferta-vencida' });
 
         if ((await tomarCupos(tx, retencion.cupos)) !== retencion.cupos.length) {
-          throw new Rechazo('sin-cupo');
+          throw new Rechazo({ motivo: 'sin-cupo' });
         }
         await this.stock.registrar(tx, retencion.cupos);
+
+        if (retencion.asientos.length > 0) {
+          await soltarAsientosVencidos(tx, retencion.asientos, retencion.creada);
+          const tomado = await asientoTomado(tx, retencion.asientos, retencion.creada);
+          if (tomado) throw new Rechazo({ motivo: 'asiento-tomado', numero: tomado.numero });
+        }
 
         await tx.retencion_cabecera.create({
           data: {
@@ -262,12 +294,55 @@ export class RetencionRepository {
             impuestos_congelados: linea.impuestos,
           })),
         });
+        if (retencion.asientos.length > 0) {
+          await tx.retencion_detalle_asiento.createMany({
+            data: retencion.asientos.map((a) => ({
+              retencion_id: retencion.id,
+              vuelo_programado_id: a.salidaId,
+              asiento_id: a.asientoId,
+              fecha_asignacion: retencion.creada,
+            })),
+          });
+        }
       });
       return null;
     } catch (error) {
-      if (error instanceof Rechazo) return error.motivo;
+      if (error instanceof Rechazo) return error.rechazo;
       throw error;
     }
+  }
+
+  /**
+   * Los asientos pedidos (salida y número) que existen en el mapa de la aeronave de su salida,
+   * con su cabina. Uno que no existe no aparece.
+   */
+  async asientosDelMapa(
+    pedidos: ReadonlyArray<{ salidaId: string; numero: string }>,
+  ): Promise<AsientoDelMapa[]> {
+    const filas = await this.prisma.db.$queryRaw<
+      Array<{ salida_id: string; numero: string; asiento_id: bigint; clase_cabina: clase_cabina }>
+    >`
+      SELECT vp.id AS salida_id, p.numero, a.id AS asiento_id, f.clase_cabina::text AS clase_cabina
+        FROM unnest(${pedidos.map((p) => p.salidaId)}::uuid[],
+                    ${pedidos.map((p) => p.numero)}::text[]) AS p(salida_id, numero)
+        JOIN vuelos.vuelo_programado vp     ON vp.id = p.salida_id
+        JOIN vuelos.mapa_asientos_detalle f ON f.mapa_asientos_id = vp.mapa_asientos_id
+        JOIN vuelos.asiento a               ON a.mapa_asientos_detalle_id = f.id
+       WHERE f.numero_fila::text || a.letra = p.numero`;
+    return filas.map((f) => ({
+      salidaId: f.salida_id,
+      numero: f.numero,
+      asientoId: f.asiento_id,
+      cabina: f.clase_cabina,
+    }));
+  }
+
+  /**
+   * Suelta los asientos que aparta la retención (fecha_liberacion), dentro de la transacción
+   * de quien la consume: la reserva, después de bloquear sus cabinas y de asignar los suyos.
+   */
+  soltarAsientos(tx: TransaccionVuelos, retencionId: string, ahora: Date): Promise<number> {
+    return soltarAsientos(tx, retencionId, ahora);
   }
 
   /** La retención con su lockedPrice (vista_retencion_precio), o null si no existe. */
@@ -295,7 +370,8 @@ export class RetencionRepository {
   }
 
   /**
-   * Cierra una retención que sigue RETENIDA y, salvo al consumirla, devuelve sus cupos:
+   * Cierra una retención que sigue RETENIDA y, salvo al consumirla, devuelve sus cupos y
+   * suelta los asientos que apartaba (al consumirla los suelta la reserva, ver soltarAsientos):
    *
    * - 'liberar': LIBERADA; si ya pasó su vencimiento, EXPIRADA (el cupo vuelve igual).
    * - 'vencer': EXPIRADA, solo si ya pasó su vencimiento.
@@ -333,6 +409,8 @@ export class RetencionRepository {
       if (cierre !== 'consumir') {
         await devolverCupos(tx, id);
         await this.stock.registrarRetencion(tx, id);
+        // Después de las cabinas, como al crear: el orden de bloqueo es siempre cabinas → asientos
+        await soltarAsientos(tx, id, ahora);
       }
       if (fila.estado === 'EXPIRADA') await this.publicador.deRetencionVencida(tx, id, ahora);
       return fila.estado;
@@ -370,6 +448,7 @@ export class RetencionRepository {
            WHERE id = ${fila.id}::uuid`;
         await devolverCupos(tx, fila.id);
         await this.stock.registrarRetencion(tx, fila.id);
+        await soltarAsientos(tx, fila.id, ahora);
         await this.publicador.deRetencionVencida(tx, fila.id, ahora);
         return fila.id;
       },
@@ -442,4 +521,68 @@ async function devolverCupos(tx: TransaccionVuelos, retencionId: string): Promis
        SET cupos_disponibles = LEAST(ic.cupos_totales, ic.cupos_disponibles + b.cantidad)
       FROM bloqueadas b
      WHERE ic.id = b.id`;
+}
+
+/** Suelta (fecha_liberacion, sin borrar) los asientos que la retención todavía aparta. */
+function soltarAsientos(tx: TransaccionVuelos, retencionId: string, ahora: Date): Promise<number> {
+  return tx.$executeRaw`
+    UPDATE vuelos.retencion_detalle_asiento
+       SET fecha_liberacion = ${ahora}::timestamptz
+     WHERE retencion_id = ${retencionId}::uuid AND fecha_liberacion IS NULL`;
+}
+
+/** Arreglos paralelos para unnest(): salida y asiento de cada uno pedido. */
+function columnasAsientos(asientos: readonly AsientoApartado[]) {
+  return {
+    salidas: asientos.map((a) => a.salidaId),
+    ids: asientos.map((a) => a.asientoId),
+  };
+}
+
+/**
+ * De esos asientos, suelta los que sigue apartando una retención que ya venció (o ya se cerró)
+ * y que el proceso periódico todavía no liberó: para el reloj ya no los aparta nadie, y si no
+ * se soltaran el índice único los daría por tomados. Su cupo vuelve cuando se venza.
+ */
+async function soltarAsientosVencidos(
+  tx: TransaccionVuelos,
+  asientos: readonly AsientoApartado[],
+  ahora: Date,
+): Promise<void> {
+  const { salidas, ids } = columnasAsientos(asientos);
+  await tx.$executeRaw`
+    UPDATE vuelos.retencion_detalle_asiento h
+       SET fecha_liberacion = ${ahora}::timestamptz
+      FROM vuelos.retencion_cabecera r,
+           unnest(${salidas}::uuid[], ${ids}::bigint[]) AS p(salida_id, asiento_id)
+     WHERE r.id = h.retencion_id
+       AND h.vuelo_programado_id = p.salida_id AND h.asiento_id = p.asiento_id
+       AND h.fecha_liberacion IS NULL
+       AND (r.estado::text <> 'RETENIDA' OR r.fecha_expiracion <= ${ahora}::timestamptz)`;
+}
+
+/** El primero de esos asientos que ya tiene una reserva o aparta un hold vigente; si no, null. */
+async function asientoTomado(
+  tx: TransaccionVuelos,
+  asientos: readonly AsientoApartado[],
+  ahora: Date,
+): Promise<AsientoApartado | null> {
+  const { salidas, ids } = columnasAsientos(asientos);
+  const [fila] = await tx.$queryRaw<Array<{ salida_id: string; asiento_id: bigint }>>`
+    SELECT p.salida_id::text AS salida_id, p.asiento_id
+      FROM unnest(${salidas}::uuid[], ${ids}::bigint[]) AS p(salida_id, asiento_id)
+     WHERE EXISTS (SELECT 1 FROM vuelos.reserva_detalle_asiento o
+                    WHERE o.vuelo_programado_id = p.salida_id AND o.asiento_id = p.asiento_id
+                      AND o.fecha_liberacion IS NULL)
+        OR EXISTS (SELECT 1 FROM vuelos.retencion_detalle_asiento h
+                     JOIN vuelos.retencion_cabecera r ON r.id = h.retencion_id
+                    WHERE h.vuelo_programado_id = p.salida_id AND h.asiento_id = p.asiento_id
+                      AND h.fecha_liberacion IS NULL
+                      AND r.estado::text = 'RETENIDA'
+                      AND r.fecha_expiracion > ${ahora}::timestamptz)
+     LIMIT 1`;
+  if (!fila) return null;
+  return (
+    asientos.find((a) => a.salidaId === fila.salida_id && a.asientoId === fila.asiento_id) ?? null
+  );
 }
