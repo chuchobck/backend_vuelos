@@ -56,14 +56,17 @@ export interface HoldParaReservar {
   itinerarios: ItinerarioDelHold[];
 }
 
-/** Un asiento físico de la aeronave de una salida, y si alguien lo tiene asignado. */
+/** Un asiento físico de la aeronave de una salida, y si alguien lo tiene asignado o apartado. */
 export interface AsientoDeSalida {
   salidaId: string;
   asientoId: bigint;
   /** Número del contrato: fila y letra (12A). */
   numero: string;
   cabina: clase_cabina;
+  /** Asignado en una reserva, o apartado por un hold vigente que no es el que se reserva. */
   ocupado: boolean;
+  /** Apartado por el hold que se está reservando (assignedSeats del hold, en v2). */
+  delHold: boolean;
 }
 
 export interface PasajeroNuevo {
@@ -335,11 +338,15 @@ export class ReservaRepository {
 
   /**
    * Los asientos físicos de la aeronave de esas salidas, en orden (fila y letra), con su cabina
-   * y si alguna reserva los tiene asignados (sin fecha_liberacion).
+   * y si están ocupados: asignados en una reserva (sin fecha_liberacion) o apartados por un hold
+   * RETENIDA que no venció a esa hora (`ahora`, del Reloj). Los que aparta `retencionPropia` (el
+   * hold que se está reservando) no cuentan como ocupados: vienen marcados `delHold`.
    */
   async asientosDeSalidas(
     tx: TransaccionVuelos,
     salidas: readonly string[],
+    ahora: Date,
+    retencionPropia: string | null = null,
   ): Promise<AsientoDeSalida[]> {
     const filas = await tx.$queryRaw<
       Array<{
@@ -348,13 +355,25 @@ export class ReservaRepository {
         numero: string;
         clase_cabina: clase_cabina;
         ocupado: boolean;
+        del_hold: boolean;
       }>
     >`
       SELECT vp.id AS salida_id, a.id AS asiento_id, f.numero_fila::text || a.letra AS numero,
              f.clase_cabina::text AS clase_cabina,
-             EXISTS (SELECT 1 FROM vuelos.reserva_detalle_asiento o
-                      WHERE o.vuelo_programado_id = vp.id AND o.asiento_id = a.id
-                        AND o.fecha_liberacion IS NULL) AS ocupado
+             (EXISTS (SELECT 1 FROM vuelos.reserva_detalle_asiento o
+                       WHERE o.vuelo_programado_id = vp.id AND o.asiento_id = a.id
+                         AND o.fecha_liberacion IS NULL)
+              OR EXISTS (SELECT 1 FROM vuelos.retencion_detalle_asiento h
+                           JOIN vuelos.retencion_cabecera r ON r.id = h.retencion_id
+                          WHERE h.vuelo_programado_id = vp.id AND h.asiento_id = a.id
+                            AND h.fecha_liberacion IS NULL
+                            AND r.estado::text = 'RETENIDA'
+                            AND r.fecha_expiracion > ${ahora}::timestamptz
+                            AND r.id IS DISTINCT FROM ${retencionPropia}::uuid)) AS ocupado,
+             EXISTS (SELECT 1 FROM vuelos.retencion_detalle_asiento h
+                      WHERE h.vuelo_programado_id = vp.id AND h.asiento_id = a.id
+                        AND h.fecha_liberacion IS NULL
+                        AND h.retencion_id = ${retencionPropia}::uuid) AS del_hold
         FROM vuelos.vuelo_programado vp
         JOIN vuelos.mapa_asientos_detalle f ON f.mapa_asientos_id = vp.mapa_asientos_id
         JOIN vuelos.asiento a               ON a.mapa_asientos_detalle_id = f.id
@@ -366,6 +385,7 @@ export class ReservaRepository {
       numero: f.numero,
       cabina: f.clase_cabina,
       ocupado: f.ocupado,
+      delHold: f.del_hold,
     }));
   }
 

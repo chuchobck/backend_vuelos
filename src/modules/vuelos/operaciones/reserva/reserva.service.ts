@@ -238,6 +238,8 @@ export class ReservaService {
         const mapa = await this.repositorio.asientosDeSalidas(
           tx,
           salidas.map((s) => s.id),
+          ahora,
+          hold.id,
         );
         const asientos = asignarAsientos(solicitud.passengers, salidas, elegidos, mapa);
 
@@ -256,6 +258,9 @@ export class ReservaService {
           asientos,
           origen: v2?.origen,
         });
+        // Los asientos que apartaba el hold ya son de la reserva (o, si eligió otros, quedan
+        // libres): después de bloquear las cabinas, como en el resto de los caminos
+        await this.retenciones.soltarAsientos(hold.id, ahora, tx);
         await this.pagosRegistrados.registrar(tx, {
           reservaId: id,
           referencia,
@@ -513,9 +518,16 @@ export class ReservaService {
     await this.repositorio.devolverCupo(tx, reservaId);
   }
 
-  /** Los asientos físicos de esas salidas y si están ocupados (con el inventario ya bloqueado). */
-  asientosDeSalidas(tx: TransaccionVuelos, salidas: readonly string[]): Promise<AsientoDeSalida[]> {
-    return this.repositorio.asientosDeSalidas(tx, salidas);
+  /**
+   * Los asientos físicos de esas salidas y si están ocupados (reservados o apartados por un hold
+   * vigente a esa hora), con el inventario ya bloqueado.
+   */
+  asientosDeSalidas(
+    tx: TransaccionVuelos,
+    salidas: readonly string[],
+    ahora: Date,
+  ): Promise<AsientoDeSalida[]> {
+    return this.repositorio.asientosDeSalidas(tx, salidas, ahora);
   }
 
   asignarAsientos(

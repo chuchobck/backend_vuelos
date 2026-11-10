@@ -83,10 +83,12 @@ export function validarAsientosElegidos(
  * de la base ya bloqueado (ver ReservaRepository.bloquearCabinas):
  *
  * - Un asiento elegido debe existir en la aeronave de esa salida (422), ser de la cabina del
- *   hold (422 SEAT_CABIN_MISMATCH) y estar libre (409 SEAT_TAKEN).
- * - Sin asiento elegido, la regla es determinista: el primero libre de esa cabina por fila y
- *   letra (1A, 1B, ... 2A), en el orden de los pasajeros del cuerpo y sin repetir los que ya
- *   eligió otro pasajero de la misma reserva.
+ *   hold (422 SEAT_CABIN_MISMATCH) y estar libre (409 SEAT_TAKEN): ni reservado ni apartado
+ *   por OTRO hold vigente. Uno que aparta el mismo hold que se reserva sí está libre.
+ * - Sin asiento elegido, la regla es determinista: primero los que apartó el hold en esa salida
+ *   y después el primero libre de esa cabina, los dos por fila y letra (1A, 1B, ... 2A), en el
+ *   orden de los pasajeros del cuerpo y sin repetir los que ya eligió otro pasajero de la misma
+ *   reserva.
  */
 export function asignarAsientos(
   pasajeros: PasajeroReservaDto[],
@@ -128,9 +130,10 @@ export function asignarAsientos(
   }
 
   for (const salida of salidas) {
-    const libres = mapa.filter(
-      (a) => a.salidaId === salida.id && a.cabina === salida.cabina && !a.ocupado,
-    );
+    const libres = mapa
+      .filter((a) => a.salidaId === salida.id && a.cabina === salida.cabina && !a.ocupado)
+      // sort es estable: dentro de cada grupo se mantiene el orden por fila y letra
+      .sort((a, b) => Number(b.delHold) - Number(a.delHold));
     for (const p of pasajeros) {
       if (p.passengerType === 'INFANT') continue;
       if (pedidos.some((x) => x.codigoPasajero === p.passengerId && x.salidaId === salida.id)) {
