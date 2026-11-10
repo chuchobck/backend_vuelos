@@ -52,8 +52,8 @@ export class AsientoMapaV2Dto extends AsientoMapaDto {
     enum: ESTADOS_ASIENTO,
     example: 'AVAILABLE',
     description:
-      'AVAILABLE, BOOKED (reservado), TICKETED (boleto emitido) o CHECKED_IN. Un hold toma ' +
-      'cupo de cabina y no un asiento: nunca HELD. Sin status si la cabina no se vende en esta salida',
+      'AVAILABLE, HELD (lo aparta un hold vigente con assignedSeats), BOOKED (reservado), ' +
+      'TICKETED (boleto emitido) o CHECKED_IN. Sin status si la cabina no se vende en esta salida',
   })
   status?: EstadoAsiento;
 }

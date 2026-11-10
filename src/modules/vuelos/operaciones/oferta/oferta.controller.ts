@@ -27,8 +27,8 @@ export class OfertaController {
     summary: 'Obtener mapa de asientos por segmento',
     description:
       'Asientos físicos de la aeronave del segmento, sin precios. Un asiento no está disponible si ' +
-      'una reserva ya lo tiene asignado o si su cabina no se vende en esta salida (las retenciones ' +
-      'toman cupo, no asientos).',
+      'una reserva ya lo tiene asignado, si lo aparta un hold vigente (assignedSeats del hold de ' +
+      'la fachada v2) o si su cabina no se vende en esta salida.',
   })
   @ApiParam({ name: 'offerId', format: 'uuid', description: 'offerId de POST /search' })
   @ApiQuery({

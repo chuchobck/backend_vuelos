@@ -45,8 +45,9 @@ export function aEstadoRetencionV2(retencion: Retencion, ahora: Date): EstadoRet
 
 /**
  * SeatMapResponse v2: el de v1 más `status` por asiento. Un asiento libre de una cabina que se
- * vende es AVAILABLE; uno ocupado, BOOKED, TICKETED o CHECKED_IN según su pasajero; uno de una
- * cabina que no se vende en esta salida no lleva status (SeatStatus no tiene un valor para eso).
+ * vende es AVAILABLE; uno que aparta un hold vigente, HELD; uno ocupado, BOOKED, TICKETED o
+ * CHECKED_IN según su pasajero; uno de una cabina que no se vende en esta salida no lleva
+ * status (SeatStatus no tiene un valor para eso).
  */
 export function aMapaAsientosV2(
   mapa: MapaDeSegmento,
@@ -65,7 +66,9 @@ export function aMapaAsientosV2(
           ...fila,
           seats: fila.seats.map((asiento, j) => {
             const id = original.asiento[j].id;
-            const estado = ocupados.get(id) ?? (asiento.isAvailable ? 'AVAILABLE' : undefined);
+            const estado =
+              ocupados.get(id) ??
+              (mapa.apartados.has(id) ? 'HELD' : asiento.isAvailable ? 'AVAILABLE' : undefined);
             return estado === undefined ? asiento : { ...asiento, status: estado };
           }),
         };

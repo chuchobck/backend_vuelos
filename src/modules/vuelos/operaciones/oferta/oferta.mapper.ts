@@ -29,7 +29,7 @@ export function aMapaAsientosOferta(mapa: MapaDeSegmento): MapaAsientosOfertaDto
       rowNumber: fila.numero_fila,
       seats: fila.asiento.map((asiento) => ({
         seatNumber: `${fila.numero_fila}${asiento.letra}`,
-        isAvailable: seVende && !mapa.ocupados.has(asiento.id),
+        isAvailable: seVende && !mapa.ocupados.has(asiento.id) && !mapa.apartados.has(asiento.id),
         characteristics: [
           POR_POSICION[asiento.posicion],
           fila.espacio_extra ? 'EXTRA_LEGROOM' : undefined,

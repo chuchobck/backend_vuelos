@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Reloj } from '../../../../common/reloj';
 import { estado_vuelo } from '../../../../generated/prisma/client';
 import { noExiste } from '../../compartido/errores';
 import { FilaDistribucion, OfertaRepository } from './oferta.repository';
@@ -10,17 +11,23 @@ export interface MapaDeSegmento {
   salidaId: string;
   filas: FilaDistribucion[];
   ocupados: Set<bigint>;
+  /** Apartados por un hold vigente (assignedSeats de v2): no disponibles, HELD en v2. */
+  apartados: Set<bigint>;
   cabinasVendidas: Set<string>;
 }
 
 /**
- * GET /offers/{offerId}/seatmap. Las retenciones toman cupo de cabina, no asientos: un
- * asiento solo deja de estar disponible cuando una reserva lo asigna (reserva_detalle_asiento)
- * o cuando su cabina no se vende en esta salida.
+ * GET /offers/{offerId}/seatmap. Una retención toma cupo de cabina y, si los pidió (v2), aparta
+ * asientos. Un asiento deja de estar disponible cuando una reserva lo asigna
+ * (reserva_detalle_asiento), mientras lo aparta un hold RETENIDA que no venció a la hora del
+ * Reloj (retencion_detalle_asiento) o cuando su cabina no se vende en esta salida.
  */
 @Injectable()
 export class OfertaService {
-  constructor(private readonly repositorio: OfertaRepository) {}
+  constructor(
+    private readonly repositorio: OfertaRepository,
+    private readonly reloj: Reloj,
+  ) {}
 
   async mapaDeAsientos(ofertaId: string, segmentoId: string): Promise<MapaDeSegmento> {
     const vence = await this.repositorio.vencimiento(ofertaId);
@@ -33,11 +40,12 @@ export class OfertaService {
       throw noExiste(`Segment ${segmentoId} is no longer available`);
     }
 
-    const [filas, ocupados, cabinasVendidas] = await Promise.all([
+    const [filas, ocupados, apartados, cabinasVendidas] = await Promise.all([
       this.repositorio.distribucion(segmento.mapaId),
       this.repositorio.asientosOcupados(segmento.salidaId),
+      this.repositorio.asientosApartados(segmento.salidaId, this.reloj.ahora()),
       this.repositorio.cabinasVendidas(segmento.salidaId),
     ]);
-    return { salidaId: segmento.salidaId, filas, ocupados, cabinasVendidas };
+    return { salidaId: segmento.salidaId, filas, ocupados, apartados, cabinasVendidas };
   }
 }
