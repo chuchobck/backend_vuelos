@@ -12,6 +12,7 @@ import { Prisma, tipo_pasajero } from '../../../../generated/prisma/client';
 import { CABINA, ORDEN_CABINAS } from '../../compartido/enums';
 import { claveConOtroCuerpo, cuerpoInvalido, noExiste } from '../../compartido/errores';
 import { asientosOcupados, ConteoPasajeros, validarPasajeros } from '../../compartido/pasajeros';
+import type { AsientoElegidoDto } from '../reserva/dto/solicitud-reserva.dto';
 import { RetencionCreadaDto } from './dto/respuesta-retencion.dto';
 import { SolicitudRetencionDto } from './dto/solicitud-retencion.dto';
 import { ClaveGuardada, IdempotenciaRepository } from '../../compartido/idempotencia.repository';
@@ -19,6 +20,7 @@ import { aRetencionCreada, aRetencionRepetida } from './retencion.mapper';
 import { Retencion } from './retencion.modelo';
 import {
   ACTOR_SISTEMA,
+  AsientoApartado,
   CupoDeCabina,
   FamiliaDeOferta,
   FilaPrecioActual,
@@ -57,6 +59,16 @@ export interface ResultadoCreacion {
  */
 export type ResultadoConsumo = 'consumida' | 'no-existe' | 'vencida' | 'liberada' | 'ya-consumida';
 
+/**
+ * Lo que la fachada v2 agrega a POST /offers/hold (v1 no lo pasa): `vigenciaMinutos` es su
+ * ttlMinutes (de 5 a 30; sin él, HOLD_TTL_MINUTES) y `asientos` su assignedSeats, los asientos
+ * que el hold aparta además del cupo de cabina.
+ */
+export interface OpcionesRetencionV2 {
+  vigenciaMinutos?: number;
+  asientos?: AsientoElegidoDto[];
+}
+
 /** Una selección del cuerpo ya resuelta contra la oferta y el catálogo. */
 interface SeleccionResuelta {
   itinerarioId: string;
@@ -70,6 +82,10 @@ const holdNoExiste = (id: string) => noExiste(`Hold ${id} was not found`);
 
 const noDisponible = (detalle: string) =>
   new ErrorNegocio(409, CodigoError.OFFER_NO_LONGER_AVAILABLE, detalle);
+
+/** 409 SEAT_TAKEN: el asiento ya lo tiene una reserva o lo aparta otro hold vigente. */
+const asientoTomado = (numero: string) =>
+  new ErrorNegocio(409, CodigoError.SEAT_TAKEN, `Seat ${numero} is already taken on this flight`);
 
 /** 422: el cuerpo es válido, pero no corresponde a la oferta. */
 const noCorresponde = (campo: string, detalle: string) =>
@@ -102,17 +118,17 @@ export class RetencionService {
   }
 
   /**
-   * `vigenciaMinutos` es el ttlMinutes de la fachada v2 (de 5 a 30); sin él, HOLD_TTL_MINUTES.
-   * Cuenta en la huella solo si llega: un reintento de v1 sigue dando la misma.
+   * `v2` son las opciones de la fachada v2 (ttlMinutes y assignedSeats). Cuentan en la huella
+   * solo si llegan: un reintento de v1 sigue dando la misma.
    */
   crear(
     solicitud: SolicitudRetencionDto,
     idPropietario: string,
     clave: string,
-    vigenciaMinutos?: number,
+    v2: OpcionesRetencionV2 = {},
   ): Promise<ResultadoCreacion> {
     return this.observabilidad.interno('retencion.crear', () =>
-      this.crearRetencion(solicitud, idPropietario, clave, vigenciaMinutos),
+      this.crearRetencion(solicitud, idPropietario, clave, v2),
     );
   }
 
@@ -120,11 +136,12 @@ export class RetencionService {
     solicitud: SolicitudRetencionDto,
     idPropietario: string,
     clave: string,
-    vigenciaMinutos?: number,
+    v2: OpcionesRetencionV2,
   ): Promise<ResultadoCreacion> {
     const ahora = this.reloj.ahora();
-    const huella = huellaDe(solicitud, vigenciaMinutos);
-    const minutos = vigenciaMinutos ?? this.vigenciaMinutos;
+    const elegidos = v2.asientos ?? [];
+    const huella = huellaDe(solicitud, v2.vigenciaMinutos, elegidos);
+    const minutos = v2.vigenciaMinutos ?? this.vigenciaMinutos;
     const idClave = { idPropietario, operacion: 'CREAR_RETENCION' as const, clave };
 
     const previa = await this.claves.leer(idClave);
@@ -137,6 +154,11 @@ export class RetencionService {
       throw noDisponible(`Offer ${solicitud.offerId} was not found or has expired`);
     }
     const selecciones = await this.resolver(solicitud, oferta);
+    const asientos = await this.resolverAsientos(
+      elegidos,
+      selecciones,
+      asientosOcupados(pasajeros),
+    );
     const precios = await this.repositorio.preciosActuales(
       selecciones.flatMap((s) => s.salidas),
       selecciones.map((s) => s.familia.id),
@@ -180,6 +202,7 @@ export class RetencionService {
       vence,
       lineas,
       cupos,
+      asientos,
     };
 
     const rechazo = await this.repositorio.crear(retencion, {
@@ -192,7 +215,7 @@ export class RetencionService {
     });
     if (rechazo === null) return { cuerpo, repetida: false };
 
-    switch (rechazo) {
+    switch (rechazo.motivo) {
       case 'clave-en-uso': {
         // Otra petición con la misma clave terminó primero: se responde lo mismo que a ella.
         const ganadora = await this.claves.leer(idClave);
@@ -203,7 +226,69 @@ export class RetencionService {
         throw noDisponible(`Offer ${solicitud.offerId} was not found or has expired`);
       case 'sin-cupo':
         throw noDisponible('There are not enough seats left for all passengers on every segment');
+      case 'asiento-tomado':
+        throw asientoTomado(rechazo.numero);
     }
+  }
+
+  /**
+   * assignedSeats (v2) contra el hold y el mapa de la aeronave: el segmento es de un itinerario
+   * del hold (422), un asiento no se repite (400), no hay más asientos en un segmento que
+   * pasajeros con asiento (422), el asiento existe en esa aeronave (422) y es de la cabina
+   * elegida para ese itinerario (422 SEAT_CABIN_MISMATCH). Que esté libre se comprueba al
+   * crear, con las cabinas bloqueadas (409 SEAT_TAKEN).
+   */
+  private async resolverAsientos(
+    elegidos: readonly AsientoElegidoDto[],
+    selecciones: readonly SeleccionResuelta[],
+    conAsiento: number,
+  ): Promise<AsientoApartado[]> {
+    if (elegidos.length === 0) return [];
+    const cabinaDe = new Map<string, SeleccionResuelta['familia']['cabina']>();
+    for (const { salidas, familia } of selecciones) {
+      for (const salida of salidas) if (!cabinaDe.has(salida)) cabinaDe.set(salida, familia.cabina);
+    }
+    const vistos = new Set<string>();
+    const porSegmento = new Map<string, number>();
+    elegidos.forEach((a, j) => {
+      const campo = `assignedSeats[${j}]`;
+      if (!cabinaDe.has(a.segmentId)) {
+        throw noCorresponde(`${campo}.segmentId`, 'is not a segment of the hold');
+      }
+      const llave = `${a.segmentId}|${a.seatNumber}`;
+      if (vistos.has(llave)) throw cuerpoInvalido(`${campo}.seatNumber`, 'is repeated');
+      vistos.add(llave);
+      const cantidad = (porSegmento.get(a.segmentId) ?? 0) + 1;
+      if (cantidad > conAsiento) {
+        throw noCorresponde(
+          'assignedSeats',
+          `The hold has ${conAsiento} passenger(s) with a seat: at most ${conAsiento} seat(s) per segment`,
+        );
+      }
+      porSegmento.set(a.segmentId, cantidad);
+    });
+
+    const mapa = await this.repositorio.asientosDelMapa(
+      elegidos.map((a) => ({ salidaId: a.segmentId, numero: a.seatNumber })),
+    );
+    return elegidos.map((a, j) => {
+      const campo = `assignedSeats[${j}]`;
+      const asiento = mapa.find((m) => m.salidaId === a.segmentId && m.numero === a.seatNumber);
+      if (!asiento) {
+        throw noCorresponde(campo, `seat ${a.seatNumber} does not exist on this aircraft`);
+      }
+      const cabina = cabinaDe.get(a.segmentId)!;
+      if (asiento.cabina !== cabina) {
+        throw new ErrorNegocio(
+          422,
+          CodigoError.SEAT_CABIN_MISMATCH,
+          `${campo}: seat ${a.seatNumber} is in ${CABINA.aContrato(asiento.cabina)}, ` +
+            `but the hold is for ${CABINA.aContrato(cabina)}`,
+          { invalidParams: [{ name: campo, reason: 'seat is in another cabin' }] },
+        );
+      }
+      return { salidaId: a.segmentId, asientoId: asiento.asientoId, numero: a.seatNumber };
+    });
   }
 
   /**
@@ -333,6 +418,14 @@ export class RetencionService {
     return motivoDeCierre(actual.estado);
   }
 
+  /**
+   * Suelta los asientos que apartaba un hold recién consumido, en la transacción de la reserva
+   * y después de que esta bloqueara sus cabinas y asignara los suyos (que pueden ser esos).
+   */
+  async soltarAsientos(id: string, ahora: Date, tx: TransaccionVuelos): Promise<void> {
+    await this.repositorio.soltarAsientos(tx, id, ahora);
+  }
+
   /** Libera (sin fallar la petición) las retenciones vencidas que tienen cupo en esas salidas. */
   private async vencerEnSalidas(salidas: string[], ahora: Date): Promise<void> {
     try {
@@ -355,7 +448,11 @@ function motivoDeCierre(estado: string): ResultadoConsumo {
  * SHA-256 (hexadecimal) del cuerpo ya validado y con los valores por defecto puestos, con las
  * claves en un orden fijo: `{}` y `{"adults": 1}` en passengersBreakdown son la misma petición.
  */
-function huellaDe(solicitud: SolicitudRetencionDto, vigenciaMinutos?: number): string {
+function huellaDe(
+  solicitud: SolicitudRetencionDto,
+  vigenciaMinutos: number | undefined,
+  asientos: readonly AsientoElegidoDto[],
+): string {
   const p = solicitud.passengersBreakdown;
   const canonica = {
     offerId: solicitud.offerId.toLowerCase(),
@@ -371,6 +468,12 @@ function huellaDe(solicitud: SolicitudRetencionDto, vigenciaMinutos?: number): s
       infants: p.infants ?? 0,
     },
     ...(vigenciaMinutos === undefined ? {} : { ttlMinutes: vigenciaMinutos }),
+    // En orden: los mismos asientos en otro orden son el mismo hold
+    ...(asientos.length === 0
+      ? {}
+      : {
+          assignedSeats: asientos.map((a) => `${a.segmentId.toLowerCase()}|${a.seatNumber}`).sort(),
+        }),
   };
   return createHash('sha256').update(JSON.stringify(canonica)).digest('hex');
 }

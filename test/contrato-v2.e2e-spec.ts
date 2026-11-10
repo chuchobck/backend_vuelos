@@ -504,6 +504,326 @@ describe('Contrato v2 (/api/v2/vuelos): pruebas de proveedor', () => {
     });
   });
 
+  describe('MS.Reservas: asientos que aparta el hold (assignedSeats)', () => {
+    type Asiento = { segmentId: string; seatNumber: string };
+    const segmentoDe = (oferta: Json): string => oferta.itineraries[0].segments[0].segmentId;
+    const cabinaDe = (oferta: Json): string => oferta.itineraries[0].pricingOptions[0].cabinClass;
+    const asientosDe = (mapa: Json): Json[] =>
+      (mapa.cabins as Json[]).flatMap((c) => (c.rows as Json[]).flatMap((f) => f.seats as Json[]));
+    const mapaV2 = async (oferta: Json): Promise<Json> =>
+      esperarV2(
+        'getSeatMap',
+        await v2('get', `/offers/${oferta.offerId}/seatmap?segmentId=${segmentoDe(oferta)}`),
+        200,
+      );
+    /** El asiento en el seatmap v2 y en el de v1 (isAvailable). */
+    const asientoEnMapas = async (oferta: Json, numero: string) => {
+      const enV2 = asientosDe(await mapaV2(oferta)).find((a) => a.seatNumber === numero)!;
+      const v1 = await http()
+        .get(`/flights/v1/offers/${oferta.offerId}/seatmap?segmentId=${segmentoDe(oferta)}`)
+        .expect(200);
+      const enV1 = asientosDe(v1.body as Json).find((a) => a.seatNumber === numero)!;
+      return { status: enV2.status, isAvailable: enV2.isAvailable, v1: enV1.isAvailable };
+    };
+    /**
+     * Los últimos `n` asientos AVAILABLE de la cabina del hold: lejos de los que asigna sola la
+     * reserva (el primero libre), para no chocar con las demás pruebas.
+     */
+    const libres = async (oferta: Json, n = 1): Promise<Asiento[]> => {
+      const mapa = await mapaV2(oferta);
+      const cabina = (mapa.cabins as Json[]).find((c) => c.cabinClass === cabinaDe(oferta))!;
+      const disponibles = (cabina.rows as Json[])
+        .flatMap((f) => f.seats as Json[])
+        .filter((a) => a.status === 'AVAILABLE');
+      expect(disponibles.length).toBeGreaterThanOrEqual(n);
+      return disponibles
+        .slice(-n)
+        .map((a) => ({ segmentId: segmentoDe(oferta), seatNumber: a.seatNumber as string }));
+    };
+    const holdConAsientos = (
+      token: string,
+      oferta: Json,
+      asientos: Asiento[],
+      extra: Json = {},
+      pasajeros: Json = { adults: 1 },
+    ) =>
+      v2('post', '/offers/hold', token, { 'Idempotency-Key': randomUUID() }).send(
+        cuerpoHold(oferta, pasajeros, { assignedSeats: asientos, ...extra }),
+      );
+    const reservar = (token: string, holdId: string, asientos?: Asiento[]) =>
+      v2('post', '/bookings', token, { 'Idempotency-Key': randomUUID() }).send({
+        holdId,
+        passengers: [
+          {
+            ...u.pasajero('ADULT', 500 + ++serie),
+            ...(asientos ? { assignedSeats: asientos } : {}),
+          },
+        ],
+        payment: { paymentReference: referenciaBooking() },
+      });
+    const retencionesDe = async (sub: string): Promise<number> => {
+      const [fila] = await prisma.db.$queryRaw<Array<{ total: number }>>`
+        SELECT count(*)::int AS total FROM vuelos.retencion_cabecera WHERE id_propietario = ${sub}`;
+      return fila.total;
+    };
+    const cupos = async (oferta: Json): Promise<number> => {
+      const [fila] = await prisma.db.$queryRaw<Array<{ cupos: number }>>`
+        SELECT sum(cupos_disponibles)::int AS cupos FROM vuelos.inventario_cabina
+         WHERE vuelo_programado_id = ${segmentoDe(oferta)}::uuid`;
+      return fila.cupos;
+    };
+    const liberar = async (holdId: string) =>
+      esperarV2('releaseHold', await v2('delete', `/offers/hold/${holdId}`, tokenPartner()), 204);
+
+    it('createHold con assignedSeats: 201 y HELD en el seatmap; otro hold con ese asiento 409 SEAT_TAKEN sin crear nada; DELETE lo deja AVAILABLE', async () => {
+      const oferta = await buscar(81);
+      const [asiento] = await libres(oferta);
+      const hold = esperarV2(
+        'createHold',
+        await holdConAsientos(tokenPartner(), oferta, [asiento]),
+        201,
+      );
+      expect(await asientoEnMapas(oferta, asiento.seatNumber)).toEqual({
+        status: 'HELD',
+        isAvailable: false,
+        v1: false,
+      });
+
+      const retencionesAntes = await retencionesDe(otroPartner.sub);
+      const cuposAntes = await cupos(oferta);
+      esperarProblemaV2(
+        'createHold',
+        await holdConAsientos(tokenPartner(otroPartner), oferta, [asiento]),
+        409,
+        'SEAT_TAKEN',
+      );
+      expect(await retencionesDe(otroPartner.sub)).toBe(retencionesAntes);
+      expect(await cupos(oferta)).toBe(cuposAntes);
+
+      await liberar(hold.holdId);
+      expect(await asientoEnMapas(oferta, asiento.seatNumber)).toEqual({
+        status: 'AVAILABLE',
+        isAvailable: true,
+        v1: true,
+      });
+      // Ya libre, otro partner lo puede apartar
+      const otro = esperarV2(
+        'createHold',
+        await holdConAsientos(tokenPartner(otroPartner), oferta, [asiento]),
+        201,
+      );
+      await v2('delete', `/offers/hold/${otro.holdId}`, tokenPartner(otroPartner)).expect(204);
+    });
+
+    it('un hold vencido (adelantando el Reloj) deja de apartar su asiento: AVAILABLE y otro hold lo toma', async () => {
+      const oferta = await buscar(82);
+      const [asiento] = await libres(oferta);
+      const vencido = esperarV2(
+        'createHold',
+        await holdConAsientos(tokenPartner(), oferta, [asiento], { ttlMinutes: 5 }),
+        201,
+      );
+      expect((await asientoEnMapas(oferta, asiento.seatNumber)).status).toBe('HELD');
+
+      reloj.adelantar(6);
+      // Nadie lo cerró todavía (el proceso periódico está apagado): basta con el Reloj
+      expect(await asientoEnMapas(oferta, asiento.seatNumber)).toEqual({
+        status: 'AVAILABLE',
+        isAvailable: true,
+        v1: true,
+      });
+      const nuevo = esperarV2(
+        'createHold',
+        await holdConAsientos(tokenPartner(otroPartner), oferta, [asiento]),
+        201,
+      );
+      expect((await asientoEnMapas(oferta, asiento.seatNumber)).status).toBe('HELD');
+      expect(
+        esperarV2('getHold', await v2('get', `/offers/hold/${vencido.holdId}`, tokenPartner()), 200)
+          .status,
+      ).toBe('EXPIRED');
+      // El asiento del vencido quedó soltado (sin borrar la fila) y el nuevo lo aparta
+      const filas = await prisma.db.$queryRaw<Array<{ retencion_id: string; suelto: boolean }>>`
+        SELECT retencion_id::text AS retencion_id, fecha_liberacion IS NOT NULL AS suelto
+          FROM vuelos.retencion_detalle_asiento
+         WHERE retencion_id = ANY(${[vencido.holdId, nuevo.holdId]}::uuid[])
+         ORDER BY fecha_asignacion`;
+      expect(filas).toEqual([
+        { retencion_id: vencido.holdId, suelto: true },
+        { retencion_id: nuevo.holdId, suelto: false },
+      ]);
+      reloj.alPresente();
+      await v2('delete', `/offers/hold/${nuevo.holdId}`, tokenPartner(otroPartner)).expect(204);
+      expect((await asientoEnMapas(oferta, asiento.seatNumber)).status).toBe('AVAILABLE');
+    });
+
+    it('createBooking: el asiento que aparta OTRO hold es 409 SEAT_TAKEN sin crear la reserva; el de su hold es 201 y queda TICKETED', async () => {
+      const oferta = await buscar(83);
+      const [a, b] = await libres(oferta, 2);
+      const holdA = esperarV2(
+        'createHold',
+        await holdConAsientos(tokenPartner(), oferta, [a]),
+        201,
+      );
+      const holdB = esperarV2(
+        'createHold',
+        await holdConAsientos(tokenPartner(), oferta, [b]),
+        201,
+      );
+
+      esperarProblemaV2(
+        'createBooking',
+        await reservar(tokenPartner(), holdB.holdId, [a]),
+        409,
+        'SEAT_TAKEN',
+      );
+      const sinReserva = await prisma.db.$queryRaw<unknown[]>`
+        SELECT 1 FROM vuelos.reserva_cabecera WHERE retencion_id = ${holdB.holdId}::uuid`;
+      expect(sinReserva).toEqual([]);
+      expect(
+        esperarV2('getHold', await v2('get', `/offers/hold/${holdB.holdId}`, tokenPartner()), 200)
+          .status,
+      ).toBe('HELD');
+      expect((await asientoEnMapas(oferta, b.seatNumber)).status).toBe('HELD');
+
+      const reservaA = esperarV2(
+        'createBooking',
+        await reservar(tokenPartner(), holdA.holdId, [a]),
+        201,
+      );
+      expect(reservaA.passengers[0].assignedSeats).toEqual([a]);
+      // BOOKING_PROTOTIPO: la reserva sale CONFIRMED con boleto, así que el asiento es TICKETED
+      expect(await asientoEnMapas(oferta, a.seatNumber)).toEqual({
+        status: 'TICKETED',
+        isAvailable: false,
+        v1: false,
+      });
+
+      // Sin elegir asiento, la reserva toma el que apartó su hold (no el primero libre)
+      const reservaB = esperarV2(
+        'createBooking',
+        await reservar(tokenPartner(), holdB.holdId),
+        201,
+      );
+      expect(reservaB.passengers[0].assignedSeats).toEqual([b]);
+      expect((await asientoEnMapas(oferta, b.seatNumber)).status).toBe('TICKETED');
+    });
+
+    it('createHold con assignedSeats: 422 fuera del hold, inexistente, de otra cabina (SEAT_CABIN_MISMATCH) o más que pasajeros; 400 repetido', async () => {
+      // Una oferta directa cuya aeronave tenga dos cabinas
+      const respuesta = await v2('post', '/search', undefined, { 'X-Device-Fingerprint': HUELLA })
+        .send({
+          itineraries: [{ origin: 'UIO', destination: 'GYE', departureDate: u.fechaEn(84) }],
+          passengers: { adults: 1 },
+        })
+        .expect(200);
+      let oferta: Json | undefined;
+      let otraCabina: Json | undefined;
+      for (const candidata of (respuesta.body.offers as Json[]).filter((o) =>
+        (o.itineraries as Json[]).every((it) => it.segments.length === 1),
+      )) {
+        const cabina = (await mapaV2(candidata)).cabins.find(
+          (c: Json) => c.cabinClass !== cabinaDe(candidata),
+        );
+        if (cabina) {
+          oferta = candidata;
+          otraCabina = cabina;
+          break;
+        }
+      }
+      if (!oferta || !otraCabina) throw new Error('Ninguna oferta directa tiene dos cabinas');
+      const segmentId = segmentoDe(oferta);
+      const [libre, otroLibre] = await libres(oferta, 2);
+      const errores: Array<[Json, number, string]> = [
+        [[{ segmentId: randomUUID(), seatNumber: libre.seatNumber }], 422, 'VALIDATION_FAILED'],
+        [[{ segmentId, seatNumber: '99A' }], 422, 'VALIDATION_FAILED'],
+        [
+          [{ segmentId, seatNumber: otraCabina.rows[0].seats[0].seatNumber }],
+          422,
+          'SEAT_CABIN_MISMATCH',
+        ],
+        [[libre, otroLibre], 422, 'VALIDATION_FAILED'],
+        [[libre, libre], 400, 'VALIDATION_FAILED'],
+        [[{ segmentId, seatNumber: '12' }], 400, 'VALIDATION_FAILED'],
+      ];
+      for (const [asientos, status, code] of errores) {
+        esperarProblemaV2(
+          'createHold',
+          await holdConAsientos(tokenPartner(), oferta, asientos as Asiento[]),
+          status,
+          code,
+        );
+      }
+      expect((await asientoEnMapas(oferta, libre.seatNumber)).status).toBe('AVAILABLE');
+
+      // v1 no cambia: su HoldRequest no tiene assignedSeats
+      const v1 = await http()
+        .post('/flights/v1/offers/hold')
+        .set('Authorization', `Bearer ${tokenPersona()}`)
+        .set('Idempotency-Key', randomUUID())
+        .send(cuerpoHold(oferta, { adults: 1 }, { assignedSeats: [libre] }));
+      expect(v1.status).toBe(400);
+      expect(JSON.stringify(v1.body)).toContain('assignedSeats');
+    });
+
+    it('dos holds al mismo asiento a la vez: solo uno gana; y un hold contra una reserva que lo elige, igual', async () => {
+      const oferta = await buscar(85);
+      const [asiento] = await libres(oferta);
+      const [uno, dos] = await Promise.all([
+        holdConAsientos(tokenPartner(), oferta, [asiento]),
+        holdConAsientos(tokenPartner(otroPartner), oferta, [asiento]),
+      ]);
+      expect([uno.status, dos.status].sort()).toEqual([201, 409]);
+      const perdedor = uno.status === 409 ? uno : dos;
+      expect(perdedor.body.code).toBe('SEAT_TAKEN');
+      expect(perdedor.headers['content-type']).toMatch(/^application\/problem\+json/);
+      const ganador = uno.status === 201 ? uno : dos;
+      const dueno = ganador === uno ? tokenPartner() : tokenPartner(otroPartner);
+      await v2('delete', `/offers/hold/${ganador.body.holdId}`, dueno).expect(204);
+
+      // Una reserva que elige el asiento y un hold que lo aparta, a la vez
+      const sinAsiento = esperarV2(
+        'createHold',
+        await v2('post', '/offers/hold', tokenPartner(), { 'Idempotency-Key': randomUUID() }).send(
+          cuerpoHold(oferta),
+        ),
+        201,
+      );
+      const [reserva, hold] = await Promise.all([
+        reservar(tokenPartner(), sinAsiento.holdId, [asiento]),
+        holdConAsientos(tokenPartner(otroPartner), oferta, [asiento]),
+      ]);
+      expect([reserva.status, hold.status].sort()).toEqual([201, 409]);
+      for (const r of [reserva, hold].filter((x) => x.status === 409)) {
+        expect(r.body.code).toBe('SEAT_TAKEN');
+      }
+      if (hold.status === 201) {
+        await v2('delete', `/offers/hold/${hold.body.holdId}`, tokenPartner(otroPartner)).expect(
+          204,
+        );
+      } else {
+        await liberar(sinAsiento.holdId).catch(() => undefined);
+      }
+    });
+
+    it('createHold: la misma clave con los mismos asientos (en otro orden) es 200 repetida; con otros, 409 IDEMPOTENCY_KEY_REUSED', async () => {
+      const oferta = await buscar(86, { adults: 2 });
+      const [a, b, c] = await libres(oferta, 3);
+      const clave = randomUUID();
+      const pedir = (asientos: Asiento[]) =>
+        v2('post', '/offers/hold', tokenPartner(), { 'Idempotency-Key': clave }).send(
+          cuerpoHold(oferta, { adults: 2 }, { assignedSeats: asientos }),
+        );
+      const primera = esperarV2('createHold', await pedir([a, b]), 201);
+      const repetida = await pedir([b, a]);
+      expect(esperarV2('createHold', repetida, 200)).toEqual(primera);
+      expect(repetida.headers['idempotent-replayed']).toBe('true');
+      esperarProblemaV2('createHold', await pedir([a, c]), 409, 'IDEMPOTENCY_KEY_REUSED');
+      await liberar(primera.holdId);
+      expect((await asientoEnMapas(oferta, a.seatNumber)).status).toBe('AVAILABLE');
+    });
+  });
+
   describe('MS.Reservas: reservas, pagos de Booking y partner', () => {
     it('createBooking (BOOKING_PROTOTIPO): 201 CONFIRMED con boletos, sin llamar a la Payment API', async () => {
       const hold = await retener(tokenPartner(), 46);

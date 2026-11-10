@@ -11,7 +11,8 @@ export class AsientoMapaDto {
 
   @ApiProperty({
     example: true,
-    description: 'false si ya está asignado en una reserva o su cabina no se vende en esta salida',
+    description:
+      'false si ya está asignado en una reserva, lo aparta un hold vigente o su cabina no se vende en esta salida',
   })
   isAvailable: boolean;
 

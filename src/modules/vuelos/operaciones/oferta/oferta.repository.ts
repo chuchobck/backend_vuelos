@@ -69,6 +69,22 @@ export class OfertaRepository {
     return new Set(filas.map((f) => f.asiento_id));
   }
 
+  /**
+   * Asientos que aparta un hold de esta salida: RETENIDA, sin vencer a esa hora (del Reloj; uno
+   * vencido que el proceso periódico todavía no cerró ya no aparta nada) y sin soltar.
+   */
+  async asientosApartados(salidaId: string, ahora: Date): Promise<Set<bigint>> {
+    const filas = await this.prisma.db.$queryRaw<Array<{ asiento_id: bigint }>>`
+      SELECT h.asiento_id
+        FROM vuelos.retencion_detalle_asiento h
+        JOIN vuelos.retencion_cabecera r ON r.id = h.retencion_id
+       WHERE h.vuelo_programado_id = ${salidaId}::uuid
+         AND h.fecha_liberacion IS NULL
+         AND r.estado::text = 'RETENIDA'
+         AND r.fecha_expiracion > ${ahora}::timestamptz`;
+    return new Set(filas.map((f) => f.asiento_id));
+  }
+
   /** Cabinas que se venden en la salida (con cupo total mayor que 0). */
   async cabinasVendidas(salidaId: string): Promise<Set<string>> {
     const filas = await this.prisma.db.inventario_cabina.findMany({

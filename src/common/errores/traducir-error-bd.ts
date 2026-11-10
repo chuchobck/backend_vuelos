@@ -48,6 +48,12 @@ const POR_RESTRICCION: Record<string, Regla> = {
     CodigoError.SEAT_TAKEN,
     'The seat is already taken on this flight',
   ),
+  // Otro hold aparta ese asiento (HoldRequest.assignedSeats de v2): lo mismo que uno reservado
+  uq_retencion_detalle_asiento_ocupado: regla(
+    409,
+    CodigoError.SEAT_TAKEN,
+    'The seat is already taken on this flight',
+  ),
   uq_reserva_detalle_asiento_pasajero_vuelo: regla(
     409,
     CodigoError.VALIDATION_FAILED,

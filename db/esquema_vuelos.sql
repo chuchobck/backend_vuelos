@@ -482,6 +482,19 @@ CREATE TABLE retencion_detalle (
     CONSTRAINT ck_retencion_detalle_montos CHECK (tarifa_base_congelada >= 0 AND impuestos_congelados >= 0)
 );
 
+CREATE TABLE retencion_detalle_asiento (
+    id                   bigint       GENERATED ALWAYS AS IDENTITY,
+    retencion_id         uuid         NOT NULL,
+    vuelo_programado_id  uuid         NOT NULL,
+    asiento_id           bigint       NOT NULL,
+    fecha_asignacion     timestamptz  NOT NULL,
+    fecha_liberacion     timestamptz,
+    CONSTRAINT pk_retencion_detalle_asiento PRIMARY KEY (id),
+    CONSTRAINT fk_retencion_detalle_asiento_cabecera FOREIGN KEY (retencion_id) REFERENCES retencion_cabecera (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_retencion_detalle_asiento_vuelo FOREIGN KEY (vuelo_programado_id) REFERENCES vuelo_programado (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_retencion_detalle_asiento_asiento FOREIGN KEY (asiento_id) REFERENCES asiento (id) ON DELETE RESTRICT
+);
+
 
 -- =============================================================================
 -- 7. RESERVA (booking / PNR)
@@ -1101,6 +1114,8 @@ CREATE UNIQUE INDEX uq_reserva_detalle_asiento_ocupado
     ON reserva_detalle_asiento (vuelo_programado_id, asiento_id) WHERE fecha_liberacion IS NULL;
 CREATE UNIQUE INDEX uq_reserva_detalle_asiento_pasajero_vuelo
     ON reserva_detalle_asiento (pasajero_id, vuelo_programado_id) WHERE fecha_liberacion IS NULL;
+CREATE UNIQUE INDEX uq_retencion_detalle_asiento_ocupado
+    ON retencion_detalle_asiento (vuelo_programado_id, asiento_id) WHERE fecha_liberacion IS NULL;
 CREATE UNIQUE INDEX uq_reserva_detalle_pago_emision
     ON reserva_detalle_pago (reserva_id) WHERE concepto = 'EMISION';
 CREATE UNIQUE INDEX uq_boleto_cabecera_activo_por_pasajero
@@ -1137,6 +1152,8 @@ CREATE INDEX ix_retencion_cabecera_propietario ON retencion_cabecera (id_propiet
 CREATE INDEX ix_retencion_cabecera_por_expirar ON retencion_cabecera (fecha_expiracion) WHERE estado = 'RETENIDA';
 CREATE INDEX ix_retencion_detalle_itinerario ON retencion_detalle (itinerario_id);
 CREATE INDEX ix_retencion_detalle_familia_tarifa ON retencion_detalle (familia_tarifa_id);
+CREATE INDEX ix_retencion_detalle_asiento_retencion ON retencion_detalle_asiento (retencion_id) WHERE fecha_liberacion IS NULL;
+CREATE INDEX ix_retencion_detalle_asiento_asiento ON retencion_detalle_asiento (asiento_id);
 
 -- Reservas
 CREATE INDEX ix_reserva_cabecera_listado ON reserva_cabecera (fecha_creacion DESC, id DESC);
@@ -1240,6 +1257,32 @@ $$;
 CREATE TRIGGER tg_reserva_detalle_asiento_validar
     BEFORE INSERT OR UPDATE OF pasajero_id, vuelo_programado_id, asiento_id ON reserva_detalle_asiento
     FOR EACH ROW EXECUTE FUNCTION fn_validar_asiento_reserva();
+
+-- El asiento que aparta una retención debe pertenecer al mapa de la aeronave del vuelo.
+CREATE FUNCTION fn_validar_asiento_retencion() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = vuelos, pg_temp
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM vuelo_programado vp
+        JOIN mapa_asientos_detalle f ON f.mapa_asientos_id = vp.mapa_asientos_id
+        JOIN asiento a ON a.mapa_asientos_detalle_id = f.id
+        WHERE vp.id = NEW.vuelo_programado_id
+          AND a.id = NEW.asiento_id
+    ) THEN
+        RAISE EXCEPTION 'El asiento % no pertenece al mapa de asientos del vuelo %', NEW.asiento_id, NEW.vuelo_programado_id
+            USING ERRCODE = 'check_violation', CONSTRAINT = 'ck_retencion_detalle_asiento_mapa';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER tg_retencion_detalle_asiento_validar
+    BEFORE INSERT OR UPDATE OF vuelo_programado_id, asiento_id ON retencion_detalle_asiento
+    FOR EACH ROW EXECUTE FUNCTION fn_validar_asiento_retencion();
 
 -- El adulto responsable debe ser un ADULTO de la misma reserva.
 CREATE FUNCTION fn_validar_adulto_responsable() RETURNS trigger
@@ -1398,6 +1441,7 @@ COMMENT ON TABLE oferta_cabecera            IS 'Oferta devuelta por POST /search
 COMMENT ON TABLE oferta_detalle             IS 'Itinerarios que componen una oferta (uno por tramo solicitado en la búsqueda).';
 COMMENT ON TABLE retencion_cabecera         IS 'Bloqueo temporal de cupos con precio congelado (hold).';
 COMMENT ON TABLE retencion_detalle          IS 'Itinerario y familia tarifaria elegidos en la retención, con su precio congelado.';
+COMMENT ON TABLE retencion_detalle_asiento  IS 'Asiento que una retención aparta en un vuelo (HoldRequest.assignedSeats de la fachada v2). No toma cupo aparte: el cupo de la cabina ya lo tomó la retención. Mientras la retención esté RETENIDA y sin vencer, nadie más puede apartarlo ni asignarlo.';
 COMMENT ON TABLE reserva_cabecera           IS 'Reserva con su localizador PNR. Nace al consumir una retención.';
 COMMENT ON TABLE reserva_detalle_itinerario IS 'Itinerarios de la reserva con la tarifa vendida. Un cambio de fecha apaga la línea original y agrega otra.';
 COMMENT ON TABLE reserva_detalle_pasajero   IS 'Pasajeros de la reserva con los datos del documento tal como se emitieron.';
@@ -1478,6 +1522,7 @@ COMMENT ON COLUMN reserva_detalle_pasajero.codigo_pasajero IS 'passengerId que e
 COMMENT ON COLUMN reserva_detalle_pasajero.adulto_responsable_id IS 'associatedAdultId. Obligatorio para infantes: debe ser un adulto de la misma reserva y cada adulto lleva un solo infante.';
 COMMENT ON COLUMN reserva_detalle_pasajero.numero_documento IS 'Sin espacios ni guiones, en mayúsculas. El dígito verificador de la cédula ecuatoriana se valida en la aplicación.';
 COMMENT ON COLUMN reserva_detalle_pasajero.telefono IS 'Solo dígitos con + opcional. Formato recomendado E.164 (+593...).';
+COMMENT ON COLUMN retencion_detalle_asiento.fecha_liberacion IS 'NULL mientras la retención lo aparta. Se llena al liberarla, al vencerla o al convertirla en reserva (el asiento pasa a reserva_detalle_asiento), y también si otra retención lo pide cuando esta ya venció. La fila no se borra.';
 COMMENT ON COLUMN reserva_detalle_asiento.fecha_liberacion IS 'NULL mientras el asiento está ocupado. Se llena al cancelar o al cambiar de asiento o de fecha.';
 COMMENT ON COLUMN reserva_detalle_pago.referencia_pago IS 'paymentReference. Es única en todo el sistema: un mismo pago no acredita dos operaciones.';
 COMMENT ON COLUMN reserva_detalle_pago.proveedor IS 'Quién cobró. Con BOOKING_PROTOTIPO la Payment API de la aerolínea no se consulta y el reembolso solo se calcula.';

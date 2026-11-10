@@ -29,7 +29,7 @@ Las que esta fase implementa (las de v1 y `health`). La columna **Seguridad** es
 | `searchFlights` | `POST /search` → `POST /vuelos/search` | Igual (`SearchRequest` sin campos de más) | Igual | `X-Device-Fingerprint` (obligatoria), `X-Correlation-Id`, `X-Request-Id` | Suma 422 y 503 | pública |
 | `getSeatMap` | `GET /offers/{offerId}/seatmap` → `GET /vuelos/offers/{offerId}/seatmap` | Igual (`segmentId`) | Suma `status` por asiento (`SeatStatus`: `AVAILABLE`, `HELD`, `BOOKED`, `TICKETED`, `CHECKED_IN`, `BOARDED`); `isAvailable` sigue | `X-Correlation-Id` | Suma 410 (`OFFER_NO_LONGER_AVAILABLE`) | pública |
 | `getFlightStatus` | `GET /flights/{n}/status` → `GET /vuelos/flights/{n}/status` | Igual (`date`) | Igual; `departure`/`arrival` admiten `gate` (opcional) | `X-Correlation-Id` | Igual | pública |
-| `createHold` | `POST /offers/hold` → `POST /vuelos/offers/hold` | Suma `ttlMinutes` (5–30, 15 por defecto) | Igual más `_links` | `Idempotency-Key` (obligatoria), `X-User-Id`, `Location` | 409, 410, 422, 503; reintento 200 | `flights:hold` |
+| `createHold` | `POST /offers/hold` → `POST /vuelos/offers/hold` | Suma `ttlMinutes` (5–30, 15 por defecto) y `assignedSeats` (`[{ segmentId, seatNumber }]`, fuera del contrato: lo pidió Booking) | Igual más `_links` | `Idempotency-Key` (obligatoria), `X-User-Id`, `Location` | 409 (`SEAT_TAKEN` si un asiento ya está ocupado o apartado), 410, 422 (`SEAT_CABIN_MISMATCH`), 503; reintento 200 | `flights:hold` |
 | `getHold` | `GET /offers/hold/{id}` → `GET /vuelos/offers/hold/{id}` | — | Suma `holdId` y `_links` | `X-User-Id` | 401, 404 | `flights:read` |
 | `releaseHold` | `DELETE /offers/hold/{id}` → `DELETE /vuelos/offers/hold/{id}` | — | 204 (idempotente) | `X-User-Id` | 409 `HOLD_ALREADY_CONSUMED` (v1: 409 sin código) | `flights:hold` |
 | `listBookings` | `GET /bookings` → `GET /vuelos/bookings` | Igual (`pnr`, `status`, fechas, `limit`, `cursor`) | Suma `_links` por ítem; `nextCursor` nullable | `X-User-Id` filtra (solo partner) | 401 | `flights:read` |
@@ -148,9 +148,38 @@ usuario final, canal, reasonCode); la de v1 no cambia.
 **Hold.** `ttlMinutes` de 5 a 30; sin él, `HOLD_TTL_MINUTES` (15 por defecto, el mismo default del
 contrato).
 
-**Mapa de asientos.** `status` por asiento: `AVAILABLE`, `BOOKED`, `TICKETED` (boleto emitido) o
-`CHECKED_IN`. Nunca `HELD` (un hold toma cupo de cabina, no un asiento) ni `BOARDED` (no se registra el
-abordaje). Un asiento de una cabina que no se vende en esa salida va sin `status`.
+**Asientos apartados por el hold (`assignedSeats`, pedido de Booking).** El `HoldRequest` del contrato no
+tiene `assignedSeats` ni cierra sus propiedades (`additionalProperties` no está en `false`), así que el
+contrato no cambia: el campo va en la raíz del cuerpo con la misma forma que
+`PassengerItem.assignedSeats` del `BookingRequest` (`[{ segmentId, seatNumber }]`), opcional. Cada
+asiento tiene que estar en un segmento del hold (422), existir en esa aeronave (422), ser de la cabina
+elegida para ese itinerario (422 `SEAT_CABIN_MISMATCH`) y no repetirse (400); no puede haber más asientos
+en un segmento que pasajeros con asiento (422). Si alguno ya lo tiene una reserva o lo aparta otro hold
+vigente: 409 `SEAT_TAKEN` (`application/problem+json`) y no se crea el hold ni se toma cupo. Los asientos
+cuentan en la huella de idempotencia (sin importar el orden).
+
+- Se guardan en `retencion_detalle_asiento` (migración `006`), con un índice único parcial por (salida,
+  asiento) mientras no se suelten: dos holds no pueden apartar el mismo, ni siquiera a la vez. La
+  comprobación contra las reservas se hace con las filas de `inventario_cabina` ya bloqueadas en orden
+  (salida, cabina), como hacen el hold y la reserva: el asiento siempre es de la cabina del hold, así que
+  un hold y una reserva que lo quieren se esperan y solo uno gana.
+- Un hold aparta sus asientos mientras esté `RETENIDA` y no haya vencido según el `Reloj`. Al liberarlo
+  (`DELETE`), al vencer (perezoso o con el proceso periódico) o al convertirse en reserva, la fila se
+  suelta (`fecha_liberacion`; no se borra). Si otro hold pide un asiento de un hold ya vencido que nadie
+  cerró todavía, lo suelta en su misma transacción.
+- No mueve cupo ni vendibilidad (el cupo de cabina ya lo toma el hold), así que no hay orden a Booking
+  (`OrdenesStock`).
+- `POST /bookings` (v1 y v2) y el cambio de fecha dan por ocupado el asiento que aparta otro hold
+  vigente: elegido es 409 `SEAT_TAKEN` y la asignación automática lo salta. Los que aparta el mismo hold
+  que se reserva son válidos y, sin asiento elegido, se asignan primero.
+- v1 no cambia su `POST /offers/hold` (su `HoldRequest` no tiene el campo: 400), pero su seatmap también
+  da `isAvailable: false` a un asiento apartado, porque ya no se puede elegir.
+
+**Mapa de asientos.** `status` por asiento: `AVAILABLE`, `HELD` (lo aparta un hold vigente con
+`assignedSeats`), `BOOKED`, `TICKETED` (boleto emitido) o `CHECKED_IN`. Nunca `BOARDED` (no se registra el
+abordaje). Un asiento de una cabina que no se vende en esa salida va sin `status`. Una reserva que sale con
+201 ya tiene boleto, así que su asiento pasa de `HELD` a `TICKETED`; `BOOKED` es el de una reserva con el
+pago pendiente (202).
 
 **Salud.** `nodo_id` y `nombre_proveedor` de `NODO_ID` y `NOMBRE_PROVEEDOR` (por defecto
 `NODE_VUE_QUINDE` y `Quinde`); `version` es la del contrato (2.0.0). Dependencias: postgres siempre;

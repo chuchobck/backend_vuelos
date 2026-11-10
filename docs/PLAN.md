@@ -824,6 +824,14 @@ dos exportaciones (ocultas por `.gitignore`, que funcionó como segunda barrera)
   habrá conflictos en `contexto.middleware.ts` y en el logger.
 - Los límites de peticiones son por IP: Booking llega desde pocas IP y 10 reservas por minuto puede
   quedarle corto. Contar por `client_id` queda pendiente.
+- Al principio el hold tomaba solo cupo de cabina y el seatmap v2 nunca mostraba `HELD`. Booking pidió
+  (rama `fix/hold-asientos-held`, sin cambiar el contrato) que `POST /offers/hold` aceptara
+  `assignedSeats` y apartara esos asientos: ahora van en `retencion_detalle_asiento` (migración 006, con
+  un índice único parcial), el seatmap los muestra `HELD` mientras el hold esté vigente según el `Reloj`
+  y una reserva con el asiento de otro hold es 409 `SEAT_TAKEN`. Las reglas están en
+  `docs/V2-DIFERENCIAS.md` ("Asientos apartados por el hold"). El orden de bloqueo es siempre cabinas →
+  asientos, también al liberar, vencer y consumir: así un hold, una reserva y el vencimiento no se
+  cruzan.
 ### Fase 7c
 
 | Tema | Qué pasó | Qué implica |

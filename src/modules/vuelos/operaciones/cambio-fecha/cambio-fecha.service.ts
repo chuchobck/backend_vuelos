@@ -390,6 +390,7 @@ export class CambioFechaService {
       const mapa = await this.reservas.asientosDeSalidas(
         tx,
         salidasNuevas.map((s) => s.id),
+        ahora,
       );
       await this.reservas.asignarAsientos(
         tx,

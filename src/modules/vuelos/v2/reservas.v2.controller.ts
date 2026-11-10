@@ -102,28 +102,30 @@ export class ReservasV2Controller {
     operationId: 'createHold',
     summary: 'Bloquear asientos y congelar el precio',
     description:
-      'Como POST /flights/v1/offers/hold, con ttlMinutes (5 a 30; sin él, HOLD_TTL_MINUTES). ' +
-      'Compensación de la saga: DELETE /api/v2/vuelos/offers/hold/{holdId}.',
+      'Como POST /flights/v1/offers/hold, con ttlMinutes (5 a 30; sin él, HOLD_TTL_MINUTES) y ' +
+      'assignedSeats: los asientos que aparta (HELD en el seatmap) hasta que venza, se libere o ' +
+      'se convierta en reserva. Compensación de la saga: DELETE /api/v2/vuelos/offers/hold/{holdId}.',
   })
   @ApiHeader(CLAVE_OBLIGATORIA)
   @ApiHeader(USUARIO_FINAL)
   @ApiCreatedResponse({ type: RetencionCreadaV2Dto })
   @ApiOkResponse({ type: RetencionCreadaV2Dto, description: 'Reintento con la misma clave' })
   @ApiProblemaV2(400, 'Cuerpo inválido o Idempotency-Key ausente o no uuid')
-  @ApiProblemaV2(409, 'OFFER_NO_LONGER_AVAILABLE o IDEMPOTENCY_KEY_REUSED')
-  @ApiProblemaV2(422, 'El itinerario o la familia no son de la oferta')
+  @ApiProblemaV2(409, 'OFFER_NO_LONGER_AVAILABLE, SEAT_TAKEN o IDEMPOTENCY_KEY_REUSED')
+  @ApiProblemaV2(
+    422,
+    'El itinerario, la familia o un asiento no son de la oferta (SEAT_CABIN_MISMATCH si es de otra cabina)',
+  )
   async crearHold(
     @UsuarioFachada() usuario: UsuarioV2,
     @ClaveIdempotencia() clave: string,
     @Body() solicitud: SolicitudRetencionV2Dto,
     @Res({ passthrough: true }) respuesta: Response,
   ): Promise<RetencionCreadaV2Dto> {
-    const { cuerpo, repetida } = await this.retenciones.crear(
-      solicitud,
-      usuario.id,
-      clave,
-      solicitud.ttlMinutes,
-    );
+    const { cuerpo, repetida } = await this.retenciones.crear(solicitud, usuario.id, clave, {
+      vigenciaMinutos: solicitud.ttlMinutes,
+      asientos: solicitud.assignedSeats,
+    });
     respuesta.setHeader('Location', `${BASE_V2}/offers/hold/${cuerpo.holdId}`);
     if (repetida) respuesta.status(200).setHeader(CABECERA_REPETIDA, 'true');
     return aRetencionCreadaV2(cuerpo);
