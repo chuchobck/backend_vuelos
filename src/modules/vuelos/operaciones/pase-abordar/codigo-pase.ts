@@ -68,6 +68,14 @@ export class CodigoPase {
     return `${cuerpo}|${this.firmar(cuerpo)}`;
   }
 
+  /**
+   * Si el texto tiene el formato de un pase, sin mirar la firma. La puerta de embarque distingue
+   * con esto un texto que no es un pase (otro código de barras) de un pase alterado.
+   */
+  tieneFormato(codigo: string): boolean {
+    return FORMATO.test(codigo);
+  }
+
   /** Devuelve lo que dice el código si su formato y su firma son válidos; si no, null. */
   verificar(codigo: string): (Omit<DatosCodigo, 'fechaSalida'> & { fechaSalida: string }) | null {
     const m = FORMATO.exec(codigo);
