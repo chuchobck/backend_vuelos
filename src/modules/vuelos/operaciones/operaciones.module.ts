@@ -7,6 +7,7 @@ import { CancelacionModule } from './cancelacion/cancelacion.module';
 import { CheckinModule } from './checkin/checkin.module';
 import { EquipajeModule } from './equipaje/equipaje.module';
 import { EstadoVueloModule } from './estado-vuelo/estado-vuelo.module';
+import { KioskoModule } from './kiosko/kiosko.module';
 import { OfertaModule } from './oferta/oferta.module';
 import { PaseAbordarModule } from './pase-abordar/pase-abordar.module';
 import { PendientesPostventa } from './pendientes-postventa';
@@ -31,6 +32,7 @@ import { WebhookApiModule } from './webhook/webhook-api.module';
     PaseAbordarModule,
     EstadoVueloModule,
     WebhookModule,
+    KioskoModule,
     // /webhooks solo con WEBHOOKS_MODE=local; con notifier lo sirve el notifier (404 aquí)
     ConditionalModule.registerWhen(WebhookApiModule, (e) => !esModoNotifier(e), { debug: false }),
     // El relevo al notifier solo con WEBHOOKS_MODE=notifier

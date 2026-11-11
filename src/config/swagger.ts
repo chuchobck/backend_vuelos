@@ -73,6 +73,9 @@ const SCOPES_OAUTH2 = {
     'Administrar catálogo, auditoría, administradores y reservas (propio del proyecto, no está en el contrato)',
 };
 
+/** Nombre del esquema de la sesión de un kiosko (`Authorization: Kiosk <kioskToken>`). */
+export const ESQUEMA_KIOSKO = 'kiosko';
+
 /** Etiquetas de las rutas que solo se montan con AUTH_MODE=local (src/app.module.ts). */
 const ETIQUETAS_SOLO_LOCAL: ReadonlySet<keyof typeof ETIQUETAS> = new Set([
   'auth',
@@ -130,6 +133,18 @@ export function configurarSwagger(app: INestApplication, excluir: Type[] = []): 
         },
       },
       ESQUEMA_OAUTH2,
+    )
+    // La sesión de un kiosko (fase F1): no es un token de acceso, va con otro esquema
+    .addApiKey(
+      {
+        type: 'apiKey',
+        in: 'header',
+        name: 'Authorization',
+        description:
+          'Sesión de kiosko: escribe `Kiosk ` seguido del kioskToken de POST /flights/v1/kiosk/lookup. ' +
+          'Vale 10 minutos y solo para esa reserva',
+      },
+      ESQUEMA_KIOSKO,
     );
 
   // Render define RENDER_EXTERNAL_URL (https://<servicio>.onrender.com): el documento publicado
