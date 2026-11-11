@@ -57,7 +57,7 @@ auditoría: `psql "$NEON_URL" -c "DROP SCHEMA vuelos CASCADE"` y repetir los pas
 
 **Una base que ya existe** se pone al día con `./db/migrar.sh` (usa `DATABASE_URL`; con
 `DATABASE_URL="$NEON_URL&schema=vuelos" ./db/migrar.sh` contra Neon): aplica `db/migraciones/*.sql`
-en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b, la 002 los índices de su purga, la 003 le agrega la columna `traceparent` (fase 7c), la 004 lo de la fachada v2 (`correlation_id` en la bandeja, el partner y el canal en la reserva, el proveedor del pago y el motivo de la cancelación) y la 005 la cola del stock a Booking (fase S1).
+en orden, solo agrega y es idempotente. La 001 crea la bandeja `evento_saliente` de la fase 5b, la 002 los índices de su purga, la 003 le agrega la columna `traceparent` (fase 7c), la 004 lo de la fachada v2 (`correlation_id` en la bandeja, el partner y el canal en la reserva, el proveedor del pago y el motivo de la cancelación) la 005 la cola del stock a Booking (fase S1), la 006 los asientos que aparta un hold y la 007 el abordaje (`checkin.fecha_abordaje`) y la puerta de salida (`vuelo_programado.puerta_salida`) de la fase F1. Sin la 007, el escaneo de la puerta, el manifiesto, la pantalla de salidas y el mapa de asientos v2 fallan con 500 (la columna no existe): se migra ANTES de desplegar esta versión.
 
 ## 3. Servicio en Render
 
@@ -301,6 +301,27 @@ es obligatoria `BOOKING_STOCK_SERVICE_ID` (tabla de variables arriba) y hace fal
 seguro). Arranca un proceso periódico más, `StockBookingWorker` (una línea en el log: `Activo: cada 5 s`).
 La primera carga, el `--dry-run`, cómo leer los fallos y las preguntas abiertas están en
 [STOCK-BOOKING.md](STOCK-BOOKING.md). **No se activa hasta tener el `service_id` real de Booking.**
+
+## 9. Embarque, kiosko y salidas públicas (fase F1)
+
+Diseño en `docs/F1-DISENO.md`. No hay variables de entorno nuevas.
+
+1. **Primero la base**: `./db/migrar.sh` aplica la `007` (`checkin.fecha_abordaje` y
+   `vuelo_programado.puerta_salida`). Solo agrega dos columnas que admiten NULL, así que la versión
+   anterior de la API sigue funcionando con la base ya migrada. Al revés no: esta versión contra una base
+   sin la `007` responde 500 en todo lo que lee `vuelo_programado` o `checkin` con Prisma (el catálogo de
+   salidas, el check-in) y en el mapa de asientos v2.
+2. Desplegar la API.
+3. **Gateway** (`gateway_vuelos`): `/flights/v1/admin/**` ya deja pasar el embarque con `flights:admin`.
+   El kiosko y la pantalla no tienen token y `/flights/v1/**` exige uno para lo que el contrato no
+   declara: hacen falta dos reglas públicas antes de esa, `/flights/v1/kiosk/**` (con `limiteEstricto`) y
+   `/flights/v1/airports/*/departures`. Mientras no estén, por el gateway responden 401; directo al core
+   funcionan.
+4. La sesión del kiosko se firma con una clave derivada de `BOARDING_PASS_SECRET` (o `JWT_SECRET`), como
+   los pases: todas las instancias tienen que tener el mismo valor, y cambiarlo invalida las sesiones
+   abiertas (duran 10 minutos) además de los pases ya emitidos.
+5. El límite de la búsqueda del kiosko (10 por minuto) cuenta por IP: con `TRUST_PROXY` mal puesto todos
+   los kioskos compartirían el contador del proxy.
 
 ## Qué se verificó en local
 

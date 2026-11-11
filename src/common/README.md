@@ -43,6 +43,10 @@ endpoint no cambia nada: `usuario.id` es el `sub` en los dos modos, y `usuario.c
   scopes, el candado `bearer` y las respuestas 401 y 403). Una ruta que solo pide token, sin
   scopes, se documenta con `@DocumentarAutenticacion()`.
 - `@Publico()` y `@Scopes()` juntos no tienen sentido: `ScopesGuard` niega igual.
+- Una ruta pública que necesita saber de quién es la petición sin una cuenta (el kiosko) no inventa un
+  JWT: verifica su propia credencial en el service (`SesionKiosko`, `Authorization: Kiosk <token>`) y
+  responde 401 `KIOSK_SESSION_INVALID`. `JwtAuthGuard` solo mira `Authorization: Bearer` y solo en rutas
+  que no son `@Publico()`.
 - Límite más estricto para una ruta: `@LimiteEstricto(limite, ventanaSegundos)`.
   Los contadores (`guards/almacen-limites.ts`) usan el `Reloj` inyectable con una ventana
   deslizante: una prueba de límites crea la app con un `RelojDePrueba` y lo adelanta, sin esperas.

@@ -176,8 +176,9 @@ cuentan en la huella de idempotencia (sin importar el orden).
   da `isAvailable: false` a un asiento apartado, porque ya no se puede elegir.
 
 **Mapa de asientos.** `status` por asiento: `AVAILABLE`, `HELD` (lo aparta un hold vigente con
-`assignedSeats`), `BOOKED`, `TICKETED` (boleto emitido) o `CHECKED_IN`. Nunca `BOARDED` (no se registra el
-abordaje). Un asiento de una cabina que no se vende en esa salida va sin `status`. Una reserva que sale con
+`assignedSeats`), `BOOKED`, `TICKETED` (boleto emitido), `CHECKED_IN` o `BOARDED`. `BOARDED` es el asiento
+cuyo pasajero ya pasó por la puerta de embarque (`checkin.fecha_abordaje`, que llena
+`POST /flights/v1/admin/departures/{id}/boarding/scan`; fase F1, `docs/F1-DISENO.md`). Un asiento de una cabina que no se vende en esa salida va sin `status`. Una reserva que sale con
 201 ya tiene boleto, así que su asiento pasa de `HELD` a `TICKETED`; `BOOKED` es el de una reserva con el
 pago pendiente (202).
 

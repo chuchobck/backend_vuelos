@@ -14,6 +14,8 @@ más las fases 4b (auth externa, `AUTH_MODE`), 5b (eventos al notifier, `WEBHOOK
 purga de su bandeja), 7c (observabilidad), V1 (fachada v2) y S1 (stock a Booking,
 `BOOKING_STOCK_ENABLED`) sin publicar.
 Además de REST, un servidor gRPC interno para el BFF (`docs/GRPC.md`), apagado por defecto.
+Fase F1 (sin publicar): embarque, kiosko y salidas públicas, tres operaciones propias fuera del contrato
+(`docs/F1-DISENO.md`).
 
 ## Alcance
 
@@ -35,6 +37,10 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 - Operaciones del contrato: `src/modules/vuelos/operaciones/<entidad>/` con busqueda, oferta,
   retencion, reserva, boleto, equipaje, cambio-fecha, cancelacion, checkin, pase-abordar,
   estado-vuelo y webhook.
+- Fuera del contrato (fase F1): `administracion/embarque/` (`/admin/departures/{id}/boarding`,
+  `flights:admin`) y, en `operaciones/`, `kiosko/` (`/kiosk`) y `tablero-salidas/`
+  (`/airports/{iataCode}/departures`), públicas. No tienen reglas de negocio copiadas: el embarque
+  verifica con `CodigoPase` y el kiosko llama a `CheckinService` y `PaseAbordarService`.
 - Fuera de vuelos: `salud` y `auth`.
 - gRPC: un `<entidad>.grpc.ts` junto a la entidad, con `@ControladorGrpc()`, que llama al mismo
   service y usa el mismo DTO o pipes y el mismo mapper que REST (solo cambia los enums con
@@ -45,7 +51,8 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 - El catálogo extiende `catalogo/base/` (`RepositorioCatalogo` y `ServicioCatalogo`); el patrón está
   en `src/modules/vuelos/README.md`. Rutas, query y JSON en inglés (`/reactivate`, `includeInactive`).
 - Todas las URLs cuelgan de `/flights/v1`, salvo la fachada v2. Swagger en `/api/docs` con las 7
-  etiquetas del contrato.
+  etiquetas del contrato. Un `code` de error propio (fuera de la lista del contrato) solo sale en una
+  ruta que el contrato no tiene, y va a `docs/DISCREPANCIAS-CONTRATO.md` (2.4 y 2.5).
 - Fachada v2: `src/modules/vuelos/v2/` (`FachadaV2Module`), en `/api/v2/vuelos` fuera del prefijo
   global y con controllers `VERSION_NEUTRAL`: un controller por microservicio del contrato v2
   (`vuelos.v2`, `reservas.v2`, `postventa.v2`) que llama a los mismos services de v1 y suma lo de v2
@@ -81,6 +88,16 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
   calcula pero no se ejecuta.
 - Los scopes de cada rol están en `src/modules/auth/scopes.ts`, no en la base.
 - Una operación pública lleva `@Publico()` y, si es costosa, su propio `@LimiteEstricto`.
+- El kiosko no tiene cuenta: lo que sigue a `POST /kiosk/lookup` se autoriza con `SesionKiosko`
+  (`Authorization: Kiosk <token>`, 10 minutos según el `Reloj`, firmada con una clave derivada solo para
+  eso y limitada a UNA reserva; el `bookingId` de la ruta tiene que ser el suyo o es 404). No es un token
+  de acceso ni se acepta como tal. PNR inexistente y apellido errado responden el MISMO 404, el apellido
+  se compara con `ComparadorApellidos` (sin fugas de tiempo) y ni el PNR, ni el apellido, ni la sesión
+  van a logs, trazas ni errores (viajan en el cuerpo o en la cabecera, nunca en la URL).
+- Dos excepciones a "solo el dueño ve los datos del pasajero", y ninguna más: el 200 del escaneo de la
+  puerta (`passenger`, para compararlo con el documento) y el 200 de la búsqueda del kiosko (nombres de
+  los pasajeros de esa reserva). Solo nombre y apellido: nunca documento, correo ni teléfono, ni en el
+  manifiesto, ni en un error.
 - Toda petición con cuerpo es `application/json` (otro tipo: 415). El límite de peticiones
   cuenta con el `Reloj` (`AlmacenLimites`); una prueba de límites pasa un `RelojDePrueba`.
 - El secreto de un webhook se guarda cifrado (AES-256-GCM, clave `WEBHOOK_SECRET_KEY`) y nunca se
@@ -170,6 +187,9 @@ en los repos de sus equipos; la plantilla original queda como remoto `upstream` 
 - Un vencimiento nuevo se decide con la hora de `Reloj` (`src/common/reloj.ts`), no con
   `new Date()` ni `now()` de la base: las pruebas lo adelantan. Ya lo usan los holds, las claves
   de idempotencia, la entrega de webhooks y el límite de peticiones; las ofertas de la búsqueda todavía no (ver Pendientes del plan).
+- El abordaje es `checkin.fecha_abordaje` (hora del `Reloj`), y solo se llena con el UPDATE condicionado
+  de `EmbarqueRepository.abordar` (`fecha_abordaje IS NULL`), dentro de una transacción auditada que
+  bloqueó la reserva. Embarcar no mueve cupo: sin `OrdenesStock`.
 - Una baja de catálogo es `activo = false` (una salida: estado `CANCELADO`) y responde 409 si otras
   filas activas la usan. Las filas de detalle (asientos, cupos, precios) no se quitan.
 - Las pruebas e2e no borran: crean cuentas `@e2e.quinde.example` y catálogo con códigos libres al

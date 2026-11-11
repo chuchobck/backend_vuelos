@@ -7,7 +7,9 @@ contrato (`test/contrato.e2e-spec.ts`) lista las respuestas que el contrato no d
 aparece una diferencia nueva de rutas, etiquetas, scopes, parámetros o campos.
 
 Lo que la API hace **además** del contrato y no lo contradice (el catálogo, la auditoría, los administradores y las reservas de administración en
-`/admin`, `/auth`, `/health`) no se lista aquí: está en el README y en Swagger.
+`/admin`, `/auth`, `/health`) no se lista aquí: está en el README y en Swagger. Las operaciones de la
+fase F1 (embarque, kiosko y salidas públicas) tampoco están en el contrato, pero cambian reglas que
+este documento fija (códigos de error, datos de pasajeros, horas en UTC): van en la sección 7.
 
 ## 1. Identidad y seguridad
 
@@ -26,6 +28,7 @@ Lo que la API hace **además** del contrato y no lo contradice (el catálogo, la
 | 2.2 | El `type` es una URI | La API usa `https://api.booking-hub.com/errors/<código>` (el dominio del contrato, que no resuelve); un 401 o 403 sale con `.../errors/validation-failed` por 2.1 | Confirmar el dominio de los `type`, o usar `about:blank` para los que no tienen código propio |
 | 2.3 | Errores que no declara, por operación (los demás que sí declara se respetan) | Ver la tabla de abajo | Declararlos en el contrato |
 | 2.4 | `code` es una lista cerrada | Con `AUTH_MODE=external`, si el servicio de identidad no responde y no hay una copia vigente de sus claves (JWKS), una operación protegida responde **503** con `code: AUTH_UNAVAILABLE` (propio del proyecto) y `Retry-After`. No es un 401: el token puede ser válido y el cliente no hizo nada mal. Con `AUTH_MODE=local` (por defecto) no ocurre | Agregar `AUTH_UNAVAILABLE` (o un código general de servicio no disponible) a la lista |
+| 2.5 | `code` es una lista cerrada | Las operaciones de la fase F1, que el contrato no tiene, responden con códigos propios: `BOARDING_PASS_MALFORMED` (400), `BOARDING_PASS_SIGNATURE_INVALID` (422), `BOARDING_PASS_NOT_FOUND` (404), `BOARDING_PASS_NOT_VALID`, `BOARDING_PASS_WRONG_FLIGHT`, `PASSENGER_NOT_CHECKED_IN`, `ALREADY_BOARDED` y `FLIGHT_CANCELLED` (409) en el escaneo de la puerta, y `KIOSK_SESSION_INVALID` (401) en el kiosko. Ninguna operación del contrato los devuelve | Nada: son de rutas fuera del contrato. Si el contrato suma el embarque, que tome estos nombres (`FLIGHT_CANCELLED` ya existe en el v2) |
 
 | Operación | Respuestas de la API que el contrato no declara |
 | --- | --- |
@@ -91,6 +94,28 @@ No es el contrato HTTP, pero el esquema `db/esquema_vuelos.sql` también es comp
 | 6.3 | `evento` y `evento_entrega` quedaron sin uso (los reemplaza `webhook_entrega`); no se borraron | Decidir si se quitan del esquema |
 | 6.4 | El COMMENT de `clave_idempotencia.respuesta` dice "cuerpo de la respuesta original"; para `POST /bookings` se guarda solo `{ bookingId }` para no duplicar datos personales, y la repetición devuelve la reserva como está hoy | Ajustar el comentario |
 
+| 6.5 | Se agregaron `checkin.fecha_abordaje` (cuándo abordó el pasajero; NULL si no) y `vuelo_programado.puerta_salida` (la puerta de la pantalla de salidas), con `ck_checkin_abordaje`, `ck_vuelo_programado_puerta_salida` e `ix_checkin_abordado` (fase F1, migración `007`). No hay tabla ni ENUM nuevos | Confirmarlo |
+
+## 7. Operaciones propias de la fase F1
+
+No están en el contrato de Booking (ni en el v1 ni en el v2). Diseño en `docs/F1-DISENO.md`; en Swagger,
+bajo `Admin · Embarque`, `Kiosko` y `Salidas públicas`. Las de kiosko y salidas están en
+`DIFERENCIAS_ACEPTADAS` de `test/swagger.e2e-spec.ts`; las del embarque cuelgan de `/admin/`, que ya es
+una ruta propia.
+
+| # | Operación | Seguridad | Qué regla del proyecto toca |
+| --- | --- | --- | --- |
+| 7.1 | `POST /admin/departures/{departureId}/boarding/scan` | `flights:admin` | **Excepción a "los datos de un pasajero solo los ve el dueño"**: el 200 lleva `passenger.firstName` y `passenger.lastName` (y los de los infantes que abordan con él) para que el agente los compare con el documento. Limitada a esa respuesta, con `Cache-Control: no-store`: sin documento, correo ni teléfono, y nunca en un error, un log o una traza. Códigos propios (2.5) |
+| 7.2 | `GET /admin/departures/{departureId}/boarding/manifest` | `flights:admin` | Sin datos personales: cada asiento lleva `pnr` y `passengerId`, no el nombre |
+| 7.3 | `POST /kiosk/lookup` | Pública, 10 por minuto e IP | **Segunda excepción a la misma regla**: quien presenta el PNR y el apellido completo de un pasajero recibe los nombres de los pasajeros de esa reserva, sus vuelos, horarios, asientos y el estado de check-in. Nada más (ni documento, ni correo, ni teléfono, ni precio, ni boletos, ni el PNR). PNR inexistente y apellido errado dan el mismo 404 |
+| 7.4 | `POST /kiosk/bookings/{bookingId}/check-in` y `GET /kiosk/bookings/{bookingId}/boarding-passes` | Públicas, con `Authorization: Kiosk <kioskToken>` | Una operación pública que escribe: la autoriza la sesión de kiosko (10 minutos, una sola reserva), no un JWT. El check-in queda en `auditoria` con `id_usuario = kiosko`. Responden `CheckInResponse` y `BoardingPassListResponse` del contrato; sin sesión válida, 401 `KIOSK_SESSION_INVALID` |
+| 7.5 | `GET /airports/{iataCode}/departures` | Pública, 60 por minuto e IP | **Excepción a 4.10** (horas siempre en UTC): `scheduledTime` y `estimatedTime` van en hora local del aeropuerto con su desplazamiento (`2026-11-12T06:30:00-05:00`), porque es lo que muestra una pantalla |
+| 7.6 | `PATCH /admin/departures/{id}` | `flights:admin` | Suma `departureGate` (la puerta; `null` la quita). El `FlightStatus` del contrato no tiene puerta y no cambia |
+| 7.7 | `GET /api/v2/vuelos/offers/{offerId}/seatmap` | Como estaba | `status` ya puede ser `BOARDED` (estaba en `SeatStatus` del contrato v2 y no se devolvía) |
+
+El gateway (`gateway_vuelos`) deja pasar hoy las de `/admin/**`; para las de kiosko y salidas hace falta
+una regla pública (ver `docs/F1-DISENO.md`, sección 8).
+
 ## Preguntas para el autor del contrato
 
 1. ¿El contrato puede declarar un esquema `bearer` (o un `POST /auth/token`) para cuando no haya un proveedor OAuth2 externo?
@@ -102,3 +127,4 @@ No es el contrato HTTP, pero el esquema `db/esquema_vuelos.sql` también es comp
 7. ¿Cómo se representa la familia vendida en una reserva sin precios por tipo de pasajero?
 8. ¿Hace falta un `GET` del check-in? Si no, ¿se quitan `NOT_ELIGIBLE`, `AVAILABLE` y `FAILED` de `CheckInStatus`?
 9. ¿Se agregan los eventos de pago pendiente y rechazo a la lista de webhooks?
+10. ¿El contrato va a incluir el embarque (escaneo, manifiesto), el check-in sin cuenta y la pantalla de salidas? Si sí: sus códigos de error, si la pantalla responde en hora local y un evento `booking.boarded`.
