@@ -23,7 +23,29 @@ type Nodo = Record<string, any>; // eslint-disable-line @typescript-eslint/no-ex
 const PREFIJO = '/flights/v1';
 
 /** Diferencias conocidas entre el Swagger generado y el contrato, con su motivo. */
-export const DIFERENCIAS_ACEPTADAS: Array<{ diferencia: string; motivo: string }> = [];
+export const DIFERENCIAS_ACEPTADAS: Array<{ diferencia: string; motivo: string }> = [
+  // Fase F1 (docs/F1-DISENO.md): operaciones propias del proyecto, públicas, fuera de /admin. Las
+  // del embarque cuelgan de /admin/, que ya es una ruta propia (RUTAS_PROPIAS): no son diferencia.
+  {
+    diferencia: 'POST /flights/v1/kiosk/lookup: está en Swagger y no en el contrato',
+    motivo: 'Kiosko de check-in sin cuenta: busca una reserva por PNR y apellido',
+  },
+  {
+    diferencia:
+      'POST /flights/v1/kiosk/bookings/{bookingId}/check-in: está en Swagger y no en el contrato',
+    motivo: 'Kiosko: el check-in del contrato, autorizado con la sesión del kiosko',
+  },
+  {
+    diferencia:
+      'GET /flights/v1/kiosk/bookings/{bookingId}/boarding-passes: está en Swagger y no en el contrato',
+    motivo: 'Kiosko: los pases del contrato, autorizados con la sesión del kiosko',
+  },
+  {
+    diferencia:
+      'GET /flights/v1/airports/{iataCode}/departures: está en Swagger y no en el contrato',
+    motivo: 'Pantalla pública de salidas de un aeropuerto, en hora local',
+  },
+];
 
 /** Rutas fuera del contrato que la API publica a propósito (documentadas en Swagger). */
 const RUTAS_PROPIAS = [
