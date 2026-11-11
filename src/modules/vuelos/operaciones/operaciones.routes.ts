@@ -10,6 +10,7 @@ import { ofertaRoutes } from './oferta/oferta.routes';
 import { paseAbordarRoutes } from './pase-abordar/pase-abordar.routes';
 import { reservaRoutes } from './reserva/reserva.routes';
 import { retencionRoutes } from './retencion/retencion.routes';
+import { tableroSalidasRoutes } from './tablero-salidas/tablero-salidas.routes';
 import { webhookRoutes } from './webhook/webhook.routes';
 
 /**
@@ -29,4 +30,5 @@ export const operacionesRoutes: Routes = [
   ...estadoVueloRoutes,
   ...webhookRoutes,
   ...kioskoRoutes,
+  ...tableroSalidasRoutes,
 ];
