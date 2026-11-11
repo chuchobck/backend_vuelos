@@ -17,7 +17,7 @@ export interface DatosV2DeReserva {
 }
 
 /** El estado de un asiento ocupado en una salida (SeatStatus del contrato v2). */
-export type EstadoAsientoOcupado = 'BOOKED' | 'TICKETED' | 'CHECKED_IN';
+export type EstadoAsientoOcupado = 'BOOKED' | 'TICKETED' | 'CHECKED_IN' | 'BOARDED';
 
 /**
  * Lecturas propias de la fachada v2 (el único archivo de v2 que usa Prisma): lo que el contrato
@@ -78,14 +78,20 @@ export class FachadaV2Repository {
   }
 
   /**
-   * Los asientos ocupados de una salida y en qué punto están: CHECKED_IN si su pasajero hizo el
-   * check-in de esa salida, TICKETED si tiene el boleto emitido, BOOKED si no.
+   * Los asientos ocupados de una salida y en qué punto están: BOARDED si la puerta de embarque
+   * escaneó el pase de su pasajero (checkin.fecha_abordaje), CHECKED_IN si hizo el check-in de
+   * esa salida, TICKETED si tiene el boleto emitido, BOOKED si no.
    */
   async estadosDeAsientos(salidaId: string): Promise<Map<bigint, EstadoAsientoOcupado>> {
     const filas = await this.prisma.db.$queryRaw<
-      Array<{ asiento_id: bigint; registrado: boolean; emitido: boolean }>
+      Array<{ asiento_id: bigint; abordado: boolean; registrado: boolean; emitido: boolean }>
     >`
       SELECT ra.asiento_id,
+             EXISTS (SELECT 1 FROM vuelos.checkin c
+                      WHERE c.pasajero_id = ra.pasajero_id
+                        AND c.vuelo_programado_id = ra.vuelo_programado_id
+                        AND c.estado::text = 'REGISTRADO'
+                        AND c.fecha_abordaje IS NOT NULL) AS abordado,
              EXISTS (SELECT 1 FROM vuelos.checkin c
                       WHERE c.pasajero_id = ra.pasajero_id
                         AND c.vuelo_programado_id = ra.vuelo_programado_id
@@ -97,7 +103,7 @@ export class FachadaV2Repository {
     return new Map(
       filas.map((f) => [
         f.asiento_id,
-        f.registrado ? 'CHECKED_IN' : f.emitido ? 'TICKETED' : 'BOOKED',
+        f.abordado ? 'BOARDED' : f.registrado ? 'CHECKED_IN' : f.emitido ? 'TICKETED' : 'BOOKED',
       ]),
     );
   }
