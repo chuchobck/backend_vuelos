@@ -31,3 +31,20 @@ export interface ResultadoCheckin {
   estado: EstadoGeneralCheckin;
   pasajeros: PasajeroCheckin[];
 }
+
+/** La ventana de check-in de un vuelo en un instante. */
+export type Ventana = 'abierta' | 'aun-no' | 'cerrada';
+
+/** La ventana de check-in de un vuelo de la reserva: cuándo abre, cuándo cierra y cómo está. */
+export interface VentanaDeVuelo {
+  salidaId: string;
+  estado: Ventana;
+  abre: Date;
+  cierra: Date;
+}
+
+/** El check-in de una reserva en este momento, sin registrar nada (lo muestra el kiosko). */
+export interface EstadoDeCheckin {
+  resultado: ResultadoCheckin;
+  ventanas: VentanaDeVuelo[];
+}
