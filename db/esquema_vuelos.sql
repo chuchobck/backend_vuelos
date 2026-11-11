@@ -329,6 +329,7 @@ CREATE TABLE vuelo_programado (
     terminal_salida     text,
     terminal_llegada    text,
     estado              estado_vuelo  NOT NULL DEFAULT 'PROGRAMADO',
+    puerta_salida       text,
     CONSTRAINT pk_vuelo_programado PRIMARY KEY (id),
     CONSTRAINT uq_vuelo_programado_vuelo_fecha UNIQUE (vuelo_id, fecha_salida),
     CONSTRAINT fk_vuelo_programado_vuelo FOREIGN KEY (vuelo_id) REFERENCES vuelo (id) ON DELETE RESTRICT,
@@ -343,6 +344,9 @@ CREATE TABLE vuelo_programado (
     ),
     CONSTRAINT ck_vuelo_programado_reales CHECK (
         llegada_real IS NULL OR (salida_real IS NOT NULL AND llegada_real > salida_real)
+    ),
+    CONSTRAINT ck_vuelo_programado_puerta_salida CHECK (
+        puerta_salida IS NULL OR (puerta_salida = btrim(puerta_salida) AND char_length(puerta_salida) BETWEEN 1 AND 10)
     )
 );
 
@@ -758,10 +762,12 @@ CREATE TABLE checkin (
     estado               estado_checkin  NOT NULL,
     motivo_fallo         text,
     fecha_registro       timestamptz     NOT NULL DEFAULT now(),
+    fecha_abordaje       timestamptz,
     CONSTRAINT pk_checkin PRIMARY KEY (id),
     CONSTRAINT fk_checkin_pasajero FOREIGN KEY (pasajero_id) REFERENCES reserva_detalle_pasajero (id) ON DELETE RESTRICT,
     CONSTRAINT fk_checkin_vuelo_programado FOREIGN KEY (vuelo_programado_id) REFERENCES vuelo_programado (id) ON DELETE RESTRICT,
-    CONSTRAINT ck_checkin_motivo_fallo CHECK (motivo_fallo IS NULL OR estado = 'FALLIDO')
+    CONSTRAINT ck_checkin_motivo_fallo CHECK (motivo_fallo IS NULL OR estado = 'FALLIDO'),
+    CONSTRAINT ck_checkin_abordaje CHECK (fecha_abordaje IS NULL OR estado = 'REGISTRADO')
 );
 
 CREATE TABLE pase_abordar (
@@ -1186,6 +1192,7 @@ CREATE INDEX ix_cotizacion_cancelacion_reserva ON cotizacion_cancelacion (reserv
 -- Check-in
 CREATE INDEX ix_checkin_pasajero ON checkin (pasajero_id);
 CREATE INDEX ix_checkin_vuelo_programado ON checkin (vuelo_programado_id);
+CREATE INDEX ix_checkin_abordado ON checkin (vuelo_programado_id) WHERE fecha_abordaje IS NOT NULL;
 
 -- Webhooks, eventos e idempotencia
 CREATE INDEX ix_webhook_detalle_tipo_evento ON webhook_detalle (tipo_evento_id);
@@ -1495,6 +1502,7 @@ COMMENT ON COLUMN vuelo_programado.id IS 'segmentId del contrato.';
 COMMENT ON COLUMN vuelo_programado.fecha_salida IS 'Fecha local de salida en el aeropuerto de origen. Junto con vuelo_id identifica la salida y es el parámetro date del estado de vuelo.';
 COMMENT ON COLUMN vuelo_programado.salida_programada IS 'Instante exacto de salida. La duración y las escalas se calculan, no se guardan.';
 COMMENT ON COLUMN vuelo_programado.mapa_asientos_id IS 'Configuración de la aeronave asignada a esta salida. De aquí salen el tipo de aeronave y el mapa de asientos.';
+COMMENT ON COLUMN vuelo_programado.puerta_salida IS 'Puerta de embarque en el aeropuerto de origen (A3). NULL mientras no se asigne. La muestra la pantalla pública de salidas.';
 COMMENT ON COLUMN inventario_cabina.cupos_totales IS 'Cupo que se vende. Puede ser menor que los asientos físicos de la cabina.';
 COMMENT ON COLUMN inventario_cabina.cupos_disponibles IS 'Contador de inventario (availableSeats). Se descuenta al retener y se devuelve al liberar, expirar o cancelar, siempre con UPDATE condicionado en una transacción. Es la fila que se bloquea para que dos retenciones no vendan el mismo cupo.';
 COMMENT ON COLUMN tarifa_cabecera.id_publico IS 'Identificador de la tarifa en la API de administración (/admin/fares/{id}). Su clave natural es (salida, familia) y el id bigint es interno.';
@@ -1532,6 +1540,7 @@ COMMENT ON COLUMN boleto_cabecera.numero_boleto IS 'eTicketNumber de 13 dígitos
 COMMENT ON COLUMN boleto_detalle.numero_cupon IS 'couponNumber del contrato. NULL hasta que el cupón se emite.';
 COMMENT ON COLUMN cambio_cabecera.pago_id IS 'Pago de la diferencia. Puede ser NULL si el cambio no tiene costo.';
 COMMENT ON COLUMN cambio_detalle.diferencia_tarifa IS 'fareDifference. Puede ser negativa si la tarifa nueva es menor. El totalToPay se calcula sumando diferencias y cargo_cambio.';
+COMMENT ON COLUMN checkin.fecha_abordaje IS 'Momento en que la puerta de embarque escaneó el pase del pasajero en esta salida (hora del Reloj de la API). NULL mientras no aborda. Se llena una sola vez, con un UPDATE condicionado a que siga NULL; un infante aborda con el pase de su adulto.';
 COMMENT ON COLUMN cotizacion_cancelacion.fecha_aceptacion IS 'Momento en que POST /cancel aceptó la cotización. Debe caer dentro de su vigencia y solo una por reserva puede estar aceptada.';
 COMMENT ON COLUMN cotizacion_cancelacion.fecha_completada IS 'NULL mientras la reserva sigue en CANCELACION_PENDIENTE.';
 COMMENT ON COLUMN cotizacion_cancelacion.codigo_motivo IS 'reasonCode de la cancelación v2: SOLICITUD_CLIENTE=CUSTOMER_REQUEST, COMPENSACION_SAGA=SAGA_COMPENSATION, VUELO_CANCELADO=FLIGHT_CANCELLED, OTRO=OTHER. NULL en una cancelación de v1.';

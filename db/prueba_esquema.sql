@@ -198,6 +198,14 @@ SELECT pg_temp.debe_fallar('segunda cancelacion aceptada', '23505', $q$INSERT IN
 SELECT pg_temp.debe_fallar('cotizacion aceptada ya vencida', '23514', $q$INSERT INTO cotizacion_cancelacion (reserva_id, monto_reembolso, monto_penalidad, fecha_expiracion, fecha_aceptacion) VALUES ('00000000-0000-0000-0000-0000000000e1',1,1, now() + interval '5 min', now() + interval '6 min')$q$);
 SELECT pg_temp.debe_fallar('cambio resuelto sin fecha', '23514', $q$INSERT INTO cambio_cabecera (reserva_id, estado, fecha_expiracion) VALUES ('00000000-0000-0000-0000-0000000000e1','CONFIRMADO', now() + interval '5 min')$q$);
 SELECT pg_temp.debe_fallar('check-in registrado dos veces', '23505', $q$INSERT INTO checkin (pasajero_id, vuelo_programado_id, estado) VALUES (2,'00000000-0000-0000-0000-0000000000a2','REGISTRADO')$q$);
+-- Embarque: solo aborda quien tiene check-in REGISTRADO, y la puerta de la salida no va vacía ni con espacios
+UPDATE checkin SET fecha_abordaje = now() WHERE id = 2;
+SELECT pg_temp.debe_fallar('abordaje de un check-in fallido', '23514', $q$UPDATE checkin SET fecha_abordaje = now() WHERE id = 1$q$);
+SELECT pg_temp.debe_fallar('check-in abordado que pasa a fallido', '23514', $q$UPDATE checkin SET estado = 'FALLIDO', motivo_fallo = 'x' WHERE id = 2$q$);
+UPDATE vuelo_programado SET puerta_salida = 'A3' WHERE id = '00000000-0000-0000-0000-0000000000a2';
+SELECT pg_temp.debe_fallar('puerta de salida vacia', '23514', $q$UPDATE vuelo_programado SET puerta_salida = '' WHERE id = '00000000-0000-0000-0000-0000000000a2'$q$);
+SELECT pg_temp.debe_fallar('puerta de salida con espacios', '23514', $q$UPDATE vuelo_programado SET puerta_salida = ' A3 ' WHERE id = '00000000-0000-0000-0000-0000000000a2'$q$);
+SELECT pg_temp.debe_fallar('puerta de salida de mas de 10 caracteres', '23514', $q$UPDATE vuelo_programado SET puerta_salida = 'PUERTA-LARGA' WHERE id = '00000000-0000-0000-0000-0000000000a2'$q$);
 SELECT pg_temp.debe_fallar('webhook activo repetido', '23505', $q$INSERT INTO webhook_cabecera (id_propietario, url, secreto) VALUES ('integrador-1','https://ejemplo.test/hook','otro')$q$);
 SELECT pg_temp.debe_fallar('url de webhook invalida', '23514', $q$INSERT INTO webhook_cabecera (id_propietario, url, secreto) VALUES ('integrador-1','ftp://x','otro')$q$);
 SELECT pg_temp.debe_fallar('evento sin reserva ni retencion', '23514', $q$INSERT INTO evento (tipo_evento_id) VALUES (1)$q$);
