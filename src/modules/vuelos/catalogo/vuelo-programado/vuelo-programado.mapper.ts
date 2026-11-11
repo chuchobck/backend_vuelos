@@ -18,6 +18,7 @@ export function aVueloProgramadoRespuesta(fila: FilaVueloProgramado): VueloProgr
     actualArrival: aInstante(fila.llegada_real),
     departureTerminal: fila.terminal_salida,
     arrivalTerminal: fila.terminal_llegada,
+    departureGate: fila.puerta_salida,
     status: ESTADO_VUELO.aContrato(fila.estado),
     seatMapId: fila.mapa_asientos_cabecera.id_publico,
     aircraftModel: fila.mapa_asientos_cabecera.modelo_aeronave.codigo_iata,
