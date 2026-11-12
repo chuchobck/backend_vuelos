@@ -102,6 +102,7 @@ export class VueloProgramadoService extends ServicioCatalogo<
         llegadaProgramada: llegada,
         terminalSalida: dto.departureTerminal,
         terminalLlegada: dto.arrivalTerminal,
+        puertaSalida: dto.departureGate,
         cupos,
       },
       tx,
@@ -133,6 +134,7 @@ export class VueloProgramadoService extends ServicioCatalogo<
       llegadaReal: instanteONulo(dto.actualArrival),
       terminalSalida: dto.departureTerminal,
       terminalLlegada: dto.arrivalTerminal,
+      puertaSalida: dto.departureGate,
       estado: dto.status === undefined ? undefined : ESTADO_VUELO.aBase(dto.status),
     };
 

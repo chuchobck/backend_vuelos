@@ -39,6 +39,9 @@ export const ETIQUETAS = {
   adminAuditoria: 'Admin · Auditoría',
   adminUsuarios: 'Admin · Administradores',
   adminReservas: 'Admin · Reservas',
+  adminEmbarque: 'Admin · Embarque',
+  kiosko: 'Kiosko',
+  salidasPublicas: 'Salidas públicas',
 } as const;
 
 /** Descripción común de las etiquetas del catálogo: no son parte del contrato. */
@@ -48,6 +51,12 @@ const DESCRIPCION_ADMIN =
 const DESCRIPCIONES_PROPIAS: Partial<Record<keyof typeof ETIQUETAS, string>> = {
   salud: 'Fuera del contrato: chequeo de vida para Render',
   auth: 'Fuera del contrato: proveedor de identidad simulado (RDA1) que emite los JWT',
+  adminEmbarque:
+    'Fuera del contrato: la puerta de embarque (scope flights:admin). Escanea pases y muestra el manifiesto de una salida',
+  kiosko:
+    'Fuera del contrato: kiosko de check-in sin cuenta, por PNR y apellido. La búsqueda entrega una sesión de 10 minutos limitada a esa reserva (Authorization: Kiosk <token>)',
+  salidasPublicas:
+    'Fuera del contrato: la pantalla pública de salidas de un aeropuerto, en hora local. Sin datos de pasajeros',
 };
 
 /**
@@ -63,6 +72,9 @@ const SCOPES_OAUTH2 = {
   'flights:admin':
     'Administrar catálogo, auditoría, administradores y reservas (propio del proyecto, no está en el contrato)',
 };
+
+/** Nombre del esquema de la sesión de un kiosko (`Authorization: Kiosk <kioskToken>`). */
+export const ESQUEMA_KIOSKO = 'kiosko';
 
 /** Etiquetas de las rutas que solo se montan con AUTH_MODE=local (src/app.module.ts). */
 const ETIQUETAS_SOLO_LOCAL: ReadonlySet<keyof typeof ETIQUETAS> = new Set([
@@ -121,6 +133,18 @@ export function configurarSwagger(app: INestApplication, excluir: Type[] = []): 
         },
       },
       ESQUEMA_OAUTH2,
+    )
+    // La sesión de un kiosko (fase F1): no es un token de acceso, va con otro esquema
+    .addApiKey(
+      {
+        type: 'apiKey',
+        in: 'header',
+        name: 'Authorization',
+        description:
+          'Sesión de kiosko: escribe `Kiosk ` seguido del kioskToken de POST /flights/v1/kiosk/lookup. ' +
+          'Vale 10 minutos y solo para esa reserva',
+      },
+      ESQUEMA_KIOSKO,
     );
 
   // Render define RENDER_EXTERNAL_URL (https://<servicio>.onrender.com): el documento publicado
@@ -130,9 +154,9 @@ export function configurarSwagger(app: INestApplication, excluir: Type[] = []): 
 
   for (const [clave, nombre] of Object.entries(ETIQUETAS)) {
     if (externo && ETIQUETAS_SOLO_LOCAL.has(clave as keyof typeof ETIQUETAS)) continue;
-    const descripcion = clave.startsWith('admin')
-      ? DESCRIPCION_ADMIN
-      : DESCRIPCIONES_PROPIAS[clave as keyof typeof ETIQUETAS];
+    const descripcion =
+      DESCRIPCIONES_PROPIAS[clave as keyof typeof ETIQUETAS] ??
+      (clave.startsWith('admin') ? DESCRIPCION_ADMIN : undefined);
     constructor.addTag(nombre, descripcion);
   }
 

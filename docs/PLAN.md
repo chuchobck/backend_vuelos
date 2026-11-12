@@ -1,6 +1,6 @@
 # Plan del backend — Quinde · API de Vuelos
 
-Actualizado: 2026-11-04 (cierre de la fase S1, stock a Booking) · Este archivo se actualiza al cerrar cada fase.
+Actualizado: 2026-11-11 (cierre de la fase F1: embarque, kiosko y salidas públicas) · Este archivo se actualiza al cerrar cada fase.
 
 El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript), con Prisma sobre la base PostgreSQL 18 que ya está cargada, en 12 fases que terminan con la API desplegada en Render para RDA1. Las fases de RDA2 (R2-...) la integran con el resto del Booking: la R2-1 agrega un servidor gRPC interno para el BFF GraphQL la 4b deja que los tokens los emita el servicio de identidad (`AUTH_MODE=external`) y la 5b, que los webhooks los reparta el notifier (`WEBHOOKS_MODE=notifier`).
 
@@ -27,6 +27,7 @@ El backend se construye sobre la plantilla del equipo (NestJS 10 en TypeScript),
 | 7c. Observabilidad | Hecha en local (2026-10-21); sin `OTEL_EXPORTER_OTLP_ENDPOINT` las trazas se generan y propagan pero no se exportan | `lint`, `format:check` y `build` pasan en cada uno de los 12 commits. `test:e2e`: 1053 pruebas en 40 suites (62 nuevas en `observabilidad` y `observabilidad-local`); pasan 1050 y fallan las 2 de `errores-bd` de siempre en esta máquina (IPv6) y la paginación de `admin-auditoria` por datos acumulados en la base local (ver Hallazgos). Contra un recolector OTLP falso y un cliente gRPC: REST y gRPC continúan el `traceparent` recibido (mismo trace-id, parent correcto) y sin él abren una raíz (también con uno inválido: mayúsculas, versión `ff`, campos de más, ids en cero); la jerarquía de una reserva es `SERVER POST /flights/v1/bookings → INTERNAL reserva.crear → {CLIENT POST /payments/authorize, INTERNAL reserva.emitir-boletos}`; los tres eventos de la reserva guardan el `traceparent` del span de la emisión y el relevo los publica con spans CLIENT hijos de esa traza, y el notifier falso recibe un `traceparent` con el mismo trace-id; la entrega a un tercero (modo local) no lleva `traceparent` ni `tracestate`; cada corrida de un job es una traza raíz aunque se llame dentro de otra; ni pnr, ni correos, ni ids de reserva ni de usuario, ni tokens, ni IPs, ni nombres, ni la referencia de pago salen en un span ni en `/metrics`; 60 rutas distintas son una sola serie; `/metrics` solo en el puerto aparte; los gauges de la bandeja coinciden con la base y, si la base no contesta, el raspado termina y el gauge no se publica. 11 mutaciones nuevas, todas muertas. Verificación real: ver DEPLOY.md, «Fase 7c». No verificado: el árbol `gateway → bff → core` con el BFF real (ver Hallazgos), Jaeger y Prometheus reales, ni una base desplegada |
 | V1. Fachada del contrato v2 | Hecha en local (2026-10-26); Booking integra por `/api/v2/vuelos` con un token de partner de identity | `lint`, `format:check` y `build` pasan en cada commit. `test:e2e`: v1 sin cambios (1011 de 1014; las 3 que fallan son las de siempre en esta máquina: 2 de IPv6 en `errores-bd` y `admin-auditoria` por datos acumulados) más 49 nuevas en `contrato-v2` (36), `salud-v2` (8) y `fachada-v2` (5): cada operación implementada contra su esquema del contrato v2 por status (tabla de cobertura en `docs/V2-DIFERENCIAS.md`), correlación (sin cambios, generada, en la respuesta, el error, el log, la Payment API, gRPC, `evento_saliente` y la cabecera al notifier), partner (X-User-Id ignorado sin token de partner, aislamiento entre partners y usuarios finales), pagos de Booking (sin llamar a la Payment API, referencia reusada, `AMOUNT_MISMATCH`), idempotencia (reintento 200, otro cuerpo 409, 24 h con el reloj de la prueba), saga (compensación sin cotización ni penalidad, repetida) y salud con dependencias caídas, lentas y en caché. `npm run test:mutaciones`: 27 de 27 de esta fase muertas. Migración 004: base de `main` + 004 (dos veces) igual a una base nueva (`pg_dump -s`). Real: identity_vuelos (`main`) + el core compilado con `AUTH_MODE=external`, cliente `booking-prototipo` creado con `cliente:crear`; search → hold → booking (`PAY-BKP-...`) → reintento → tickets → cancel `SAGA_COMPENSATION` (y repetida) → 404, todo con el mismo `X-Correlation-Id`, que salió en cada respuesta, en el error y en las 18 líneas de log de la compra |
 | S1. Stock a Booking | Hecha en local (2026-11-04); apagado por defecto (`BOOKING_STOCK_ENABLED=false`) y sin probar contra el Booking real | `lint`, `format:check` y `build` pasan en cada commit. `test:e2e` en una base nueva como la de CI: 1188 pruebas, 1186 pasan (las 2 que fallan son las de IPv6 de `errores-bd`: esta máquina no tiene IPv6); 55 nuevas en `stock-booking`, `stock-booking-apagado` y `stock-booking-arranque`, contra un Booking falso: los campos del contrato, cada operación que mueve el cupo (hold, liberar, vencer con el proceso, reservar y cancelar, cambio de fecha y catálogo), el valor absoluto y el coalesce, un envío superado por un cambio en vuelo, Booking caído, 503, plazo, `success:false`, 4xx sin reintento, el cortacircuitos, que un cambio de fecha que se deshace no deja orden, el apagado, el arranque con sincronización y el comando `stock:sincronizar` (`--dry-run` y real). `npm run test:mutaciones`: 35 de 35 de esta fase muertas. Migración `005`: una base de `main` + las migraciones (dos veces) igual a una nueva. `--dry-run` contra la semilla: 7 316 registros para 90 días. **No verificado:** nada contra el Booking real (no hay servicio de pruebas ni `service_id` definido) |
+| F1. Embarque, kiosko y salidas públicas | Hecha en local (2026-11-11); falta la regla pública del gateway para el kiosko y las salidas | `lint`, `format:check` y `build` pasan. `test:e2e` contra PostgreSQL 16 local con el esquema de `main` más la migración `007`: 1297 pruebas en 51 suites (95 nuevas: `embarque` 35, `kiosko` 35 y `tablero-salidas` 25), 1295 pasan; las 2 que fallan son las de IPv6 de `errores-bd`, que también fallan en `main` en ese entorno (ver Hallazgos de R2-1). `scripts/comprobar-migraciones.sh origin/main`: base migrada = base nueva. `db/prueba_esquema.sql` con los 5 casos nuevos. La suite completa en PostgreSQL 18 la corre CI en el pull request |
 
 ## Decisiones
 
@@ -308,6 +309,7 @@ quinde-vuelos-api/
 │           │   ├── vuelo/
 │           │   ├── vuelo-programado/
 │           │   └── tarifa/
+│           ├── administracion/   # ✓ /admin/audit-log, /admin/bookings y embarque/ (/admin/departures/{id}/boarding, F1)
 │           └── operaciones/      # ✓ endpoints del contrato (operaciones.module.ts y .routes.ts)
 │               ├── busqueda/     # ✓ POST /search (fase 5); SearchFlights en busqueda.grpc.ts (R2-1)
 │               ├── oferta/       # ✓ GET /offers/{offerId}/seatmap (fase 5); GetSeatMap en oferta.grpc.ts (R2-1)
@@ -320,7 +322,9 @@ quinde-vuelos-api/
 │               ├── checkin/
 │               ├── pase-abordar/
 │               ├── estado-vuelo/ # ✓ GET /flights/{flightNumber}/status (fase 9); GetFlightStatus en estado-vuelo.grpc.ts (R2-1)
-│               └── webhook/
+│               ├── webhook/
+│               ├── kiosko/       # ✓ /kiosk: check-in sin cuenta por PNR y apellido, con SesionKiosko (F1, fuera del contrato)
+│               └── tablero-salidas/ # ✓ GET /airports/{iataCode}/departures: pantalla pública de salidas (F1, fuera del contrato)
 ├── test/                         # ✓ pruebas e2e (Jest + supertest) contra la base real; utils/ con crearApp y fixtures
 ├── buf.yaml                      # ✓ reglas de buf lint y buf breaking para contracts/proto (R2-1)
 ├── Dockerfile                    # ✓ multi-etapa para Render; trae contracts/proto y expone 3000 y 50051
@@ -464,6 +468,7 @@ Las fases 0 a 3 son la base, la 4 fija el patrón de módulo y las 5 a 7 son el 
 | 7c. Observabilidad | `feat/r2-observabilidad` | Módulo copiado del gateway, spans REST y gRPC, INTERNAL de negocio, CLIENT de pagos y notifier, traza por la bandeja (migración 003), trazas de los procesos periódicos, métricas `core_*`, CI de migraciones, pruebas y mutaciones | Una reserva por el gateway da una sola traza `gateway → core → pago`, y el notifier recibe el `traceparent` de esa misma traza |
 | V1. Fachada del contrato v2 | `feat/v2-fachada` | `/api/v2/vuelos` con las 21 operaciones de v1, `issueTickets` y `health`; partner, pagos de Booking, `ProblemDetails` v2, idempotencia v2, `X-Correlation-Id` en v1 y v2, migración 004, Swagger aparte, pruebas de proveedor y mutaciones | Booking compra y compensa con un token de partner y el mismo `X-Correlation-Id` aparece en cada respuesta y en cada línea de log |
 | S1. Stock a Booking | `feat/stock-booking` | Variables `BOOKING_STOCK_*`, cola `orden_stock_booking` con migración 005, registro de la orden en la misma transacción de cada cambio de cupo, `StockBookingWorker` con cliente HTTP y cortacircuitos, `npm run stock:sincronizar`, métricas, pruebas y mutaciones | Con el empuje activo, un hold, su liberación y un cambio de fecha llegan a un Booking falso con el valor absoluto, y con Booking caído la compra sigue |
+| F1. Embarque, kiosko y salidas públicas | `feat/embarque-kiosko-salidas` | Diseño (`docs/F1-DISENO.md`), migración 007 (`checkin.fecha_abordaje`, `vuelo_programado.puerta_salida`), escaneo y manifiesto de la puerta, `BOARDED` en el mapa v2, kiosko por PNR y apellido con sesión limitada a una reserva, pantalla pública de salidas en hora local | Dos escaneos simultáneos del mismo pase: uno 200 y el otro 409 `ALREADY_BOARDED`; la sesión de kiosko de una reserva da 404 sobre otra; PNR inexistente y apellido errado dan el mismo 404 |
 
 Si el tiempo aprieta antes de RDA1, lo primero que se recorta es la fase 10: se dejan alta, listado y baja de suscripciones y se pospone la entrega de eventos.
 
@@ -715,6 +720,25 @@ subida). Las decisiones de la fase están en `docs/V2-DIFERENCIAS.md`.
 
 Las decisiones, el diseño y las preguntas abiertas para Booking están en `docs/STOCK-BOOKING.md`.
 
+### Fase F1 · Embarque, kiosko y salidas públicas
+
+1. `docs(embarque): escribir el diseño de la fase F1 (embarque, kiosko y salidas públicas)`
+2. `feat(esquema): agregar checkin.fecha_abordaje y vuelo_programado.puerta_salida (migración 007)`
+3. `feat(vuelo-programado): agregar la puerta de salida (departureGate) a /admin/departures`
+4. `feat(embarque): escanear pases y dar el manifiesto de una salida en /admin/departures/{id}/boarding`
+5. `feat(v2): dar BOARDED en el mapa de asientos al asiento que ya abordó`
+6. `test(embarque): probar cada validación, las carreras, el manifiesto y BOARDED en el mapa v2`
+7. `feat(checkin): exponer el estado del check-in de una reserva sin registrar nada (estadoDe)`
+8. `feat(kiosko): buscar una reserva por PNR y apellido y abrir una sesión para check-in y pases`
+9. `test(kiosko): probar la no enumeración, la sesión limitada a una reserva, su vencimiento y el log`
+10. `feat(salidas): listar las salidas públicas de un aeropuerto en hora local, con puerta y paginadas`
+11. `test(salidas): probar la hora y la fecha local, la paginación, la puerta y el límite de la pantalla`
+12. `test(swagger): aceptar las rutas del kiosko y de las salidas públicas como propias del proyecto`
+13. `test(autorizacion): esperar el esquema kiosko en Swagger y los candados de las rutas de F1`
+14. `docs(embarque): documentar la fase F1 y cerrar el plan`
+
+El diseño, cómo se autoriza el kiosko y las decisiones tomadas sin consultar están en `docs/F1-DISENO.md`.
+
 ### Fase 5b · Eventos al notifier
 
 1. `feat(eventos): agregar WEBHOOKS_MODE y las variables del notifier al entorno`
@@ -772,6 +796,32 @@ la prueba de la exportación: la mutación que quita el rechazo de las rutas del
 dos exportaciones (ocultas por `.gitignore`, que funcionó como segunda barrera) y se borraron.
 
 ## Hallazgos
+
+### Fase F1
+
+- El abordaje cupo en una columna (`checkin.fecha_abordaje`): `checkin` ya era la fila única de un
+  pasajero en una salida y ya tenía el trigger de auditoría, así que el UPDATE condicionado queda en
+  `auditoria` con el agente sin escribir nada más. Con seis escaneos simultáneos del mismo pase la
+  auditoría tiene exactamente un cambio.
+- `CodigoPase.verificar` devolvía `null` igual para un texto que no es un pase y para un pase alterado;
+  la puerta necesita distinguirlos (`BOARDING_PASS_MALFORMED` y `BOARDING_PASS_SIGNATURE_INVALID`): se
+  agregó `tieneFormato`, con la misma expresión regular, sin tocar la firma.
+- El gateway deja pasar `/flights/v1/admin/**`, pero para lo que el contrato v1 no declara exige un
+  token (`noDeclarada: 'token'`): el kiosko y la pantalla, que no tienen, recibirían 401 en el borde.
+  Por eso la sesión del kiosko va en `Authorization` con otro esquema (`Kiosk`) y no en una cabecera
+  nueva: ya está en el CORS del core y del gateway, y el gateway la reenvía intacta en una ruta pública.
+- Las etiquetas de Swagger que empiezan por `admin` tomaban todas la descripción del catálogo ("DELETE da
+  de baja"): ahora una descripción propia gana.
+- Un esquema de seguridad nuevo en Swagger (`kiosko`) rompe `test/autorizacion.e2e-spec.ts`, que fija la
+  lista: se actualizó con el motivo.
+- La pantalla de salidas es la primera respuesta en hora local. `vuelo_programado.fecha_salida` ya es la
+  fecha local del origen, así que el filtro por día no necesita la zona; la zona solo formatea
+  (`aHoraLocal`). Una salida a las 22:00 de Quito es del día siguiente en UTC y la prueba lo cubre, igual
+  que Galápagos (-06:00).
+- La base no tenía dónde guardar la puerta: se agregó `puerta_salida` en la misma migración. El
+  `FlightStatus` del contrato no tiene puerta y no cambia.
+- En este entorno la suite corrió contra PostgreSQL 16 (apt), no 18: el esquema corre igual (lo dice su
+  cabecera) y `comprobar-migraciones.sh` se corrió con un sustituto de `docker exec`. CI lo repite en 18.
 
 ### Fase S1
 
@@ -1074,6 +1124,15 @@ Lo que se vio al probar Prisma 7 (adaptador de `pg`) contra PostgreSQL 18.6, con
 ## Pendientes
 
 Tres cosas las decides tú o el equipo; el resto se verifica en la fase que corresponde.
+
+- [ ] F1 · Gateway (`gateway_vuelos`): dos reglas públicas antes de `/flights/v1/**`, `/flights/v1/kiosk/**` (con `limiteEstricto`) y `/flights/v1/airports/*/departures`. Hoy exige token y responde 401 al kiosko y a la pantalla; el embarque (`/admin/**`) ya pasa.
+- [ ] F1 · Despliegue: `./db/migrar.sh` (migración `007`) ANTES de desplegar esta versión (docs/DEPLOY.md, sección 9).
+- [ ] F1 · Evento de abordaje (`booking.boarded` o `passenger.boarded`): no se publica nada al embarcar; los esquemas de eventos son del notifier.
+- [ ] F1 · Deshacer un abordaje hecho por error (hoy, un UPDATE manual auditado) y un rol de agente de puerta con su scope (`flights:boarding`): hoy embarcar exige `flights:admin`.
+- [ ] F1 · Kiosko: bloqueo por PNR tras varios apellidos fallidos desde IP distintas (hoy el límite es por IP), credencial de dispositivo para los kioskos y revocar una sesión antes de sus 10 minutos. Equipo: decidir si el apellido puede ser solo el primero.
+- [ ] F1 · Observabilidad: spans `interno('embarque.escanear')` y métricas `core_boarding_*`; los nombres se acuerdan primero en `OBSERVABILIDAD.md` del gateway.
+- [ ] F1 · gRPC: ninguna de las tres operaciones tiene RPC; el BFF las usaría por REST.
+- [ ] F1 · Equipo: confirmar el cambio de esquema (`checkin.fecha_abordaje`, `vuelo_programado.puerta_salida`) y los códigos de error propios (DISCREPANCIAS 2.5 y 6.5).
 
 - [ ] Confirmar con el equipo o el docente que el módulo de vuelos puede usar Prisma en lugar del TypeORM de la plantilla.
 - [ ] Definir dónde vive el código: repo propio o una rama `vuelos` dentro de la plantilla. El plan sirve para los dos casos.

@@ -64,14 +64,17 @@ ya no existe: se quitó en la fase 1. Las entidades se agregan por fases (ver
 [docs/PLAN.md](../../../docs/PLAN.md)):
 
 - `catalogo/<entidad>/`: CRUD de administrador en `/admin/...` con una clase base. Hecho en la fase 4.
-- `administracion/`: `/admin/audit-log` (auditoría con censura) y `/admin/bookings` (reservas de todos los clientes; cancela con `CancelacionService`). Los administradores (`/admin/users`) viven en `src/modules/auth/administradores/`.
+- `administracion/`: `/admin/audit-log` (auditoría con censura), `/admin/bookings` (reservas de todos los clientes; cancela con `CancelacionService`) y `embarque/` (`/admin/departures/{departureId}/boarding`: escanear un pase con el `CodigoPase` que lo emitió y el manifiesto de la salida; fase F1, [docs/F1-DISENO.md](../../../docs/F1-DISENO.md)). Los administradores (`/admin/users`) viven en `src/modules/auth/administradores/`.
 - `operaciones/<entidad>/`: los endpoints del contrato (fases 5 a 10). Hechos: `busqueda/` (`POST /search`),
   `oferta/` (`GET /offers/{offerId}/seatmap`), `retencion/` (`/offers/hold`, fase 6), y `reserva/`
   y `boleto/` (`/bookings` y `/bookings/{bookingId}/tickets`, fase 7), y `equipaje/`, `cambio-fecha/`
   y `cancelacion/` (postventa, fase 8, colgadas de `bookings/:bookingId`), y `checkin/`,
   `pase-abordar/` y `estado-vuelo/` (fase 9: las dos primeras cuelgan de `bookings/:bookingId` y la
   tercera, pública, de `flights/:flightNumber/status`)), y `webhook/` (fase 10: las suscripciones de `/webhooks`,
-  la bandeja de salida y su entrega).
+  la bandeja de salida y su entrega). Fuera del contrato (fase F1), públicas: `kiosko/` (`/kiosk`: check-in
+  sin cuenta por PNR y apellido; `SesionKiosko` firma la sesión limitada a una reserva y llama a los
+  services de `checkin/` y `pase-abordar/`) y `tablero-salidas/` (`/airports/{iataCode}/departures`: la
+  pantalla de salidas en hora local).
 - `compartido/`: traducción de los ENUM al contrato (`enums.ts`, con `ORDEN_CABINAS`), formatos de
   salida (`formatos-salida.ts`), los pasajeros de la búsqueda y el hold (`dto/pasajeros.dto.ts` y
   `pasajeros.ts`), `FechaIso` (`dto/validadores.ts`), las claves de idempotencia

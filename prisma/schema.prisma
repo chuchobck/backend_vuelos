@@ -149,6 +149,7 @@ model checkin {
   estado                   estado_checkin
   motivo_fallo             String?
   fecha_registro           DateTime                 @default(now()) @db.Timestamptz(6)
+  fecha_abordaje           DateTime?                @db.Timestamptz(6)
   reserva_detalle_pasajero reserva_detalle_pasajero @relation(fields: [pasajero_id], references: [id], onUpdate: NoAction, map: "fk_checkin_pasajero")
   vuelo_programado         vuelo_programado         @relation(fields: [vuelo_programado_id], references: [id], onUpdate: NoAction, map: "fk_checkin_vuelo_programado")
   pase_abordar             pase_abordar?
@@ -156,6 +157,7 @@ model checkin {
   @@unique([pasajero_id, vuelo_programado_id], map: "uq_checkin_registrado", where: raw("(estado = 'REGISTRADO'::estado_checkin)"))
   @@index([pasajero_id], map: "ix_checkin_pasajero")
   @@index([vuelo_programado_id], map: "ix_checkin_vuelo_programado")
+  @@index([vuelo_programado_id], map: "ix_checkin_abordado", where: raw("(fecha_abordaje IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -722,6 +724,7 @@ model vuelo_programado {
   terminal_salida           String?
   terminal_llegada          String?
   estado                    estado_vuelo                @default(PROGRAMADO)
+  puerta_salida             String?
   boleto_detalle            boleto_detalle[]
   checkin                   checkin[]
   inventario_cabina         inventario_cabina[]

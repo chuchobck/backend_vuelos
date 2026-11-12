@@ -8,6 +8,7 @@ import {
   IsInt,
   IsISO8601,
   IsOptional,
+  IsString,
   IsUUID,
   Matches,
   Max,
@@ -102,6 +103,13 @@ export class VueloProgramadoRespuestaDto {
   @ApiProperty({ example: null, nullable: true })
   arrivalTerminal: string | null;
 
+  @ApiProperty({
+    example: 'A3',
+    nullable: true,
+    description: 'Puerta de embarque; la muestra la pantalla pública de salidas',
+  })
+  departureGate: string | null;
+
   @ApiProperty({ enum: ESTADO_VUELO.valores, example: 'SCHEDULED' })
   status: EstadoVueloContrato;
 
@@ -118,7 +126,10 @@ export class VueloProgramadoRespuestaDto {
   active: boolean;
 }
 
-/** Terminales, en común para crear y modificar. */
+/** Una puerta de embarque: A3, 12, B-07. */
+const PUERTA = /^[A-Za-z0-9-]{1,10}$/;
+
+/** Terminales y puerta, en común para crear y modificar. */
 class TerminalesDto {
   @ApiPropertyOptional({ example: '1', nullable: true, maxLength: 10 })
   @IsOptional()
@@ -133,6 +144,18 @@ class TerminalesDto {
   @TextoLimpio()
   @MaxLength(10)
   arrivalTerminal?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'A3',
+    nullable: true,
+    pattern: PUERTA.source,
+    description: 'Puerta de embarque: de 1 a 10 letras, dígitos o guiones; null la quita',
+  })
+  @IsOptional()
+  @ValidateIf((_dto, valor) => valor !== null)
+  @IsString()
+  @Matches(PUERTA)
+  departureGate?: string | null;
 }
 
 /**

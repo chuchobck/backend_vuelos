@@ -6,6 +6,33 @@ está en [docs/PLAN.md](docs/PLAN.md).
 
 ## [Sin publicar]
 
+### Fase F1 · Embarque, kiosko y salidas públicas
+
+Tres operaciones nuevas del core, fuera del contrato de Booking, bajo `/flights/v1`. Diseño y decisiones en
+[docs/F1-DISENO.md](docs/F1-DISENO.md); lo que tocan del contrato, en
+[docs/DISCREPANCIAS-CONTRATO.md](docs/DISCREPANCIAS-CONTRATO.md) (sección 7).
+
+- **Embarque** (`flights:admin`): `POST /admin/departures/{departureId}/boarding/scan` valida el código de
+  un pase (formato, firma, salida, boleto y reserva vigentes, check-in, que no haya abordado; cada rechazo
+  con su `code`) y marca al pasajero como abordado con un UPDATE condicionado y auditado: de dos escaneos a
+  la vez, uno gana y el otro recibe `ALREADY_BOARDED`. `GET .../boarding/manifest` da los conteos y el
+  estado de cada asiento, sin datos personales.
+- **Kiosko** (sin cuenta): `POST /kiosk/lookup` busca una reserva por PNR y apellido (mismo 404 si el PNR
+  no existe o el apellido no coincide, comparación sin fugas de tiempo, 10 por minuto e IP) y entrega una
+  sesión de 10 minutos limitada a esa reserva (`Authorization: Kiosk <token>`), con la que
+  `POST /kiosk/bookings/{bookingId}/check-in` y `GET /kiosk/bookings/{bookingId}/boarding-passes` usan los
+  mismos services del contrato.
+- **Salidas públicas**: `GET /airports/{iataCode}/departures?date=` lista las salidas de un aeropuerto en
+  una fecha local, en hora local, con estado y puerta, paginadas.
+- Esquema (migración `007`): `checkin.fecha_abordaje` y `vuelo_programado.puerta_salida`. La puerta se
+  pone con `departureGate` en `/admin/departures`.
+- Mapa de asientos v2: un asiento abordado sale con `status: BOARDED`.
+- Códigos de error propios: `BOARDING_PASS_MALFORMED`, `BOARDING_PASS_SIGNATURE_INVALID`,
+  `BOARDING_PASS_NOT_FOUND`, `BOARDING_PASS_NOT_VALID`, `BOARDING_PASS_WRONG_FLIGHT`,
+  `PASSENGER_NOT_CHECKED_IN`, `ALREADY_BOARDED`, `FLIGHT_CANCELLED` y `KIOSK_SESSION_INVALID`.
+- Sin variables de entorno nuevas, sin eventos nuevos y sin mover cupo. El gateway necesita una regla
+  pública para `/flights/v1/kiosk/**` y `/flights/v1/airports/*/departures` (hoy exige token).
+
 ### Fase S1 · Stock a Booking
 
 El core puede mandarle a Booking, por REST, cuántos cupos quedan de cada vuelo, cabina y fecha

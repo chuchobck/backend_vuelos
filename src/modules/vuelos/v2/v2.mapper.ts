@@ -45,8 +45,8 @@ export function aEstadoRetencionV2(retencion: Retencion, ahora: Date): EstadoRet
 
 /**
  * SeatMapResponse v2: el de v1 más `status` por asiento. Un asiento libre de una cabina que se
- * vende es AVAILABLE; uno que aparta un hold vigente, HELD; uno ocupado, BOOKED, TICKETED o
- * CHECKED_IN según su pasajero; uno de una cabina que no se vende en esta salida no lleva
+ * vende es AVAILABLE; uno que aparta un hold vigente, HELD; uno ocupado, BOOKED, TICKETED,
+ * CHECKED_IN o BOARDED según su pasajero; uno de una cabina que no se vende en esta salida no lleva
  * status (SeatStatus no tiene un valor para eso).
  */
 export function aMapaAsientosV2(

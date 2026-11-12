@@ -34,6 +34,28 @@ export enum CodigoError {
    * token. No es un 401: el cliente no hizo nada mal y debe reintentar (Retry-After).
    */
   AUTH_UNAVAILABLE = 'AUTH_UNAVAILABLE',
+  /**
+   * Propios del proyecto, de las operaciones de la fase F1, que el contrato no tiene (embarque y
+   * kiosko; ver docs/DISCREPANCIAS-CONTRATO.md 2.5 y docs/F1-DISENO.md). Solo salen en esas rutas.
+   */
+  /** 400: el texto escaneado no tiene el formato de un pase (BP1|...). */
+  BOARDING_PASS_MALFORMED = 'BOARDING_PASS_MALFORMED',
+  /** 422: el formato es de un pase, pero la firma no es la de esta API (código alterado). */
+  BOARDING_PASS_SIGNATURE_INVALID = 'BOARDING_PASS_SIGNATURE_INVALID',
+  /** 404: el boleto del pase no existe o no es de esa reserva. */
+  BOARDING_PASS_NOT_FOUND = 'BOARDING_PASS_NOT_FOUND',
+  /** 409: la reserva o el boleto ya no están vigentes, o el pase no es el emitido. */
+  BOARDING_PASS_NOT_VALID = 'BOARDING_PASS_NOT_VALID',
+  /** 409: el pase es de otra salida (otro vuelo, otra fecha u otra ruta). */
+  BOARDING_PASS_WRONG_FLIGHT = 'BOARDING_PASS_WRONG_FLIGHT',
+  /** 409: el pasajero no tiene check-in en esa salida. */
+  PASSENGER_NOT_CHECKED_IN = 'PASSENGER_NOT_CHECKED_IN',
+  /** 409: el pasajero ya abordó (también el que pierde una carrera de dos escaneos). */
+  ALREADY_BOARDED = 'ALREADY_BOARDED',
+  /** 409: la salida que la puerta embarca está cancelada. */
+  FLIGHT_CANCELLED = 'FLIGHT_CANCELLED',
+  /** 401: la sesión del kiosko falta, está alterada o venció (WWW-Authenticate: Kiosk). */
+  KIOSK_SESSION_INVALID = 'KIOSK_SESSION_INVALID',
 }
 
 /**

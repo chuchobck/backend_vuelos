@@ -633,6 +633,36 @@ curl -X POST localhost:3000/flights/v1/admin/bookings/<bookingId>/cancel -H "$H"
   -H "Idempotency-Key: $(uuidgen)" -H 'Content-Type: application/json' -d '{"reason":"Vuelo cancelado"}'
 ```
 
+## Embarque, kiosko y salidas públicas (fase F1)
+
+Fuera del contrato de Booking. Diseño, autorización del kiosko y decisiones en
+[docs/F1-DISENO.md](docs/F1-DISENO.md). En Swagger: `Admin · Embarque`, `Kiosko` y `Salidas públicas`.
+
+| Método y ruta                                          | Seguridad                        | Qué hace                                                                                         |
+| ------------------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `POST /admin/departures/{departureId}/boarding/scan`   | `flights:admin`                  | Valida el `barcode` de un pase y embarca al pasajero. Cada rechazo tiene su `code`               |
+| `GET /admin/departures/{departureId}/boarding/manifest` | `flights:admin`                 | Conteos (vendidos, con check-in, abordados) y el estado de cada asiento, sin datos personales    |
+| `POST /kiosk/lookup`                                   | Pública (10/min)                 | Busca una reserva por `pnr` y `lastName` y entrega un `kioskToken` de 10 minutos para esa reserva |
+| `POST /kiosk/bookings/{bookingId}/check-in`            | `Authorization: Kiosk <token>`   | El check-in del contrato, sin cuenta                                                             |
+| `GET /kiosk/bookings/{bookingId}/boarding-passes`      | `Authorization: Kiosk <token>`   | Los pases del contrato, sin cuenta                                                               |
+| `GET /airports/{iataCode}/departures`                  | Pública (60/min)                 | Salidas de un aeropuerto en una fecha local (`date`, `limit`, `cursor`), en hora local           |
+
+```bash
+# Kiosko: buscar, hacer el check-in y pedir los pases
+curl -X POST localhost:3000/flights/v1/kiosk/lookup -H 'Content-Type: application/json' \
+  -d '{"pnr":"K7M2QX","lastName":"Pérez"}'
+curl -X POST localhost:3000/flights/v1/kiosk/bookings/<bookingId>/check-in -H "Authorization: Kiosk <kioskToken>"
+curl localhost:3000/flights/v1/kiosk/bookings/<bookingId>/boarding-passes -H "Authorization: Kiosk <kioskToken>"
+
+# Puerta: escanear un pase (el barcode de la respuesta anterior) y ver el manifiesto
+curl -X POST localhost:3000/flights/v1/admin/departures/<segmentId>/boarding/scan -H "$H" \
+  -H 'Content-Type: application/json' -d '{"barcode":"BP1|..."}'
+curl localhost:3000/flights/v1/admin/departures/<segmentId>/boarding/manifest -H "$H"
+
+# Pantalla de salidas de Quito, hoy
+curl localhost:3000/flights/v1/airports/UIO/departures
+```
+
 ## Cómo se trabaja
 
 - Una rama por fase (`feat/f1-nucleo`, `feat/f2-transversales`, ...) y un pull request a `main`.

@@ -75,6 +75,7 @@ export interface CambiosSalida {
   llegadaReal?: Date | null;
   terminalSalida?: string | null;
   terminalLlegada?: string | null;
+  puertaSalida?: string | null;
   estado?: estado_vuelo;
 }
 
@@ -171,6 +172,7 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
       llegadaProgramada: Date;
       terminalSalida?: string | null;
       terminalLlegada?: string | null;
+      puertaSalida?: string | null;
       cupos: CupoNuevo[];
     },
     tx: Ejecutor,
@@ -184,6 +186,7 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
         llegada_programada: datos.llegadaProgramada,
         terminal_salida: datos.terminalSalida,
         terminal_llegada: datos.terminalLlegada,
+        puerta_salida: datos.puertaSalida,
         inventario_cabina: {
           create: datos.cupos.map((cupo) => ({
             clase_cabina: cupo.claseCabina,
@@ -214,6 +217,7 @@ export class VueloProgramadoRepository extends RepositorioCatalogo<
         llegada_real: cambios.llegadaReal,
         terminal_salida: cambios.terminalSalida,
         terminal_llegada: cambios.terminalLlegada,
+        puerta_salida: cambios.puertaSalida,
         estado: cambios.estado,
       },
     });

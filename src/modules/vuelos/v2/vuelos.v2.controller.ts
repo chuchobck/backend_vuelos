@@ -117,7 +117,7 @@ export class VuelosV2Controller {
     summary: 'Mapa de asientos de un segmento de la oferta',
     description:
       'El de v1 más `status` por asiento (SeatStatus): AVAILABLE, HELD (apartado por un hold ' +
-      'vigente), BOOKED, TICKETED o CHECKED_IN.',
+      'vigente), BOOKED, TICKETED, CHECKED_IN o BOARDED (la puerta de embarque escaneó su pase).',
   })
   @ApiQuery({ name: 'segmentId', required: true, schema: { type: 'string', format: 'uuid' } })
   @ApiOkResponse({ type: MapaAsientosV2Dto })

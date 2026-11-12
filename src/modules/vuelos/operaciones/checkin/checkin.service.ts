@@ -10,7 +10,13 @@ import { SalidaVendible } from '../busqueda/busqueda.modelo';
 import { ItinerarioDeReserva, Reserva } from '../reserva/reserva.modelo';
 import { PaseAbordarService } from '../pase-abordar/pase-abordar.service';
 import { ReservaService } from '../reserva/reserva.service';
-import { EstadoCheckinPasajero, PasajeroCheckin, ResultadoCheckin } from './checkin.modelo';
+import {
+  EstadoCheckinPasajero,
+  EstadoDeCheckin,
+  PasajeroCheckin,
+  ResultadoCheckin,
+  Ventana,
+} from './checkin.modelo';
 import { CheckinRegistrado, CheckinRepository } from './checkin.repository';
 
 /** Reglas del check-in. */
@@ -25,8 +31,6 @@ const MINUTO = 60_000;
 const HORA = 60 * MINUTO;
 /** Estados en los que un vuelo todavía admite check-in (los mismos en que se vende). */
 const ESTADOS_ABIERTOS: estado_vuelo[] = ['PROGRAMADO', 'DEMORADO'];
-
-type Ventana = 'abierta' | 'aun-no' | 'cerrada';
 
 /** Un vuelo de la reserva con el itinerario al que pertenece. */
 interface Tramo {
@@ -151,6 +155,26 @@ export class CheckinService {
 
     const actuales = await this.repositorio.registrados(reserva.id);
     return this.armar(reserva, tramos, actuales, ahora);
+  }
+
+  /**
+   * El check-in de la reserva en este momento, sin registrar nada: el mismo estado por pasajero
+   * y vuelo que devuelve `hacer` y la ventana de cada vuelo. Lo usa el kiosko para mostrar la
+   * reserva antes de que el pasajero confirme; quien llama ya comprobó que puede verla.
+   */
+  async estadoDe(reserva: Reserva): Promise<EstadoDeCheckin> {
+    const ahora = this.reloj.ahora();
+    const tramos = tramosDe(reserva);
+    const registrados = await this.repositorio.registrados(reserva.id);
+    return {
+      resultado: this.armar(reserva, tramos, registrados, ahora),
+      ventanas: tramos.map(({ salida }) => ({
+        salidaId: salida.id,
+        estado: this.ventana(salida, ahora),
+        abre: new Date(salida.salida.getTime() - this.aperturaMs),
+        cierra: new Date(salida.salida.getTime() - this.cierreMs),
+      })),
+    };
   }
 
   /** La ventana de un vuelo en `ahora`. */

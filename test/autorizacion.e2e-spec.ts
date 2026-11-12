@@ -302,10 +302,19 @@ describe('Autorización', () => {
     it('documenta @Scopes como el contrato y las rutas protegidas con bearer', async () => {
       const { body: documento } = await http().get('/api/docs-json').expect(200);
 
+      // `kiosko` es la sesión del kiosko (fase F1): Authorization: Kiosk <token>, no un token de acceso
       expect(Object.keys(documento.components.securitySchemes)).toEqual([
         'bearer',
         'OAuth2Security',
+        'kiosko',
       ]);
+      expect(
+        documento.paths['/flights/v1/kiosk/bookings/{bookingId}/check-in'].post.security,
+      ).toEqual([{ kiosko: [] }]);
+      expect(documento.paths['/flights/v1/kiosk/lookup'].post.security).toBeUndefined();
+      expect(
+        documento.paths['/flights/v1/admin/departures/{departureId}/boarding/scan'].post.security,
+      ).toEqual(expect.arrayContaining([{ OAuth2Security: ['flights:admin'] }, { bearer: [] }]));
       expect(documento.paths[`${PRUEBA}/varios`].get.security).toEqual(
         expect.arrayContaining([
           { OAuth2Security: ['flights:book', 'flights:admin'] },
